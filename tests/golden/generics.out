@@ -1,0 +1,6 @@
+max:      7 2.5
+min:      3 1.5
+identity: 42 true a string
+first:    10 1.5
+pairs:    1 0.25
+labelled: answer = 42

@@ -12,8 +12,16 @@ std::string type_to_string(const TypeRef& type) {
             return "bool";
         case TypeKind::String:
             return "string";
-        case TypeKind::Named:
-            return type.name;
+        case TypeKind::Named: {
+            if (type.type_args.empty()) {
+                return type.name;
+            }
+            std::string out = type.name + "<";
+            for (std::size_t i = 0; i < type.type_args.size(); ++i) {
+                out += (i > 0 ? ", " : "") + type_to_string(*type.type_args[i]);
+            }
+            return out + ">";
+        }
         case TypeKind::Reference:
             return "&" + (type.element ? type_to_string(*type.element) : std::string{"?"});
         case TypeKind::Array:

@@ -23,6 +23,7 @@
 #include "ember/typeck/types.hpp"
 
 #include <cstddef>
+#include <deque>
 #include <map>
 #include <memory>
 #include <string>
@@ -60,8 +61,14 @@ struct StructInfo {
 struct FunctionInfo {
     /// As written in source, e.g. `distance_sq`.
     std::string name;
-    /// The symbol codegen emits: `distance_sq`, or `Point_distance_sq`.
+    /// The symbol codegen emits: `distance_sq`, `Point_distance_sq`, or
+    /// `max__int` for a monomorphized copy.
     std::string mangled_name;
+    /// How it reads in a diagnostic: `max<int>`. Same as `name` for a
+    /// function with no type parameters.
+    std::string display_name;
+    /// The type arguments this copy was instantiated with, in order.
+    std::vector<TypePtr> type_args;
     /// Empty for a free function, the struct name for a method.
     std::string owner_type;
     ast::Span span;
@@ -73,6 +80,48 @@ struct FunctionInfo {
     const ast::FunctionDecl* decl = nullptr;
 
     bool is_method() const noexcept { return !owner_type.empty(); }
+};
+
+/// Identifies which monomorphized copy an expression's type belongs to.
+///
+/// This is the one thing generics forced on the design. Before them, an
+/// expression had exactly one type and a plain `Expr* -> Type` map was
+/// enough. A generic body is checked once per instantiation, so the same
+/// AST node has an `int` type in `max<int>` and a `float` type in
+/// `max<float>`; the instance has to be part of the key.
+using InstanceId = std::size_t;
+
+/// Everything outside a generic body lives here.
+inline constexpr InstanceId kRootInstance = 0;
+
+/// A generic function as written, before substitution.
+struct FunctionTemplate {
+    std::string name;
+    /// Empty for a free function; the struct name for a method.
+    std::string owner_type;
+    std::vector<std::string> generic_params;
+    ast::Span span;
+    const ast::FunctionDecl* decl = nullptr;
+};
+
+/// A generic struct as written, before substitution.
+struct StructTemplate {
+    std::string name;
+    std::vector<std::string> generic_params;
+    ast::Span span;
+    const ast::StructDecl* decl = nullptr;
+};
+
+/// One monomorphized copy of a generic function: a concrete signature,
+/// the bindings that produced it, and the body to check and emit.
+struct Instantiation {
+    InstanceId id = kRootInstance;
+    FunctionInfo info;
+    /// `T` -> `int`, for resolving type parameters inside the body.
+    std::map<std::string, TypePtr> bindings;
+    const ast::FunctionDecl* decl = nullptr;
+    /// Where this instantiation was first demanded, for diagnostics.
+    ast::Span origin;
 };
 
 struct CheckResult {
@@ -89,15 +138,38 @@ struct CheckResult {
     /// Module-level constants, by name.
     std::map<std::string, TypePtr> constants;
 
-    /// The type of every expression the checker visited.
-    std::unordered_map<const ast::Expr*, TypePtr> expr_types;
-    /// Which function each call resolved to. Null for intrinsics.
-    std::unordered_map<const ast::Expr*, const FunctionInfo*> call_targets;
+    /// Generic declarations, keyed by name. These are never checked or
+    /// emitted directly - only their instantiations are.
+    std::map<std::string, FunctionTemplate> function_templates;
+    std::map<std::string, StructTemplate> struct_templates;
+
+    /// Every monomorphized function, in the order they were demanded.
+    /// A deque rather than a vector because `call_targets` holds
+    /// pointers into it and it grows while being walked.
+    std::deque<Instantiation> instantiations;
+
+    /// The resolved type of every `let` binding, per instantiation.
+    /// Codegen reads this rather than re-resolving the written
+    /// annotation, which it could not do inside a generic body where the
+    /// annotation may name a type parameter.
+    std::map<std::pair<InstanceId, const ast::Stmt*>, TypePtr> binding_types;
+
+    /// The type of every expression, per instantiation it was checked in.
+    std::map<std::pair<InstanceId, const ast::Expr*>, TypePtr> expr_types;
+    /// Which function each call resolved to. Absent for intrinsics.
+    std::map<std::pair<InstanceId, const ast::Expr*>, const FunctionInfo*> call_targets;
 
     bool ok() const noexcept { return diagnostics.empty(); }
 
-    /// Type recorded for `expr`, or nullptr if it was never visited.
-    TypePtr type_of(const ast::Expr& expr) const;
+    /// Type recorded for `expr` in `instance`, or nullptr if it was
+    /// never visited there.
+    TypePtr type_of(InstanceId instance, const ast::Expr& expr) const;
+
+    /// The function a call resolved to, or nullptr for an intrinsic.
+    const FunctionInfo* target_of(InstanceId instance, const ast::Expr& expr) const;
+
+    /// The type given to a `let` binding in `instance`.
+    TypePtr binding_type(InstanceId instance, const ast::Stmt& statement) const;
 };
 
 /// Check a parsed program.

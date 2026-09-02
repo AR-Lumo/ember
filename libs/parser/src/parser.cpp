@@ -234,6 +234,31 @@ private:
         throw error_here("expected an item");
     }
 
+    /// `<T, U>` after a declaration's name. Empty when there is no `<`.
+    ///
+    /// Only ever parsed straight after the name of a `fn`, `struct` or
+    /// `impl`, where a `<` cannot be a comparison, so there is no
+    /// ambiguity to resolve here.
+    std::vector<ast::GenericParam> parse_generic_params() {
+        std::vector<ast::GenericParam> params;
+        if (!match(TokenKind::Lt)) {
+            return params;
+        }
+
+        if (check(TokenKind::Gt)) {
+            throw error_at(peek().span, "empty type parameter list",
+                           "write the parameters, as in `<T>`, or drop the `<>`");
+        }
+
+        do {
+            const Token& name = expect(TokenKind::Identifier);
+            params.push_back(ast::GenericParam{std::string{name.text}, name.span});
+        } while (match(TokenKind::Comma));
+
+        expect(TokenKind::Gt);
+        return params;
+    }
+
     std::unique_ptr<ast::FunctionDecl> parse_function(Span start, bool is_public,
                                                       std::string owner_type) {
         expect(TokenKind::KwFn);
@@ -242,6 +267,7 @@ private:
         auto function = std::make_unique<ast::FunctionDecl>(start, is_public,
                                                             std::string{name.text}, name.span);
         function->owner_type = std::move(owner_type);
+        function->generic_params = parse_generic_params();
 
         expect(TokenKind::LParen);
         if (!check(TokenKind::RParen)) {
@@ -301,6 +327,7 @@ private:
 
         auto declaration = std::make_unique<ast::StructDecl>(start, is_public,
                                                              std::string{name.text}, name.span);
+        declaration->generic_params = parse_generic_params();
         expect(TokenKind::LBrace);
 
         while (!check(TokenKind::RBrace) && !at_end()) {
@@ -329,9 +356,37 @@ private:
 
     ast::ItemPtr parse_impl(Span start) {
         expect(TokenKind::KwImpl);
-        const Token& name = expect(TokenKind::Identifier);
+        // `impl<T> Pair<T>`: the parameters are bound before the type,
+        // because the type refers to them.
+        std::vector<ast::GenericParam> generic_params = parse_generic_params();
 
+        const Token& name = expect(TokenKind::Identifier);
         auto block = std::make_unique<ast::ImplBlock>(start, std::string{name.text}, name.span);
+        block->generic_params = std::move(generic_params);
+
+        // `impl<T> Pair<T>` repeats the parameters as arguments. They
+        // have to match what was just bound, so they are parsed and
+        // checked rather than stored.
+        if (check(TokenKind::Lt)) {
+            const std::vector<ast::GenericParam> applied = parse_generic_params();
+            if (applied.size() != block->generic_params.size()) {
+                throw error_at(name.span,
+                               "`impl` type arguments do not match its parameters",
+                               "`" + block->type_name + "` is applied to " +
+                                   std::to_string(applied.size()) + " argument" +
+                                   (applied.size() == 1 ? "" : "s") + " but " +
+                                   std::to_string(block->generic_params.size()) +
+                                   " were declared");
+            }
+            for (std::size_t i = 0; i < applied.size(); ++i) {
+                if (applied[i].name != block->generic_params[i].name) {
+                    throw error_at(applied[i].span, "unknown type parameter `" +
+                                                        applied[i].name + "`",
+                                   "declare it in the `impl` parameter list");
+                }
+            }
+        }
+
         expect(TokenKind::LBrace);
 
         while (!check(TokenKind::RBrace) && !at_end()) {
@@ -393,6 +448,17 @@ private:
                 const Token& name = advance();
                 type->kind = ast::TypeKind::Named;
                 type->name = std::string{name.text};
+
+                // `Pair<int, float>`. Type arguments only appear in type
+                // position; in an expression a struct literal infers
+                // them from its fields, which keeps `<` unambiguous.
+                if (match(TokenKind::Lt)) {
+                    do {
+                        type->type_args.push_back(parse_type());
+                    } while (match(TokenKind::Comma));
+                    const Token& close = expect(TokenKind::Gt);
+                    type->span = start.merge(close.span);
+                }
                 return type;
             }
 

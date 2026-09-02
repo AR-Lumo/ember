@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <optional>
 #include <utility>
 
@@ -137,6 +138,23 @@ private:
     /// Signature of the function being checked, for `return` and `self`.
     const FunctionInfo* current_function_ = nullptr;
 
+    /// Which monomorphized copy is being checked. Everything outside a
+    /// generic body is the root instance.
+    InstanceId current_instance_ = kRootInstance;
+    /// `T` -> `int` for the instantiation being checked, consulted by
+    /// resolve_type before it looks for a struct of that name.
+    const std::map<std::string, TypePtr>* current_bindings_ = nullptr;
+    /// Type parameters that are merely in scope, while a template's own
+    /// signature is being resolved. Their names become Generic types.
+    std::vector<std::string> generic_scope_;
+
+    /// Each template's signature resolved once, with Generic
+    /// placeholders where its type parameters appear. Instantiating
+    /// substitutes into this rather than re-walking the AST.
+    std::map<std::string, FunctionInfo> template_signatures_;
+    /// Instantiations created but not yet checked.
+    std::vector<std::size_t> pending_instances_;
+
     TypeContext& types() { return *result_.types; }
 
     // -----------------------------------------------------------------
@@ -146,7 +164,20 @@ private:
     Diagnostic& report(std::string message, Span span, std::string label) {
         result_.diagnostics.push_back(
             Diagnostic::error(std::move(message), span, std::move(label)));
-        return result_.diagnostics.back();
+        Diagnostic& diagnostic = result_.diagnostics.back();
+
+        // An error inside a generic body is only an error for the types
+        // it was instantiated with, so say which ones and where they
+        // came from. This is the whole reason C++ template errors are
+        // readable at all when they are readable.
+        if (current_instance_ != kRootInstance &&
+            current_instance_ - 1 < result_.instantiations.size()) {
+            const Instantiation& instance = result_.instantiations[current_instance_ - 1];
+            diagnostic.with_note("in `" + instance.info.name + "` instantiated as `" +
+                                 instance.info.display_name + "` at " +
+                                 location_of(instance.origin));
+        }
+        return diagnostic;
     }
 
     /// The §7 worked example is exactly this shape, so every
@@ -193,6 +224,10 @@ private:
             if (declaration == nullptr) {
                 continue;
             }
+            if (declaration->is_generic()) {
+                register_struct_template(*declaration);
+                continue;
+            }
             const auto existing = result_.structs.find(declaration->name);
             if (existing != result_.structs.end()) {
                 Diagnostic& diagnostic =
@@ -213,6 +248,9 @@ private:
             if (declaration == nullptr) {
                 continue;
             }
+            if (declaration->is_generic()) {
+                continue;  // laid out per instantiation
+            }
             const auto entry = result_.structs.find(declaration->name);
             if (entry == result_.structs.end() || !entry->second.fields.empty()) {
                 continue;
@@ -221,6 +259,45 @@ private:
         }
 
         detect_infinite_types();
+    }
+
+    void register_struct_template(const ast::StructDecl& declaration) {
+        if (result_.struct_templates.count(declaration.name) != 0 ||
+            result_.structs.count(declaration.name) != 0) {
+            report("duplicate definition of type `" + declaration.name + "`",
+                   declaration.name_span, "`" + declaration.name + "` is already defined");
+            return;
+        }
+
+        StructTemplate tmpl;
+        tmpl.name = declaration.name;
+        tmpl.span = declaration.name_span;
+        tmpl.decl = &declaration;
+        for (const ast::GenericParam& parameter : declaration.generic_params) {
+            tmpl.generic_params.push_back(parameter.name);
+        }
+        check_generic_params(declaration.generic_params);
+        result_.struct_templates.emplace(declaration.name, std::move(tmpl));
+    }
+
+    /// Type parameters share a namespace with types, so a parameter that
+    /// shadows a struct or repeats another is worth reporting.
+    void check_generic_params(const std::vector<ast::GenericParam>& params) {
+        for (std::size_t i = 0; i < params.size(); ++i) {
+            for (std::size_t j = 0; j < i; ++j) {
+                if (params[i].name == params[j].name) {
+                    Diagnostic& diagnostic =
+                        report("duplicate type parameter `" + params[i].name + "`",
+                               params[i].span, "already declared on this item");
+                    note_previous(diagnostic, params[j].span);
+                }
+            }
+            if (result_.structs.count(params[i].name) != 0 ||
+                result_.struct_templates.count(params[i].name) != 0) {
+                report("type parameter `" + params[i].name + "` shadows a type",
+                       params[i].span, "a type with this name is already declared");
+            }
+        }
     }
 
     /// Reports structs whose size would be infinite.
@@ -367,6 +444,10 @@ private:
     }
 
     void declare_free_function(const ast::FunctionDecl& function) {
+        if (function.is_generic()) {
+            declare_function_template(function, {});
+            return;
+        }
         if (is_intrinsic(function.name)) {
             report("cannot redefine the built-in `" + function.name + "`", function.name_span,
                    "`" + function.name + "` is provided by the compiler (§5)");
@@ -389,7 +470,92 @@ private:
         result_.functions.emplace(function.name, std::move(info));
     }
 
+    /// Registers a generic function and resolves its signature once,
+    /// with Generic placeholders standing in for its type parameters.
+    /// The body is deliberately not checked here - see the note above
+    /// substitute().
+    void declare_function_template(const ast::FunctionDecl& function,
+                                   const std::string& owner) {
+        if (is_intrinsic(function.name)) {
+            report("cannot redefine the built-in `" + function.name + "`", function.name_span,
+                   "`" + function.name + "` is provided by the compiler (§5)");
+            return;
+        }
+        if (result_.function_templates.count(function.name) != 0 ||
+            result_.functions.count(function.name) != 0) {
+            Diagnostic& diagnostic =
+                report("duplicate definition of function `" + function.name + "`",
+                       function.name_span, "`" + function.name + "` is already defined");
+            const auto existing = result_.function_templates.find(function.name);
+            if (existing != result_.function_templates.end()) {
+                note_previous(diagnostic, existing->second.span);
+            }
+            return;
+        }
+
+        check_generic_params(function.generic_params);
+
+        FunctionTemplate tmpl;
+        tmpl.name = function.name;
+        tmpl.owner_type = owner;
+        tmpl.span = function.name_span;
+        tmpl.decl = &function;
+        for (const ast::GenericParam& parameter : function.generic_params) {
+            tmpl.generic_params.push_back(parameter.name);
+        }
+
+        const std::vector<std::string> saved = generic_scope_;
+        generic_scope_ = tmpl.generic_params;
+        FunctionInfo signature = signature_of(function, owner);
+        generic_scope_ = saved;
+
+        // A parameter that appears nowhere in the parameter list can
+        // never be inferred, and there is no turbofish to supply it.
+        for (const std::string& parameter : tmpl.generic_params) {
+            bool mentioned = false;
+            for (const TypePtr type : signature.param_types) {
+                mentioned = mentioned || mentions_parameter(type, parameter);
+            }
+            if (!mentioned) {
+                report("type parameter `" + parameter + "` cannot be inferred",
+                       function.name_span,
+                       "`" + parameter + "` does not appear in any parameter type")
+                    .with_note("type arguments are inferred from the call, so every "
+                               "parameter must be used by one");
+            }
+        }
+
+        template_signatures_.emplace(function.name, std::move(signature));
+        result_.function_templates.emplace(function.name, std::move(tmpl));
+    }
+
+    static bool mentions_parameter(TypePtr type, const std::string& name) {
+        if (type == nullptr) {
+            return false;
+        }
+        if (type->kind == TypeKind::Generic) {
+            return type->name == name;
+        }
+        if (type->kind == TypeKind::Reference || type->kind == TypeKind::Array) {
+            return mentions_parameter(type->element, name);
+        }
+        if (type->kind == TypeKind::Struct) {
+            for (const TypePtr arg : type->args) {
+                if (mentions_parameter(arg, name)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
     void declare_impl(const ast::ImplBlock& block) {
+        if (block.is_generic()) {
+            report("generic `impl` blocks are not supported yet", block.type_name_span,
+                   "`impl<T>` needs generic methods, which are not implemented")
+                .with_note("generic free functions do work: `fn first<T>(pair: Pair<T>) -> T`");
+            return;
+        }
         if (result_.structs.find(block.type_name) == result_.structs.end()) {
             Diagnostic& diagnostic = report("cannot find type `" + block.type_name + "`",
                                             block.type_name_span, "not found in this scope");
@@ -400,6 +566,13 @@ private:
         }
 
         for (const std::unique_ptr<ast::FunctionDecl>& method : block.methods) {
+            if (method->is_generic()) {
+                report("generic methods are not supported yet", method->name_span,
+                       "only free functions may have their own type parameters")
+                    .with_note("move the type parameters to the `impl` block, or make this a "
+                               "free function");
+                continue;
+            }
             const auto key = std::make_pair(block.type_name, method->name);
             const auto existing = result_.methods.find(key);
             if (existing != result_.methods.end()) {
@@ -455,6 +628,213 @@ private:
     }
 
     // -----------------------------------------------------------------
+    // Generics: substitution, inference, instantiation
+    //
+    // Ember has no traits, so a type parameter carries no guarantees and
+    // a generic body cannot be meaningfully checked in the abstract:
+    // `a > b` is valid for some `T` and not others. So a template is
+    // stored unchecked and each instantiation is checked as if it had
+    // been written out by hand - C++'s model rather than Rust's, which
+    // is what §6 asks for ("like Rust/C++ templates").
+    //
+    // The cost is that an uninstantiated generic function is never
+    // checked at all, and errors surface at the call site. The note
+    // added by report() is what keeps that navigable.
+    // -----------------------------------------------------------------
+
+    /// Replace type parameters with their bindings, throughout.
+    TypePtr substitute(TypePtr type, const std::map<std::string, TypePtr>& bindings) {
+        if (type == nullptr) {
+            return type;
+        }
+        switch (type->kind) {
+            case TypeKind::Generic: {
+                const auto found = bindings.find(type->name);
+                return found != bindings.end() ? found->second : type;
+            }
+            case TypeKind::Reference:
+                return types().reference_to(substitute(type->element, bindings));
+            case TypeKind::Array:
+                return types().array_of(substitute(type->element, bindings), type->length);
+            case TypeKind::Struct: {
+                if (type->args.empty()) {
+                    return type;
+                }
+                std::vector<TypePtr> args;
+                for (const TypePtr arg : type->args) {
+                    args.push_back(substitute(arg, bindings));
+                }
+                const TypePtr instantiated = types().struct_type(type->name, args);
+                ensure_struct_layout(instantiated);
+                return instantiated;
+            }
+            default:
+                return type;
+        }
+    }
+
+    /// Match a template's parameter type against a concrete argument
+    /// type, binding type parameters as it goes.
+    ///
+    /// Deliberately structural and one-directional: it never invents a
+    /// binding from nothing, so a parameter that appears only in the
+    /// return type stays uninferred and is reported rather than guessed.
+    bool unify(TypePtr parameter, TypePtr argument,
+               std::map<std::string, TypePtr>& bindings) {
+        if (parameter == nullptr || argument == nullptr) {
+            return false;
+        }
+        if (is_error(argument)) {
+            return true;  // already reported; do not pile on
+        }
+
+        if (parameter->kind == TypeKind::Generic) {
+            const auto existing = bindings.find(parameter->name);
+            if (existing == bindings.end()) {
+                bindings.emplace(parameter->name, argument);
+                return true;
+            }
+            return existing->second == argument;
+        }
+
+        if (parameter->kind == TypeKind::Reference) {
+            // A `&T` parameter accepts a `T` argument by implicit borrow
+            // (§4), so look through the reference on either side.
+            return unify(parameter->element, strip_reference(argument), bindings);
+        }
+        if (parameter->kind == TypeKind::Array) {
+            return argument->kind == TypeKind::Array && parameter->length == argument->length &&
+                   unify(parameter->element, argument->element, bindings);
+        }
+        if (parameter->kind == TypeKind::Struct && !parameter->args.empty()) {
+            const TypePtr concrete = strip_reference(argument);
+            if (concrete->kind != TypeKind::Struct || concrete->name != parameter->name ||
+                concrete->args.size() != parameter->args.size()) {
+                return false;
+            }
+            for (std::size_t i = 0; i < parameter->args.size(); ++i) {
+                if (!unify(parameter->args[i], concrete->args[i], bindings)) {
+                    return false;
+                }
+            }
+            return true;
+        }
+        return parameter == argument;
+    }
+
+    /// `max<int, float>` for diagnostics.
+    static std::string display_name_of(const std::string& name,
+                                       const std::vector<TypePtr>& args) {
+        std::string out = name + "<";
+        for (std::size_t i = 0; i < args.size(); ++i) {
+            out += (i > 0 ? ", " : "") + to_string(args[i]);
+        }
+        return out + ">";
+    }
+
+    /// A symbol-safe encoding of a type, for mangled names.
+    static std::string mangle_type(TypePtr type) {
+        if (type == nullptr) {
+            return "err";
+        }
+        switch (type->kind) {
+            case TypeKind::Reference:
+                return "ref_" + mangle_type(type->element);
+            case TypeKind::Array:
+                return "arr" + std::to_string(type->length) + "_" + mangle_type(type->element);
+            default: {
+                // Struct names may already contain `<`, `>` and `,` from
+                // an earlier instantiation; keep only what a linker will
+                // accept.
+                std::string out;
+                for (const char c : to_string(type)) {
+                    out += (std::isalnum(static_cast<unsigned char>(c)) != 0 || c == '_') ? c : '_';
+                }
+                return out;
+            }
+        }
+    }
+
+    static std::string mangle_instance(const std::string& base,
+                                       const std::vector<TypePtr>& args) {
+        std::string out = base;
+        for (const TypePtr arg : args) {
+            out += "__" + mangle_type(arg);
+        }
+        return out;
+    }
+
+    /// Find or create the instantiation of `tmpl` for `args`.
+    ///
+    /// The instance is registered before its body is checked, so a
+    /// generic function that calls itself with the same arguments finds
+    /// the entry already there instead of recursing forever.
+    const FunctionInfo* instantiate(const FunctionTemplate& tmpl,
+                                    const std::vector<TypePtr>& args, Span origin) {
+        const std::string display = display_name_of(tmpl.name, args);
+
+        for (Instantiation& existing : result_.instantiations) {
+            if (existing.info.display_name == display) {
+                return &existing.info;
+            }
+        }
+
+        std::map<std::string, TypePtr> bindings;
+        for (std::size_t i = 0; i < tmpl.generic_params.size() && i < args.size(); ++i) {
+            bindings.emplace(tmpl.generic_params[i], args[i]);
+        }
+
+        Instantiation instance;
+        instance.id = result_.instantiations.size() + 1;
+        instance.bindings = bindings;
+        instance.decl = tmpl.decl;
+        instance.origin = origin;
+
+        // Build the concrete signature by substituting into the
+        // template's, which was resolved once with Generic placeholders.
+        FunctionInfo& info = instance.info;
+        info.name = tmpl.name;
+        info.owner_type = tmpl.owner_type;
+        info.display_name = display;
+        info.type_args = args;
+        info.mangled_name = mangle_instance(
+            tmpl.owner_type.empty() ? tmpl.name : tmpl.owner_type + "_" + tmpl.name, args);
+        info.span = tmpl.span;
+        info.decl = tmpl.decl;
+
+        const FunctionInfo& generic_signature = template_signatures_.at(tmpl.name);
+        info.param_names = generic_signature.param_names;
+        info.self_kind = generic_signature.self_kind;
+        for (const TypePtr parameter : generic_signature.param_types) {
+            info.param_types.push_back(substitute(parameter, bindings));
+        }
+        info.return_type = substitute(generic_signature.return_type, bindings);
+
+        result_.instantiations.push_back(std::move(instance));
+        pending_instances_.push_back(result_.instantiations.size() - 1);
+        return &result_.instantiations.back().info;
+    }
+
+    /// Check every instantiation demanded so far, including any demanded
+    /// while checking those.
+    void check_pending_instances() {
+        while (!pending_instances_.empty()) {
+            const std::size_t index = pending_instances_.front();
+            pending_instances_.erase(pending_instances_.begin());
+
+            Instantiation& instance = result_.instantiations[index];
+            const InstanceId previous_instance = current_instance_;
+            const std::map<std::string, TypePtr>* previous_bindings = current_bindings_;
+
+            current_instance_ = instance.id;
+            current_bindings_ = &instance.bindings;
+            check_function(*instance.decl, instance.info);
+            current_instance_ = previous_instance;
+            current_bindings_ = previous_bindings;
+        }
+    }
+
+    // -----------------------------------------------------------------
     // Type resolution
     // -----------------------------------------------------------------
 
@@ -469,15 +849,8 @@ private:
             case ast::TypeKind::String:
                 return types().string_type();
 
-            case ast::TypeKind::Named: {
-                if (result_.structs.find(type.name) == result_.structs.end()) {
-                    Diagnostic& diagnostic = report("cannot find type `" + type.name + "`",
-                                                    type.span, "not found in this scope");
-                    suggest(diagnostic, type.name, struct_names());
-                    return types().error_type();
-                }
-                return types().struct_type(type.name);
-            }
+            case ast::TypeKind::Named:
+                return resolve_named_type(type);
 
             case ast::TypeKind::Reference:
                 return types().reference_to(resolve_type(*type.element));
@@ -486,6 +859,122 @@ private:
                 return types().array_of(resolve_type(*type.element), type.length);
         }
         return types().error_type();
+    }
+
+    /// A written name in type position: a bound type parameter, an
+    /// in-scope parameter of the template being declared, a generic
+    /// struct applied to arguments, or a plain struct.
+    TypePtr resolve_named_type(const ast::TypeRef& type) {
+        // Inside an instantiation, `T` is whatever it was bound to.
+        if (current_bindings_ != nullptr) {
+            const auto bound = current_bindings_->find(type.name);
+            if (bound != current_bindings_->end()) {
+                if (!type.type_args.empty()) {
+                    report("type parameter `" + type.name + "` cannot take type arguments",
+                           type.span, "`" + type.name + "` is not a generic type");
+                }
+                return bound->second;
+            }
+        }
+
+        // While resolving a template's own signature, its parameters
+        // stand for themselves.
+        if (std::find(generic_scope_.begin(), generic_scope_.end(), type.name) !=
+            generic_scope_.end()) {
+            return types().generic_type(type.name);
+        }
+
+        const auto tmpl = result_.struct_templates.find(type.name);
+        if (tmpl != result_.struct_templates.end()) {
+            return instantiate_struct(tmpl->second, type);
+        }
+
+        if (!type.type_args.empty()) {
+            report("`" + type.name + "` is not a generic type", type.span,
+                   "it takes no type arguments");
+            return types().error_type();
+        }
+
+        if (result_.structs.find(type.name) == result_.structs.end()) {
+            Diagnostic& diagnostic =
+                report("cannot find type `" + type.name + "`", type.span,
+                       "not found in this scope");
+            suggest(diagnostic, type.name, struct_names());
+            return types().error_type();
+        }
+        return types().struct_type(type.name);
+    }
+
+    /// `Pair<int>`: resolve the arguments and build the structural
+    /// type, laying the fields out once per distinct argument list.
+    TypePtr instantiate_struct(const StructTemplate& tmpl, const ast::TypeRef& type) {
+        if (type.type_args.size() != tmpl.generic_params.size()) {
+            report("`" + tmpl.name + "` takes " +
+                       std::to_string(tmpl.generic_params.size()) + " type argument" +
+                       (tmpl.generic_params.size() == 1 ? "" : "s") + " but " +
+                       std::to_string(type.type_args.size()) + " " +
+                       (type.type_args.size() == 1 ? "was" : "were") + " given",
+                   type.span, "wrong number of type arguments");
+            return types().error_type();
+        }
+
+        std::vector<TypePtr> args;
+        for (const ast::TypeRefPtr& argument : type.type_args) {
+            args.push_back(resolve_type(*argument));
+        }
+
+        const TypePtr instantiated = types().struct_type(tmpl.name, args);
+        ensure_struct_layout(instantiated);
+        return instantiated;
+    }
+
+    /// Lay out a generic struct instantiation, once.
+    ///
+    /// A type still mentioning a parameter is left alone: it only occurs
+    /// inside a template's own signature, which is never laid out.
+    void ensure_struct_layout(TypePtr type) {
+        if (type == nullptr || type->kind != TypeKind::Struct || type->args.empty() ||
+            is_generic(type)) {
+            return;
+        }
+
+        const std::string display = to_string(type);
+        if (result_.structs.count(display) != 0) {
+            return;
+        }
+
+        const auto tmpl = result_.struct_templates.find(type->name);
+        if (tmpl == result_.struct_templates.end()) {
+            return;
+        }
+
+        std::map<std::string, TypePtr> bindings;
+        for (std::size_t i = 0;
+             i < tmpl->second.generic_params.size() && i < type->args.size(); ++i) {
+            bindings.emplace(tmpl->second.generic_params[i], type->args[i]);
+        }
+
+        // Registered before the fields are resolved, so a struct that
+        // reaches its own instantiation through a reference terminates.
+        StructInfo placeholder;
+        placeholder.name = display;
+        placeholder.span = tmpl->second.span;
+        result_.structs.emplace(display, placeholder);
+
+        const std::vector<std::string> saved_scope = generic_scope_;
+        const std::map<std::string, TypePtr>* saved_bindings = current_bindings_;
+        generic_scope_.clear();
+        current_bindings_ = &bindings;
+
+        StructInfo resolved;
+        resolved.name = display;
+        resolved.span = tmpl->second.span;
+        resolve_fields(*tmpl->second.decl, resolved);
+
+        generic_scope_ = saved_scope;
+        current_bindings_ = saved_bindings;
+
+        result_.structs[display] = std::move(resolved);
     }
 
     std::vector<std::string> struct_names() const {
@@ -537,6 +1026,13 @@ private:
     // -----------------------------------------------------------------
 
     void check_bodies(const ast::Program& program) {
+        check_concrete_bodies(program);
+        // Instantiations demanded while checking those bodies, and any
+        // demanded transitively while checking them.
+        check_pending_instances();
+    }
+
+    void check_concrete_bodies(const ast::Program& program) {
         for (const ast::ItemPtr& item : program.items) {
             if (const auto* function = ast::node_cast<ast::FunctionDecl>(item.get())) {
                 const auto entry = result_.functions.find(function->name);
@@ -671,6 +1167,8 @@ private:
             type = types().error_type();
         }
 
+        result_.binding_types[{current_instance_, &statement}] = type;
+
         const Binding* existing = scopes_.declare(
             statement.name, Binding{type, statement.is_mutable, false, statement.name_span});
         if (existing != nullptr) {
@@ -772,7 +1270,7 @@ private:
                 break;
             }
 
-            const TypePtr container_type = result_.type_of(*container);
+            const TypePtr container_type = recorded_type(*container);
             if (container_type != nullptr && container_type->kind == TypeKind::Reference) {
                 return;
             }
@@ -810,8 +1308,16 @@ private:
     // -----------------------------------------------------------------
 
     TypePtr record(const ast::Expr& expr, TypePtr type) {
-        result_.expr_types[&expr] = type;
+        result_.expr_types[{current_instance_, &expr}] = type;
         return type;
+    }
+
+    TypePtr recorded_type(const ast::Expr& expr) const {
+        return result_.type_of(current_instance_, expr);
+    }
+
+    bool already_checked(const ast::Expr& expr) const {
+        return result_.expr_types.count({current_instance_, &expr}) != 0;
     }
 
     TypePtr check_expr(const ast::Expr& expr) {
@@ -996,6 +1502,11 @@ private:
             return check_intrinsic(expr);
         }
 
+        const auto tmpl = result_.function_templates.find(expr.callee);
+        if (tmpl != result_.function_templates.end()) {
+            return check_generic_call(expr, tmpl->second);
+        }
+
         const auto entry = result_.functions.find(expr.callee);
         if (entry == result_.functions.end()) {
             for (const auto& [key, method] : result_.methods) {
@@ -1021,9 +1532,69 @@ private:
         }
 
         const FunctionInfo& info = entry->second;
-        result_.call_targets[&expr] = &info;
+        result_.call_targets[{current_instance_, &expr}] = &info;
         check_arguments(expr.span, expr.args, info, 0);
         return record(expr, info.return_type);
+    }
+
+    /// A call to a generic function: infer the type arguments from the
+    /// arguments actually passed, then check the call against the
+    /// instantiated signature like any other.
+    TypePtr check_generic_call(const ast::CallExpr& expr, const FunctionTemplate& tmpl) {
+        const FunctionInfo& signature = template_signatures_.at(tmpl.name);
+
+        for (const ast::ExprPtr& argument : expr.args) {
+            check_expr(*argument);
+        }
+
+        if (expr.args.size() != signature.param_types.size()) {
+            Diagnostic& diagnostic =
+                report("this function takes " + std::to_string(signature.param_types.size()) +
+                           " argument" + (signature.param_types.size() == 1 ? "" : "s") +
+                           " but " + std::to_string(expr.args.size()) + " " +
+                           (expr.args.size() == 1 ? "was" : "were") + " supplied",
+                       expr.span,
+                       "expected " + std::to_string(signature.param_types.size()) + ", found " +
+                           std::to_string(expr.args.size()));
+            note_declared_at(diagnostic, tmpl.span);
+            return record(expr, types().error_type());
+        }
+
+        std::map<std::string, TypePtr> bindings;
+        for (std::size_t i = 0; i < expr.args.size(); ++i) {
+            const TypePtr argument = recorded_type(*expr.args[i]);
+            if (!unify(signature.param_types[i], argument, bindings)) {
+                // Either the shapes disagree or one parameter was asked
+                // to be two things at once. Both read better as a
+                // mismatch against what was already inferred.
+                report_mismatch(expr.args[i]->span,
+                                substitute(signature.param_types[i], bindings), argument);
+                return record(expr, types().error_type());
+            }
+        }
+
+        std::vector<TypePtr> args;
+        for (const std::string& parameter : tmpl.generic_params) {
+            const auto bound = bindings.find(parameter);
+            if (bound == bindings.end()) {
+                report("cannot infer type parameter `" + parameter + "`", expr.span,
+                       "nothing in this call determines `" + parameter + "`");
+                return record(expr, types().error_type());
+            }
+            if (is_generic(bound->second)) {
+                // Only reachable from inside another template, which is
+                // not checked until it is itself instantiated.
+                report("cannot infer type parameter `" + parameter + "`", expr.span,
+                       "it would depend on an unsubstituted type parameter");
+                return record(expr, types().error_type());
+            }
+            args.push_back(bound->second);
+        }
+
+        const FunctionInfo* info = instantiate(tmpl, args, expr.span);
+        result_.call_targets[{current_instance_, &expr}] = info;
+        check_arguments(expr.span, expr.args, *info, 0);
+        return record(expr, info->return_type);
     }
 
     TypePtr check_method_call(const ast::MethodCallExpr& expr) {
@@ -1045,13 +1616,13 @@ private:
             return record(expr, types().error_type());
         }
 
-        const auto entry = result_.methods.find(std::make_pair(base->name, expr.method));
+        const auto entry = result_.methods.find(std::make_pair(to_string(base), expr.method));
         if (entry == result_.methods.end()) {
             Diagnostic& diagnostic =
-                report("no method `" + expr.method + "` on type `" + base->name + "`",
+                report("no method `" + expr.method + "` on type `" + to_string(base) + "`",
                        expr.method_span, "unknown method");
-            suggest(diagnostic, expr.method, method_names(base->name));
-            if (const auto info = result_.structs.find(base->name);
+            suggest(diagnostic, expr.method, method_names(to_string(base)));
+            if (const auto info = result_.structs.find(to_string(base));
                 info != result_.structs.end() && info->second.field(expr.method) != nullptr) {
                 diagnostic.with_note("`" + expr.method + "` is a field, not a method");
             }
@@ -1059,7 +1630,7 @@ private:
         }
 
         const FunctionInfo& info = entry->second;
-        result_.call_targets[&expr] = &info;
+        result_.call_targets[{current_instance_, &expr}] = &info;
 
         if (info.self_kind == ast::SelfKind::None) {
             Diagnostic& diagnostic =
@@ -1107,15 +1678,14 @@ private:
         const std::size_t count = std::min(args.size(), expected);
         for (std::size_t i = 0; i < count; ++i) {
             const TypePtr parameter = info.param_types[i + offset];
-            const TypePtr argument = result_.expr_types.count(args[i].get()) != 0
-                                         ? result_.expr_types[args[i].get()]
-                                         : check_expr(*args[i]);
+            const TypePtr argument =
+                already_checked(*args[i]) ? recorded_type(*args[i]) : check_expr(*args[i]);
             if (!assignable(parameter, argument)) {
                 report_mismatch(args[i]->span, parameter, argument);
             }
         }
         for (std::size_t i = count; i < args.size(); ++i) {
-            if (result_.expr_types.count(args[i].get()) == 0) {
+            if (!already_checked(*args[i])) {
                 check_expr(*args[i]);
             }
         }
@@ -1137,7 +1707,7 @@ private:
                        expr.span, "expected 1, found " + std::to_string(expr.args.size()));
                 return record(expr, types().int_type());
             }
-            const TypePtr argument = strip_reference(result_.expr_types[expr.args[0].get()]);
+            const TypePtr argument = strip_reference(recorded_type(*expr.args[0]));
             if (!is_error(argument) && argument->kind != TypeKind::Array) {
                 report("cannot take the length of `" + to_string(argument) + "`",
                        expr.args[0]->span, "`len` needs an array");
@@ -1153,7 +1723,7 @@ private:
             return record(expr, types().void_type());
         }
 
-        const TypePtr argument = result_.expr_types[expr.args[0].get()];
+        const TypePtr argument = recorded_type(*expr.args[0]);
         if (!is_error(argument) && !is_printable(argument)) {
             Diagnostic& diagnostic =
                 report("cannot print a value of type `" + to_string(argument) + "`",
@@ -1189,7 +1759,7 @@ private:
             return record(expr, types().error_type());
         }
 
-        const auto info = result_.structs.find(base->name);
+        const auto info = result_.structs.find(to_string(base));
         if (info == result_.structs.end()) {
             return record(expr, types().error_type());
         }
@@ -1197,14 +1767,14 @@ private:
         const FieldInfo* field = info->second.field(expr.field);
         if (field == nullptr) {
             Diagnostic& diagnostic =
-                report("no field `" + expr.field + "` on type `" + base->name + "`",
+                report("no field `" + expr.field + "` on type `" + to_string(base) + "`",
                        expr.field_span, "unknown field");
             std::vector<std::string> names;
             for (const FieldInfo& candidate : info->second.fields) {
                 names.push_back(candidate.name);
             }
             suggest(diagnostic, expr.field, names);
-            if (result_.methods.count(std::make_pair(base->name, expr.field)) != 0) {
+            if (result_.methods.count(std::make_pair(to_string(base), expr.field)) != 0) {
                 diagnostic.with_note("`" + expr.field + "` is a method; call it as `." +
                                      expr.field + "(...)`");
             }
@@ -1263,6 +1833,11 @@ private:
     }
 
     TypePtr check_struct_literal(const ast::StructLitExpr& expr) {
+        const auto tmpl = result_.struct_templates.find(expr.type_name);
+        if (tmpl != result_.struct_templates.end()) {
+            return check_generic_struct_literal(expr, tmpl->second);
+        }
+
         const auto info = result_.structs.find(expr.type_name);
         if (info == result_.structs.end()) {
             Diagnostic& diagnostic = report("cannot find type `" + expr.type_name + "`",
@@ -1274,11 +1849,19 @@ private:
             return record(expr, types().error_type());
         }
 
-        const StructInfo& declared = info->second;
+        check_literal_fields(expr, info->second);
+        return record(expr, types().struct_type(info->second.name));
+    }
+
+    /// Field-by-field checking of a struct literal against a laid-out
+    /// struct. Shared by the generic and non-generic paths so both report
+    /// missing, unknown and mistyped fields identically.
+    void check_literal_fields(const ast::StructLitExpr& expr, const StructInfo& declared) {
         std::vector<bool> initialized(declared.fields.size(), false);
 
         for (const ast::FieldInit& field : expr.fields) {
-            const TypePtr value = check_expr(*field.value);
+            const TypePtr value = already_checked(*field.value) ? recorded_type(*field.value)
+                                                                : check_expr(*field.value);
             const FieldInfo* target = declared.field(field.name);
 
             if (target == nullptr) {
@@ -1323,8 +1906,69 @@ private:
                        " in initializer of `" + declared.name + "`",
                    expr.span, "every field must be given a value");
         }
+    }
 
-        return record(expr, types().struct_type(declared.name));
+    /// `Pair { first: 1, second: 2 }` with no written type arguments:
+    /// infer them from the field values.
+    ///
+    /// A struct literal never spells its arguments out. In type position
+    /// `Pair<int>` is unambiguous, but in an expression `Pair<int> { }`
+    /// would be indistinguishable from a chain of comparisons, so the
+    /// values decide.
+    TypePtr check_generic_struct_literal(const ast::StructLitExpr& expr,
+                                         const StructTemplate& tmpl) {
+        // Resolve the template's field types once, with its parameters
+        // standing for themselves, so they can be matched against the
+        // values supplied here.
+        const std::vector<std::string> saved_scope = generic_scope_;
+        const std::map<std::string, TypePtr>* saved_bindings = current_bindings_;
+        generic_scope_ = tmpl.generic_params;
+        current_bindings_ = nullptr;
+
+        StructInfo pattern;
+        pattern.name = tmpl.name;
+        pattern.span = tmpl.span;
+        const std::size_t before = result_.diagnostics.size();
+        resolve_fields(*tmpl.decl, pattern);
+        result_.diagnostics.resize(before);  // reported when laid out
+
+        generic_scope_ = saved_scope;
+        current_bindings_ = saved_bindings;
+
+        std::map<std::string, TypePtr> bindings;
+        for (const ast::FieldInit& field : expr.fields) {
+            const TypePtr value = check_expr(*field.value);
+            if (const FieldInfo* target = pattern.field(field.name)) {
+                unify(target->type, value, bindings);
+            }
+        }
+
+        std::vector<TypePtr> args;
+        for (const std::string& parameter : tmpl.generic_params) {
+            const auto bound = bindings.find(parameter);
+            if (bound == bindings.end() || is_generic(bound->second)) {
+                report("cannot infer type parameter `" + parameter + "` for `" + tmpl.name +
+                           "`",
+                       expr.span, "nothing in this literal determines `" + parameter + "`")
+                    .with_note("annotate the binding, as in `let p: " + tmpl.name +
+                               "<int> = ...`");
+                return record(expr, types().error_type());
+            }
+            args.push_back(bound->second);
+        }
+
+        const TypePtr instantiated = types().struct_type(tmpl.name, args);
+        ensure_struct_layout(instantiated);
+
+        // Now check the literal against the laid-out instantiation, so
+        // missing, unknown and mistyped fields are reported once, by the
+        // same code that handles a non-generic literal.
+        const auto laid_out = result_.structs.find(to_string(instantiated));
+        if (laid_out == result_.structs.end()) {
+            return record(expr, instantiated);
+        }
+        check_literal_fields(expr, laid_out->second);
+        return record(expr, instantiated);
     }
 
     TypePtr check_array_literal(const ast::ArrayLitExpr& expr) {
@@ -1393,9 +2037,19 @@ const FieldInfo* StructInfo::field(std::string_view name) const {
     return nullptr;
 }
 
-TypePtr CheckResult::type_of(const ast::Expr& expr) const {
-    const auto found = expr_types.find(&expr);
+TypePtr CheckResult::type_of(InstanceId instance, const ast::Expr& expr) const {
+    const auto found = expr_types.find({instance, &expr});
     return found != expr_types.end() ? found->second : nullptr;
+}
+
+const FunctionInfo* CheckResult::target_of(InstanceId instance, const ast::Expr& expr) const {
+    const auto found = call_targets.find({instance, &expr});
+    return found != call_targets.end() ? found->second : nullptr;
+}
+
+TypePtr CheckResult::binding_type(InstanceId instance, const ast::Stmt& statement) const {
+    const auto found = binding_types.find({instance, &statement});
+    return found != binding_types.end() ? found->second : nullptr;
 }
 
 std::string_view stage_name() noexcept { return "type checker"; }

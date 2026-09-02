@@ -141,6 +141,14 @@ private:
     llvm::Function* current_function_ = nullptr;
     const typeck::FunctionInfo* current_info_ = nullptr;
     bool current_is_entry_point_ = false;
+    /// Which monomorphized copy is being emitted. The checker recorded a
+    /// separate type for every expression per instance, so every lookup
+    /// has to say which one it means.
+    typeck::InstanceId current_instance_ = typeck::kRootInstance;
+
+    typeck::TypePtr type_of(const ast::Expr& expr) const {
+        return checked_.type_of(current_instance_, expr);
+    }
 
     ast::Diagnostic& report(ast::Span span, std::string message, std::string label) {
         diagnostics_.push_back(
@@ -169,7 +177,9 @@ private:
             case TypeKind::String:
                 return string_type_;
             case TypeKind::Struct:
-                return struct_types_.at(type->name);
+                // Keyed by the spelled-out name, so `Pair<int>` and
+                // `Pair<float>` are two distinct LLVM struct types.
+                return struct_types_.at(typeck::to_string(type));
             case TypeKind::Reference:
                 // Opaque pointers: a `&T` is just `ptr`, and the pointee
                 // type comes from the Ember type, not the LLVM one.
@@ -177,6 +187,12 @@ private:
             case TypeKind::Array:
                 return llvm::ArrayType::get(lower(type->element),
                                             static_cast<std::uint64_t>(type->length));
+            case TypeKind::Generic:
+                // Unreachable: only instantiated bodies are emitted, and
+                // every type in one has been substituted.
+                report(ast::Span::at(0), "internal error: unsubstituted type parameter",
+                       "this is a bug in the Ember compiler");
+                return llvm::Type::getVoidTy(*context_);
             case TypeKind::Void:
             case TypeKind::Error:
                 return llvm::Type::getVoidTy(*context_);
@@ -229,6 +245,11 @@ private:
         for (const auto& [key, info] : checked_.methods) {
             declare_function(info);
         }
+        // One function per instantiation, each with its own mangled
+        // name: this is monomorphization made concrete.
+        for (const typeck::Instantiation& instance : checked_.instantiations) {
+            declare_function(instance.info);
+        }
     }
 
     void declare_function(const typeck::FunctionInfo& info) {
@@ -243,6 +264,16 @@ private:
     }
 
     void emit_function_bodies() {
+        emit_concrete_bodies();
+
+        for (const typeck::Instantiation& instance : checked_.instantiations) {
+            current_instance_ = instance.id;
+            emit_function(*instance.decl, instance.info);
+        }
+        current_instance_ = typeck::kRootInstance;
+    }
+
+    void emit_concrete_bodies() {
         for (const ast::ItemPtr& item : program_.items) {
             if (const auto* declaration = ast::node_cast<ast::FunctionDecl>(item.get())) {
                 const auto entry = checked_.functions.find(declaration->name);
@@ -390,35 +421,14 @@ private:
         scopes_.back()[statement.name] = Slot{slot, type};
     }
 
-    /// The declared type when there is one, otherwise the inferred type
-    /// of the initializer - the same choice the checker made.
+    /// The type the checker gave this binding. Re-deriving it here
+    /// would mean re-resolving the written annotation, which cannot be
+    /// done inside a generic body where it may name a type parameter.
     TypePtr binding_type(const ast::LetStmt& statement) {
-        if (statement.declared_type) {
-            return resolve_declared(*statement.declared_type);
+        if (const TypePtr recorded = checked_.binding_type(current_instance_, statement)) {
+            return recorded;
         }
-        return checked_.type_of(*statement.value);
-    }
-
-    /// Re-resolves a written type against the checker's tables. Cheap,
-    /// and avoids threading a second map through CheckResult.
-    TypePtr resolve_declared(const ast::TypeRef& type) {
-        switch (type.kind) {
-            case ast::TypeKind::Int:
-                return checked_.types->int_type();
-            case ast::TypeKind::Float:
-                return checked_.types->float_type();
-            case ast::TypeKind::Bool:
-                return checked_.types->bool_type();
-            case ast::TypeKind::String:
-                return checked_.types->string_type();
-            case ast::TypeKind::Named:
-                return checked_.types->struct_type(type.name);
-            case ast::TypeKind::Reference:
-                return checked_.types->reference_to(resolve_declared(*type.element));
-            case ast::TypeKind::Array:
-                return checked_.types->array_of(resolve_declared(*type.element), type.length);
-        }
-        return checked_.types->error_type();
+        return type_of(*statement.value);
     }
 
     void emit_return(const ast::ReturnStmt& statement) {
@@ -494,7 +504,7 @@ private:
     }
 
     void emit_assign(const ast::AssignStmt& statement) {
-        const TypePtr target = checked_.type_of(*statement.target);
+        const TypePtr target = type_of(*statement.target);
         llvm::Value* address = emit_address(*statement.target);
         builder_.CreateStore(emit_as(*statement.value, target), address);
     }
@@ -521,7 +531,7 @@ private:
 
             case ast::ExprKind::FieldAccess: {
                 const auto& access = static_cast<const ast::FieldAccessExpr&>(expr);
-                const TypePtr object = checked_.type_of(*access.object);
+                const TypePtr object = type_of(*access.object);
                 const TypePtr base = typeck::strip_reference(object);
 
                 // Through a `&T` the address is the pointer itself; on a
@@ -530,16 +540,17 @@ private:
                                                 ? emit_value(*access.object)
                                                 : emit_address(*access.object);
 
-                const typeck::StructInfo& info = checked_.structs.at(base->name);
+                const std::string struct_name = typeck::to_string(base);
+                const typeck::StructInfo& info = checked_.structs.at(struct_name);
                 const typeck::FieldInfo* field = info.field(access.field);
-                return builder_.CreateStructGEP(struct_types_.at(base->name), base_address,
+                return builder_.CreateStructGEP(struct_types_.at(struct_name), base_address,
                                                 static_cast<unsigned>(field->index),
                                                 access.field);
             }
 
             case ast::ExprKind::Index: {
                 const auto& index = static_cast<const ast::IndexExpr&>(expr);
-                const TypePtr object = checked_.type_of(*index.object);
+                const TypePtr object = type_of(*index.object);
                 const TypePtr base = typeck::strip_reference(object);
 
                 llvm::Value* base_address = object->kind == TypeKind::Reference
@@ -558,7 +569,7 @@ private:
         }
 
         // Not a place: evaluate it and give the value a slot to live in.
-        const TypePtr type = checked_.type_of(expr);
+        const TypePtr type = type_of(expr);
         llvm::Value* slot = create_entry_alloca(lower(type), "temp");
         builder_.CreateStore(emit_value(expr), slot);
         return slot;
@@ -596,7 +607,7 @@ private:
     /// Evaluate `expr` and adapt it to `target`, inserting the implicit
     /// borrow or load that §4's reference rules imply.
     llvm::Value* emit_as(const ast::Expr& expr, TypePtr target) {
-        const TypePtr actual = checked_.type_of(expr);
+        const TypePtr actual = type_of(expr);
         if (target == nullptr || actual == nullptr || target == actual) {
             return emit_value(expr);
         }
@@ -627,13 +638,13 @@ private:
 
             case ast::ExprKind::Name: {
                 const auto& name = static_cast<const ast::NameExpr&>(expr);
-                const TypePtr type = checked_.type_of(expr);
+                const TypePtr type = type_of(expr);
                 return builder_.CreateLoad(lower(type), emit_address(expr), name.name);
             }
 
             case ast::ExprKind::FieldAccess:
             case ast::ExprKind::Index:
-                return builder_.CreateLoad(lower(checked_.type_of(expr)), emit_address(expr));
+                return builder_.CreateLoad(lower(type_of(expr)), emit_address(expr));
 
             case ast::ExprKind::Unary:
                 return emit_unary(static_cast<const ast::UnaryExpr&>(expr));
@@ -650,7 +661,7 @@ private:
             case ast::ExprKind::ArrayLit:
                 return emit_array_literal(static_cast<const ast::ArrayLitExpr&>(expr));
         }
-        return llvm::UndefValue::get(lower(checked_.type_of(expr)));
+        return llvm::UndefValue::get(lower(type_of(expr)));
     }
 
     /// A string literal becomes a private global plus a { ptr, len }
@@ -677,7 +688,7 @@ private:
         if (expr.op == ast::UnaryOp::Not) {
             return builder_.CreateNot(operand, "not");
         }
-        const TypePtr type = checked_.type_of(*expr.operand);
+        const TypePtr type = type_of(*expr.operand);
         if (type->kind == TypeKind::Float) {
             return builder_.CreateFNeg(operand, "neg");
         }
@@ -691,7 +702,7 @@ private:
             return emit_short_circuit(expr);
         }
 
-        const TypePtr operand_type = checked_.type_of(*expr.left);
+        const TypePtr operand_type = type_of(*expr.left);
         llvm::Value* left = emit_value(*expr.left);
         llvm::Value* right = emit_value(*expr.right);
 
@@ -743,7 +754,7 @@ private:
             default:
                 break;
         }
-        return llvm::UndefValue::get(lower(checked_.type_of(expr)));
+        return llvm::UndefValue::get(lower(type_of(expr)));
     }
 
     /// Integer division by zero is undefined in LLVM and traps on most
@@ -812,7 +823,11 @@ private:
             return emit_intrinsic(expr);
         }
 
-        const typeck::FunctionInfo& info = checked_.functions.at(expr.callee);
+        // The recorded target is authoritative: for a generic call the
+        // callee name is `max`, but the symbol is `max__int`.
+        const typeck::FunctionInfo* target = checked_.target_of(current_instance_, expr);
+        const typeck::FunctionInfo& info =
+            target != nullptr ? *target : checked_.functions.at(expr.callee);
         std::vector<llvm::Value*> args;
         args.reserve(expr.args.size());
         for (std::size_t i = 0; i < expr.args.size(); ++i) {
@@ -829,13 +844,9 @@ private:
     /// `Type_method` with the receiver as the first argument. No vtable,
     /// no dynamic dispatch.
     llvm::Value* emit_method_call(const ast::MethodCallExpr& expr) {
-        const typeck::FunctionInfo* info = nullptr;
-        const auto target = checked_.call_targets.find(&expr);
-        if (target != checked_.call_targets.end()) {
-            info = target->second;
-        }
+        const typeck::FunctionInfo* info = checked_.target_of(current_instance_, expr);
         if (info == nullptr) {
-            return llvm::UndefValue::get(lower(checked_.type_of(expr)));
+            return llvm::UndefValue::get(lower(type_of(expr)));
         }
 
         std::vector<llvm::Value*> args;
@@ -843,7 +854,7 @@ private:
 
         // The receiver fills `self`: by pointer for `&self`, by value
         // for `self`.
-        const TypePtr receiver_type = checked_.type_of(*expr.receiver);
+        const TypePtr receiver_type = type_of(*expr.receiver);
         if (info->self_kind == ast::SelfKind::Reference) {
             args.push_back(receiver_type->kind == TypeKind::Reference
                                ? emit_value(*expr.receiver)
@@ -866,14 +877,14 @@ private:
             // An array's length is part of its type, so `len` folds to a
             // constant. The argument is still evaluated for its effects.
             const TypePtr argument =
-                typeck::strip_reference(checked_.type_of(*expr.args.front()));
+                typeck::strip_reference(type_of(*expr.args.front()));
             emit_value(*expr.args.front());
             return builder_.getInt64(static_cast<std::uint64_t>(argument->length));
         }
 
         const bool newline = expr.callee == "println";
         const ast::Expr& argument = *expr.args.front();
-        const TypePtr type = typeck::strip_reference(checked_.type_of(argument));
+        const TypePtr type = typeck::strip_reference(type_of(argument));
         llvm::Value* value = emit_as(argument, type);
 
         switch (type->kind) {
@@ -913,8 +924,8 @@ private:
     /// value too large for an `int` is undefined, also as in C - LLVM
     /// yields poison for it rather than saturating.
     llvm::Value* emit_cast(const ast::CastExpr& expr) {
-        const TypePtr source = checked_.type_of(*expr.operand);
-        const TypePtr target = checked_.type_of(expr);
+        const TypePtr source = type_of(*expr.operand);
+        const TypePtr target = type_of(expr);
         llvm::Value* value = emit_value(*expr.operand);
 
         if (source == target || source == nullptr || target == nullptr) {
@@ -930,8 +941,11 @@ private:
     }
 
     llvm::Value* emit_struct_literal(const ast::StructLitExpr& expr) {
-        const typeck::StructInfo& info = checked_.structs.at(expr.type_name);
-        llvm::StructType* type = struct_types_.at(expr.type_name);
+        // The literal names the base struct; its instantiation comes
+        // from the type the checker gave the expression.
+        const std::string struct_name = typeck::to_string(type_of(expr));
+        const typeck::StructInfo& info = checked_.structs.at(struct_name);
+        llvm::StructType* type = struct_types_.at(struct_name);
 
         // Built with insertvalue rather than a slot and stores, so a
         // struct literal is an ordinary value like any other.
@@ -946,7 +960,7 @@ private:
     }
 
     llvm::Value* emit_array_literal(const ast::ArrayLitExpr& expr) {
-        const TypePtr type = checked_.type_of(expr);
+        const TypePtr type = type_of(expr);
         llvm::Value* value = llvm::UndefValue::get(lower(type));
         for (std::size_t i = 0; i < expr.elements.size(); ++i) {
             value = builder_.CreateInsertValue(value, emit_as(*expr.elements[i], type->element),
@@ -1027,7 +1041,8 @@ private:
 
             case ast::ExprKind::StructLit: {
                 const auto& literal = static_cast<const ast::StructLitExpr&>(expr);
-                const typeck::StructInfo& info = checked_.structs.at(literal.type_name);
+                const std::string struct_name = typeck::to_string(type_of(expr));
+                const typeck::StructInfo& info = checked_.structs.at(struct_name);
                 std::vector<llvm::Constant*> fields(info.fields.size(), nullptr);
 
                 for (const ast::FieldInit& field : literal.fields) {
@@ -1042,12 +1057,12 @@ private:
                         return nullptr;
                     }
                 }
-                return llvm::ConstantStruct::get(struct_types_.at(literal.type_name), fields);
+                return llvm::ConstantStruct::get(struct_types_.at(struct_name), fields);
             }
 
             case ast::ExprKind::ArrayLit: {
                 const auto& literal = static_cast<const ast::ArrayLitExpr&>(expr);
-                const TypePtr type = checked_.type_of(expr);
+                const TypePtr type = type_of(expr);
                 std::vector<llvm::Constant*> elements;
                 for (const ast::ExprPtr& element : literal.elements) {
                     llvm::Constant* value = fold(*element, type->element);

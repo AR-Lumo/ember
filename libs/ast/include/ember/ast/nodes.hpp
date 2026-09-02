@@ -55,6 +55,20 @@ struct TypeRef {
     TypeRefPtr element;
     /// Element count for Array.
     std::int64_t length = 0;
+    /// Type arguments for a generic Named type: the `int` of `Pair<int>`.
+    /// Empty for everything else.
+    std::vector<TypeRefPtr> type_args;
+};
+
+/// One declared type parameter: the `T` of `fn max<T>(...)`.
+///
+/// Parameters are unconstrained. Ember has no traits to constrain them
+/// with, so what a `T` supports is decided when it is substituted -
+/// checking happens per instantiation, as in C++ templates rather than
+/// Rust generics. See the note in parser.hpp.
+struct GenericParam {
+    std::string name;
+    Span span;
 };
 
 /// How a type is written in source, for diagnostics: `int`, `&Point`,
@@ -433,6 +447,8 @@ struct FunctionDecl : Item {
     static constexpr ItemKind kKind = ItemKind::Function;
     std::string name;
     Span name_span;
+    /// Empty for an ordinary function.
+    std::vector<GenericParam> generic_params;
     std::vector<Param> params;
     /// Null when the function returns nothing.
     TypeRefPtr return_type;
@@ -443,6 +459,8 @@ struct FunctionDecl : Item {
 
     FunctionDecl(Span span, bool public_item, std::string fn_name, Span fn_name_span)
         : Item(kKind, span, public_item), name(std::move(fn_name)), name_span(fn_name_span) {}
+
+    bool is_generic() const noexcept { return !generic_params.empty(); }
 
     /// The first parameter, when it is `self` or `&self`.
     const Param* self_param() const noexcept {
@@ -462,22 +480,31 @@ struct StructDecl : Item {
     static constexpr ItemKind kKind = ItemKind::Struct;
     std::string name;
     Span name_span;
+    /// Empty for an ordinary struct.
+    std::vector<GenericParam> generic_params;
     std::vector<FieldDecl> fields;
 
     StructDecl(Span span, bool public_item, std::string struct_name, Span struct_name_span)
         : Item(kKind, span, public_item),
           name(std::move(struct_name)),
           name_span(struct_name_span) {}
+
+    bool is_generic() const noexcept { return !generic_params.empty(); }
 };
 
 struct ImplBlock : Item {
     static constexpr ItemKind kKind = ItemKind::Impl;
     std::string type_name;
     Span type_name_span;
+    /// The `<T>` of `impl<T> Pair<T>`, binding the parameters that the
+    /// implemented type and the method signatures refer to.
+    std::vector<GenericParam> generic_params;
     std::vector<std::unique_ptr<FunctionDecl>> methods;
 
     ImplBlock(Span span, std::string name, Span name_span)
         : Item(kKind, span, false), type_name(std::move(name)), type_name_span(name_span) {}
+
+    bool is_generic() const noexcept { return !generic_params.empty(); }
 };
 
 struct ConstDecl : Item {

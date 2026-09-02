@@ -1,0 +1,222 @@
+(program
+  (fn @14:1 pub max
+    (params
+      (param @14:15 a
+        (named @14:18 T))
+      (param @14:21 b
+        (named @14:24 T)))
+    (returns
+      (named @14:30 T))
+    (block @14:32
+      (if @15:5
+        (binary @15:8 gt
+          (name @15:8 a)
+          (name @15:12 b))
+        (block @15:14
+          (return @16:9
+            (name @16:16 a))))
+      (return @18:5
+        (name @18:12 b))))
+  (fn @22:1 pub min
+    (params
+      (param @22:15 a
+        (named @22:18 T))
+      (param @22:21 b
+        (named @22:24 T)))
+    (returns
+      (named @22:30 T))
+    (block @22:32
+      (if @23:5
+        (binary @23:8 lt
+          (name @23:8 a)
+          (name @23:12 b))
+        (block @23:14
+          (return @24:9
+            (name @24:16 a))))
+      (return @26:5
+        (name @26:12 b))))
+  (fn @31:1 pub identity
+    (params
+      (param @31:20 value
+        (named @31:27 T)))
+    (returns
+      (named @31:33 T))
+    (block @31:35
+      (return @32:5
+        (name @32:12 value))))
+  (fn @37:1 pub first
+    (params
+      (param @37:17 values
+        (ref @37:25
+          (array @37:26 3
+            (named @37:27 T)))))
+    (returns
+      (named @37:37 T))
+    (block @37:39
+      (return @38:5
+        (index @38:12
+          (name @38:12 values)
+          (int-lit @38:19 0)))))
+  (struct @42:1 Pair
+    (field @43:5 pub left
+      (named @43:15 T))
+    (field @44:5 pub right
+      (named @44:16 T)))
+  (struct @48:1 Labelled
+    (field @49:5 pub key
+      (named @49:14 K))
+    (field @50:5 pub value
+      (named @50:16 V)))
+  (fn @53:1 pub left_of
+    (params
+      (param @53:19 pair
+        (named @53:25 Pair)))
+    (returns
+      (named @53:37 T))
+    (block @53:39
+      (return @54:5
+        (field-get @54:12 left
+          (name @54:12 pair)))))
+  (fn @57:1 pub value_of
+    (params
+      (param @57:23 entry
+        (named @57:30 Labelled)))
+    (returns
+      (named @57:49 V))
+    (block @57:51
+      (return @58:5
+        (field-get @58:12 value
+          (name @58:12 entry)))))
+  (fn @61:1 pub main
+    (params)
+    (block @61:15
+      (expr-stmt @63:5
+        (call @63:5 print
+          (string-lit @63:11 "max:      ")))
+      (expr-stmt @64:5
+        (call @64:5 print
+          (call @64:11 max
+            (int-lit @64:15 3)
+            (int-lit @64:18 7))))
+      (expr-stmt @65:5
+        (call @65:5 print
+          (string-lit @65:11 " ")))
+      (expr-stmt @66:5
+        (call @66:5 println
+          (call @66:13 max
+            (float-lit @66:17 2.5)
+            (float-lit @66:22 1.5))))
+      (expr-stmt @68:5
+        (call @68:5 print
+          (string-lit @68:11 "min:      ")))
+      (expr-stmt @69:5
+        (call @69:5 print
+          (call @69:11 min
+            (int-lit @69:15 3)
+            (int-lit @69:18 7))))
+      (expr-stmt @70:5
+        (call @70:5 print
+          (string-lit @70:11 " ")))
+      (expr-stmt @71:5
+        (call @71:5 println
+          (call @71:13 min
+            (float-lit @71:17 2.5)
+            (float-lit @71:22 1.5))))
+      (expr-stmt @74:5
+        (call @74:5 print
+          (string-lit @74:11 "identity: ")))
+      (expr-stmt @75:5
+        (call @75:5 print
+          (call @75:11 identity
+            (int-lit @75:20 42))))
+      (expr-stmt @76:5
+        (call @76:5 print
+          (string-lit @76:11 " ")))
+      (expr-stmt @77:5
+        (call @77:5 print
+          (call @77:11 identity
+            (bool-lit @77:20 true))))
+      (expr-stmt @78:5
+        (call @78:5 print
+          (string-lit @78:11 " ")))
+      (expr-stmt @79:5
+        (call @79:5 println
+          (call @79:13 identity
+            (string-lit @79:22 "a string"))))
+      (let @81:5 ints
+        (array @81:15 3
+          (int @81:16))
+        (array-lit @81:26
+          (int-lit @81:27 10)
+          (int-lit @81:31 20)
+          (int-lit @81:35 30)))
+      (let @82:5 floats
+        (array @82:17 3
+          (float @82:18))
+        (array-lit @82:30
+          (float-lit @82:31 1.5)
+          (float-lit @82:36 2.5)
+          (float-lit @82:41 3.5)))
+      (expr-stmt @83:5
+        (call @83:5 print
+          (string-lit @83:11 "first:    ")))
+      (expr-stmt @84:5
+        (call @84:5 print
+          (call @84:11 first
+            (name @84:17 ints))))
+      (expr-stmt @85:5
+        (call @85:5 print
+          (string-lit @85:11 " ")))
+      (expr-stmt @86:5
+        (call @86:5 println
+          (call @86:13 first
+            (name @86:19 floats))))
+      (let @90:5 counts
+        (named @90:17 Pair)
+        (struct-lit @90:29 Pair
+          (init @90:36 left
+            (int-lit @90:42 1))
+          (init @90:45 right
+            (int-lit @90:52 2))))
+      (let @91:5 ratios
+        (named @91:17 Pair)
+        (struct-lit @91:31 Pair
+          (init @91:38 left
+            (float-lit @91:44 0.25))
+          (init @91:50 right
+            (float-lit @91:57 0.75))))
+      (expr-stmt @93:5
+        (call @93:5 print
+          (string-lit @93:11 "pairs:    ")))
+      (expr-stmt @94:5
+        (call @94:5 print
+          (call @94:11 left_of
+            (name @94:19 counts))))
+      (expr-stmt @95:5
+        (call @95:5 print
+          (string-lit @95:11 " ")))
+      (expr-stmt @96:5
+        (call @96:5 println
+          (call @96:13 left_of
+            (name @96:21 ratios))))
+      (let @98:5 entry
+        (named @98:16 Labelled)
+        (struct-lit @98:40 Labelled
+          (init @98:51 key
+            (string-lit @98:56 "answer"))
+          (init @98:66 value
+            (int-lit @98:73 42))))
+      (expr-stmt @99:5
+        (call @99:5 print
+          (string-lit @99:11 "labelled: ")))
+      (expr-stmt @100:5
+        (call @100:5 print
+          (field-get @100:11 key
+            (name @100:11 entry))))
+      (expr-stmt @101:5
+        (call @101:5 print
+          (string-lit @101:11 " = ")))
+      (expr-stmt @102:5
+        (call @102:5 println
+          (call @102:13 value_of
+            (name @102:22 entry)))))))

@@ -27,8 +27,15 @@ enum class TypeKind {
     Float,
     Bool,
     String,
-    /// A named struct.
+    /// A named struct. `name` is the base name and `args` holds the
+    /// type arguments, so `Pair<T>` keeps its `T` reachable: matching
+    /// and substitution have to see inside it, which a flattened
+    /// `"Pair<T>"` string would hide.
     Struct,
+    /// An unsubstituted type parameter, the `T` of `fn max<T>`. Only
+    /// ever appears in a template's signature; every type reachable
+    /// from a checked instantiation is concrete.
+    Generic,
     /// `&T`
     Reference,
     /// `[T; N]`
@@ -43,12 +50,14 @@ enum class TypeKind {
 
 struct Type {
     TypeKind kind = TypeKind::Error;
-    /// Set for Struct.
+    /// Set for Struct and Generic.
     std::string name;
     /// Element type for Reference and Array.
     const Type* element = nullptr;
     /// Element count for Array.
     std::int64_t length = 0;
+    /// Type arguments, for a generic struct. Empty otherwise.
+    std::vector<const Type*> args;
 };
 
 using TypePtr = const Type*;
@@ -68,7 +77,10 @@ public:
     TypePtr void_type() const noexcept { return void_; }
     TypePtr error_type() const noexcept { return error_; }
 
-    TypePtr struct_type(const std::string& name);
+    /// `Point`, or `Pair<int>` when `args` is given.
+    TypePtr struct_type(const std::string& name, const std::vector<TypePtr>& args = {});
+    /// The placeholder for a type parameter named `name`.
+    TypePtr generic_type(const std::string& name);
     TypePtr reference_to(TypePtr element);
     TypePtr array_of(TypePtr element, std::int64_t length);
 
@@ -76,7 +88,8 @@ private:
     TypePtr intern(Type type);
 
     std::vector<std::unique_ptr<Type>> owned_;
-    std::map<std::string, TypePtr> structs_;
+    std::map<std::pair<std::string, std::vector<TypePtr>>, TypePtr> structs_;
+    std::map<std::string, TypePtr> generics_;
     std::map<TypePtr, TypePtr> references_;
     std::map<std::pair<TypePtr, std::int64_t>, TypePtr> arrays_;
 
@@ -99,6 +112,10 @@ inline bool is_error(TypePtr type) noexcept {
 inline TypePtr strip_reference(TypePtr type) noexcept {
     return (type != nullptr && type->kind == TypeKind::Reference) ? type->element : type;
 }
+
+/// True when `type` still mentions an unsubstituted type parameter, and
+/// so cannot be laid out or lowered.
+bool is_generic(TypePtr type) noexcept;
 
 /// Numeric types, which are the ones arithmetic accepts.
 inline bool is_numeric(TypePtr type) noexcept {

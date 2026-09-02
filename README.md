@@ -250,6 +250,53 @@ Array accesses are bounds-checked at runtime. Strict C would not check,
 but Ember has no borrow checker either, and a silent out-of-bounds write
 is a worse trade than a branch the optimizer usually removes.
 
+### Generics
+
+Functions and structs may take type parameters. Each combination of
+argument types is compiled to its own function, so there is no boxing
+and nothing is decided at run time:
+
+```ember
+pub fn max<T>(a: T, b: T) -> T {
+    if a > b {
+        return a;
+    }
+    return b;
+}
+
+struct Pair<T> {
+    pub left: T,
+    pub right: T,
+}
+```
+
+`max(3, 7)` and `max(2.5, 1.5)` become `max__int` and `max__float` in the
+binary. Type arguments are inferred from the call, so there is no
+turbofish; a parameter that appears in no argument type is rejected at
+the declaration, because nothing could ever determine it.
+
+Ember has no traits, so a type parameter carries no guarantees and a
+generic body is **checked once per instantiation**, as C++ templates are
+rather than Rust generics. `a > b` above is legal for `int` and not for a
+struct, and that is only knowable once `T` is chosen — so the error is
+reported against the body, with a note naming the call that caused it:
+
+```console
+error: cannot compare values of type `Point`
+ --> sort.em:4:8
+  |
+4 |     if a > b {
+  |        ^^^^^ `>` needs an `int` or a `float`
+  = note: in `max` instantiated as `max<Point>` at sort.em:13:13
+```
+
+The trade-off is that a generic function nobody calls is never checked.
+
+Struct literals infer their type arguments from the field values —
+`Pair { left: 1, right: 2 }` is a `Pair<int>`. They are never written
+out in an expression, where `Pair<int> { }` would be ambiguous with a
+chain of comparisons; in type position they are explicit.
+
 ### Standard library
 
 The whole of it, recognized directly by the compiler:
@@ -272,6 +319,7 @@ also a regression test in the suite.
 | [`bubble_sort.em`](examples/bubble_sort.em) | Arrays, indexing, in-place mutation through `&T` |
 | [`inventory.em`](examples/inventory.em) | An array of structs, methods calling methods |
 | [`averages.em`](examples/averages.em) | Explicit `int`/`float` conversion with `as` |
+| [`generics.em`](examples/generics.em) | Generic functions and structs, monomorphized |
 
 ```console
 $ ember run examples/bubble_sort.em
@@ -347,7 +395,11 @@ v1 is deliberately small. These are the sharp edges worth knowing about.
 - **`pub` is parsed but not enforced.** Visibility starts mattering when
   modules land, so it is checked and carried through the compiler now to
   avoid a syntax change later.
-- **No generics, closures, or function values.**
+- **Generic methods and `impl<T>` blocks are not implemented.** Generic
+  free functions and generic structs work; a method with its own type
+  parameters, or an `impl` block over a generic type, is reported as
+  unsupported rather than mis-compiled.
+- **No closures or function values.**
 - **One file per program.** No `import`.
 
 The spec's §6 sketches where these go next.

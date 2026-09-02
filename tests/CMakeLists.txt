@@ -8,6 +8,7 @@ add_executable(ember_snapshot_tests
     lexer_tests.cpp
     parser_tests.cpp
     typeck_tests.cpp
+    generics_tests.cpp
 )
 
 target_include_directories(ember_snapshot_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")

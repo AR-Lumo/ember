@@ -96,19 +96,24 @@ visibility     = [ "pub" ] ;
 
 const_decl     = visibility "const" identifier ":" type "=" expression ";" ;
 
-function_decl  = visibility "fn" identifier "(" [ param_list ] ")" [ "->" type ] block ;
+function_decl  = visibility "fn" identifier [ generic_params ]
+                 "(" [ param_list ] ")" [ "->" type ] block ;
+
+generic_params = "<" identifier { "," identifier } ">" ;   (* v2 *)
 param_list     = param { "," param } ;
 param          = ( "self" | "&self" ) | identifier ":" type ;
 
-struct_decl    = visibility "struct" identifier "{" { field } "}" ;
+struct_decl    = visibility "struct" identifier [ generic_params ] "{" { field } "}" ;
 field          = visibility identifier ":" type "," ;
 
 impl_block     = "impl" identifier "{" { function_decl } "}" ;
 
 type           = "int" | "float" | "bool" | "string"
-               | identifier                (* struct type *)
+               | identifier [ type_args ]  (* struct type, generic or not *)
                | "&" type                  (* reference *)
                | "[" type ";" int_lit "]"  (* fixed-size array *) ;
+
+type_args      = "<" type { "," type } ">" ;               (* v2 *)
 
 block          = "{" { statement } "}" ;
 
