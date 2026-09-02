@@ -1,0 +1,162 @@
+(program
+  (struct @5:1 Point
+    (field @6:5 pub x
+      (int @6:12))
+    (field @7:5 pub y
+      (int @7:12)))
+  (impl @10:1 Point
+    (fn @11:5 pub distance_sq
+      (params
+        (self-ref @11:24)
+        (param @11:31 other
+          (named @11:38 Point)))
+      (returns
+        (int @11:48))
+      (block @11:52
+        (let @12:9 dx
+          (binary @12:18 sub
+            (field-get @12:18 x
+              (name @12:18 self))
+            (field-get @12:27 x
+              (name @12:27 other))))
+        (let @13:9 dy
+          (binary @13:18 sub
+            (field-get @13:18 y
+              (name @13:18 self))
+            (field-get @13:27 y
+              (name @13:27 other))))
+        (return @14:9
+          (binary @14:16 add
+            (binary @14:16 mul
+              (name @14:16 dx)
+              (name @14:21 dx))
+            (binary @14:26 mul
+              (name @14:26 dy)
+              (name @14:31 dy)))))))
+  (struct @19:1 Point
+    (field @20:5 pub z
+      (int @20:12)))
+  (fn @24:1 pub no_return
+    (params
+      (param @24:18 flag
+        (bool @24:24)))
+    (returns
+      (int @24:33))
+    (block @24:37
+      (if @25:5
+        (name @25:8 flag)
+        (block @25:13
+          (return @26:9
+            (int-lit @26:16 1))))))
+  (fn @31:1 pub arity
+    (params)
+    (block @31:16
+      (let @32:5 p
+        (struct-lit @32:13 Point
+          (init @32:21 x
+            (int-lit @32:24 1))
+          (init @32:27 y
+            (int-lit @32:30 2))))
+      (let @33:5 a
+        (method-call @33:13 distance_sq
+          (name @33:13 p)))
+      (let @34:5 b
+        (method-call @34:13 distance_sq
+          (name @34:13 p)
+          (int-lit @34:27 1)))))
+  (fn @38:1 pub unknown_members
+    (params)
+    (block @38:26
+      (let @39:5 p
+        (struct-lit @39:13 Point
+          (init @39:21 x
+            (int-lit @39:24 1))
+          (init @39:27 y
+            (int-lit @39:30 2))))
+      (expr-stmt @40:5
+        (call @40:5 println
+          (method-call @40:13 area
+            (name @40:13 p))))
+      (expr-stmt @41:5
+        (call @41:5 println
+          (field-get @41:13 z
+            (name @41:13 p))))
+      (expr-stmt @42:5
+        (call @42:5 println
+          (method-call @42:13 x
+            (name @42:13 p))))))
+  (fn @46:1 pub no_coercion
+    (params)
+    (block @46:22
+      (let @47:5 mixed
+        (binary @47:17 add
+          (int-lit @47:17 1)
+          (float-lit @47:21 2.5)))
+      (let @48:5 annotated
+        (float @48:20)
+        (int-lit @48:28 3))))
+  (fn @52:1 pub undefined_names
+    (params)
+    (block @52:26
+      (let @53:5 count
+        (int-lit @53:17 0))
+      (expr-stmt @54:5
+        (call @54:5 println
+          (name @54:13 cout)))
+      (expr-stmt @55:5
+        (call @55:5 println
+          (name @55:13 entirely_unknown)))
+      (expr-stmt @56:5
+        (call @56:5 missing_function))))
+  (fn @60:1 pub mismatches
+    (params)
+    (block @60:21
+      (let @61:5 x
+        (int @61:12)
+        (string-lit @61:18 "hello"))
+      (if @62:5
+        (int-lit @62:8 1)
+        (block @62:10
+          (expr-stmt @63:9
+            (call @63:9 println
+              (int-lit @63:17 0)))))))
+  (fn @68:1 pub mutability
+    (params)
+    (block @68:21
+      (let @69:5 fixed
+        (int-lit @69:17 1))
+      (assign @70:5
+        (name @70:5 fixed)
+        (int-lit @70:13 2))))
+  (fn @74:1 pub bad_literals
+    (params)
+    (block @74:23
+      (let @75:5 missing
+        (struct-lit @75:19 Point
+          (init @75:27 x
+            (int-lit @75:30 1))))
+      (let @76:5 extra
+        (struct-lit @76:17 Point
+          (init @76:25 x
+            (int-lit @76:28 1))
+          (init @76:31 y
+            (int-lit @76:34 2))
+          (init @76:37 w
+            (int-lit @76:40 3))))))
+  (fn @79:1 pub main
+    (params)
+    (block @79:15
+      (expr-stmt @80:5
+        (call @80:5 arity))
+      (expr-stmt @81:5
+        (call @81:5 unknown_members))
+      (expr-stmt @82:5
+        (call @82:5 no_coercion))
+      (expr-stmt @83:5
+        (call @83:5 undefined_names))
+      (expr-stmt @84:5
+        (call @84:5 mismatches))
+      (expr-stmt @85:5
+        (call @85:5 mutability))
+      (expr-stmt @86:5
+        (call @86:5 bad_literals)))))

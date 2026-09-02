@@ -1,0 +1,109 @@
+error: duplicate definition of type `Point`
+  --> type_errors.em:19:8
+   |
+19 | struct Point {
+   |        ^^^^^ `Point` is already defined
+   = note: previously defined at type_errors.em:5:8
+
+error: missing return
+  --> type_errors.em:24:8
+   |
+24 | pub fn no_return(flag: bool) -> int {
+   |        ^^^^^^^^^ this function must return `int` on every path
+
+error: this method takes 1 argument but 0 were supplied
+  --> type_errors.em:33:13
+   |
+33 |     let a = p.distance_sq();
+   |             ^^^^^^^^^^^^^^^ expected 1, found 0
+   = note: declared at type_errors.em:11:12
+
+error: type mismatch
+  --> type_errors.em:34:27
+   |
+34 |     let b = p.distance_sq(1);
+   |                           ^ expected `Point`, found `int`
+
+error: no method `area` on type `Point`
+  --> type_errors.em:40:15
+   |
+40 |     println(p.area());
+   |               ^^^^ unknown method
+
+error: no field `z` on type `Point`
+  --> type_errors.em:41:15
+   |
+41 |     println(p.z);
+   |               ^ unknown field
+
+error: no method `x` on type `Point`
+  --> type_errors.em:42:15
+   |
+42 |     println(p.x());
+   |               ^ unknown method
+   = note: `x` is a field, not a method
+
+error: cannot apply `+` to `int` and `float`
+  --> type_errors.em:47:17
+   |
+47 |     let mixed = 1 + 2.5;
+   |                 ^^^^^^^ the operands have different types
+   = note: `int` and `float` never mix implicitly in Ember (§4)
+
+error: type mismatch
+  --> type_errors.em:48:28
+   |
+48 |     let annotated: float = 3;
+   |                            ^ expected `float`, found `int`
+
+error: cannot find value `cout`
+  --> type_errors.em:54:13
+   |
+54 |     println(cout);
+   |             ^^^^ not found in this scope
+   = note: did you mean `count`?
+
+error: cannot find value `entirely_unknown`
+  --> type_errors.em:55:13
+   |
+55 |     println(entirely_unknown);
+   |             ^^^^^^^^^^^^^^^^ not found in this scope
+
+error: cannot find function `missing_function`
+  --> type_errors.em:56:5
+   |
+56 |     missing_function();
+   |     ^^^^^^^^^^^^^^^^ not found in this scope
+
+error: type mismatch
+  --> type_errors.em:61:18
+   |
+61 |     let x: int = "hello";
+   |                  ^^^^^^^ expected `int`, found `string`
+
+error: type mismatch
+  --> type_errors.em:62:8
+   |
+62 |     if 1 {
+   |        ^ expected `bool`, found `int`
+
+error: cannot assign to immutable binding `fixed`
+  --> type_errors.em:70:5
+   |
+70 |     fixed = 2;
+   |     ^^^^^ `fixed` is not declared `mut`
+   = note: declare it as `let mut fixed` to allow assignment
+
+error: missing field `y` in initializer of `Point`
+  --> type_errors.em:75:19
+   |
+75 |     let missing = Point { x: 1 };
+   |                   ^^^^^^^^^^^^^^ every field must be given a value
+
+error: `Point` has no field `w`
+  --> type_errors.em:76:37
+   |
+76 |     let extra = Point { x: 1, y: 2, w: 3 };
+   |                                     ^ unknown field
+
+error: aborting due to 17 previous errors

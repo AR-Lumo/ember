@@ -1,0 +1,163 @@
+(program
+  (struct @7:1 Item
+    (field @8:5 pub name
+      (string @8:15))
+    (field @9:5 pub quantity
+      (int @9:19))
+    (field @11:5 pub unit_price
+      (int @11:21)))
+  (impl @14:1 Item
+    (fn @16:5 pub total_value
+      (params
+        (self-ref @16:24))
+      (returns
+        (int @16:34))
+      (block @16:38
+        (return @17:9
+          (binary @17:16 mul
+            (field-get @17:16 quantity
+              (name @17:16 self))
+            (field-get @17:32 unit_price
+              (name @17:32 self))))))
+    (fn @21:5 pub is_low
+      (params
+        (self-ref @21:19)
+        (param @21:26 threshold
+          (int @21:37)))
+      (returns
+        (bool @21:45))
+      (block @21:50
+        (return @22:9
+          (binary @22:16 lt
+            (field-get @22:16 quantity
+              (name @22:16 self))
+            (name @22:32 threshold)))))
+    (fn @27:5 pub describe
+      (params
+        (self-ref @27:21))
+      (block @27:28
+        (expr-stmt @28:9
+          (call @28:9 print
+            (field-get @28:15 name
+              (name @28:15 self))))
+        (expr-stmt @29:9
+          (call @29:9 print
+            (string-lit @29:15 ": ")))
+        (expr-stmt @30:9
+          (call @30:9 print
+            (field-get @30:15 quantity
+              (name @30:15 self))))
+        (expr-stmt @31:9
+          (call @31:9 print
+            (string-lit @31:15 " @ ")))
+        (expr-stmt @32:9
+          (call @32:9 print
+            (field-get @32:15 unit_price
+              (name @32:15 self))))
+        (expr-stmt @33:9
+          (call @33:9 print
+            (string-lit @33:15 "c = ")))
+        (expr-stmt @34:9
+          (call @34:9 print
+            (method-call @34:15 total_value
+              (name @34:15 self))))
+        (expr-stmt @35:9
+          (call @35:9 println
+            (string-lit @35:17 "c"))))))
+  (const @40:1 LOW_STOCK_THRESHOLD
+    (int @40:28)
+    (int-lit @40:34 5))
+  (fn @42:1 pub main
+    (params)
+    (block @42:15
+      (let @43:5 stock
+        (array @43:16 3
+          (named @43:17 Item))
+        (array-lit @43:28
+          (struct-lit @44:9 Item
+            (init @44:16 name
+              (string-lit @44:22 "bolts"))
+            (init @44:31 quantity
+              (int-lit @44:41 120))
+            (init @44:46 unit_price
+              (int-lit @44:58 3)))
+          (struct-lit @45:9 Item
+            (init @45:16 name
+              (string-lit @45:22 "widgets"))
+            (init @45:33 quantity
+              (int-lit @45:43 2))
+            (init @45:46 unit_price
+              (int-lit @45:58 250)))
+          (struct-lit @46:9 Item
+            (init @46:16 name
+              (string-lit @46:22 "gaskets"))
+            (init @46:33 quantity
+              (int-lit @46:43 4))
+            (init @46:46 unit_price
+              (int-lit @46:58 45)))))
+      (let @49:5 mut total
+        (int-lit @49:21 0))
+      (let @50:5 mut low_lines
+        (int-lit @50:25 0))
+      (let @51:5 mut i
+        (int-lit @51:17 0))
+      (while @53:5
+        (binary @53:11 lt
+          (name @53:11 i)
+          (call @53:15 len
+            (name @53:19 stock)))
+        (block @53:26
+          (expr-stmt @54:9
+            (method-call @54:9 describe
+              (index @54:9
+                (name @54:9 stock)
+                (name @54:15 i))))
+          (assign @55:9
+            (name @55:9 total)
+            (binary @55:17 add
+              (name @55:17 total)
+              (method-call @55:25 total_value
+                (index @55:25
+                  (name @55:25 stock)
+                  (name @55:31 i)))))
+          (if @57:9
+            (method-call @57:12 is_low
+              (index @57:12
+                (name @57:12 stock)
+                (name @57:18 i))
+              (name @57:28 LOW_STOCK_THRESHOLD))
+            (block @57:49
+              (expr-stmt @58:13
+                (call @58:13 print
+                  (string-lit @58:19 "  reorder: ")))
+              (expr-stmt @59:13
+                (call @59:13 println
+                  (field-get @59:21 name
+                    (index @59:21
+                      (name @59:21 stock)
+                      (name @59:27 i)))))
+              (assign @60:13
+                (name @60:13 low_lines)
+                (binary @60:25 add
+                  (name @60:25 low_lines)
+                  (int-lit @60:37 1)))))
+          (assign @63:9
+            (name @63:9 i)
+            (binary @63:13 add
+              (name @63:13 i)
+              (int-lit @63:17 1)))))
+      (expr-stmt @66:5
+        (call @66:5 print
+          (string-lit @66:11 "total value: ")))
+      (expr-stmt @67:5
+        (call @67:5 print
+          (name @67:11 total)))
+      (expr-stmt @68:5
+        (call @68:5 println
+          (string-lit @68:13 "c")))
+      (expr-stmt @70:5
+        (call @70:5 print
+          (string-lit @70:11 "lines needing reorder: ")))
+      (expr-stmt @71:5
+        (call @71:5 println
+          (name @71:13 low_lines))))))

@@ -1,0 +1,69 @@
+#include "ember/ast/span.hpp"
+
+#include <algorithm>
+#include <fstream>
+#include <sstream>
+#include <utility>
+
+namespace ember::ast {
+
+SourceFile::SourceFile(std::string path, std::string contents)
+    : path_(std::move(path)), contents_(std::move(contents)) {
+    line_starts_.push_back(0);
+    for (std::uint32_t offset = 0; offset < size(); ++offset) {
+        if (contents_[offset] == '\n') {
+            line_starts_.push_back(offset + 1);
+        }
+    }
+}
+
+std::optional<SourceFile> SourceFile::load(const std::filesystem::path& path) {
+    std::ifstream stream(path, std::ios::binary);
+    if (!stream) {
+        return std::nullopt;
+    }
+    std::ostringstream buffer;
+    buffer << stream.rdbuf();
+    return SourceFile{path.string(), buffer.str()};
+}
+
+Position SourceFile::position_of(std::uint32_t offset) const {
+    offset = std::min(offset, size());
+
+    // The first line start strictly greater than `offset` sits one past
+    // the line we want.
+    const auto it = std::upper_bound(line_starts_.begin(), line_starts_.end(), offset);
+    const auto index = static_cast<std::uint32_t>(std::distance(line_starts_.begin(), it) - 1);
+
+    Position position;
+    position.line = index + 1;
+    position.column = offset - line_starts_[index] + 1;
+    return position;
+}
+
+std::string_view SourceFile::line_text(std::uint32_t line) const {
+    if (line == 0 || line > line_count()) {
+        return {};
+    }
+    const std::uint32_t start = line_starts_[line - 1];
+    const std::uint32_t end = (line < line_count()) ? line_starts_[line] : size();
+
+    std::string_view text{contents_};
+    text = text.substr(start, end - start);
+    // Trim the line terminator, in either encoding.
+    if (!text.empty() && text.back() == '\n') {
+        text.remove_suffix(1);
+    }
+    if (!text.empty() && text.back() == '\r') {
+        text.remove_suffix(1);
+    }
+    return text;
+}
+
+std::string_view SourceFile::text_of(Span span) const {
+    const std::uint32_t start = std::min(span.start, size());
+    const std::uint32_t end = std::clamp(span.end, start, size());
+    return std::string_view{contents_}.substr(start, end - start);
+}
+
+}  // namespace ember::ast

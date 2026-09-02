@@ -1,0 +1,7 @@
+(program
+  (fn @2:1 pub main
+    (params)
+    (block @2:15
+      (expr-stmt @3:5
+        (call @3:5 println
+          (string-lit @3:13 "hello, world"))))))

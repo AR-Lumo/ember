@@ -1,0 +1,131 @@
+(program
+  (fn @9:1 pub bubble_sort
+    (params
+      (param @9:20 values
+        (ref @9:28
+          (array @9:29 8
+            (int @9:30)))))
+    (block @9:39
+      (let @10:5 mut pass
+        (int-lit @10:20 0))
+      (while @11:5
+        (binary @11:11 lt
+          (name @11:11 pass)
+          (call @11:18 len
+            (name @11:22 values)))
+        (block @11:30
+          (let @12:9 mut i
+            (int-lit @12:21 0))
+          (while @15:9
+            (binary @15:15 lt
+              (binary @15:15 add
+                (name @15:15 i)
+                (int-lit @15:19 1))
+              (binary @15:23 sub
+                (call @15:23 len
+                  (name @15:27 values))
+                (name @15:37 pass)))
+            (block @15:42
+              (if @16:13
+                (binary @16:16 gt
+                  (index @16:16
+                    (name @16:16 values)
+                    (name @16:23 i))
+                  (index @16:28
+                    (name @16:28 values)
+                    (binary @16:35 add
+                      (name @16:35 i)
+                      (int-lit @16:39 1))))
+                (block @16:42
+                  (let @17:17 hold
+                    (index @17:28
+                      (name @17:28 values)
+                      (name @17:35 i)))
+                  (assign @18:17
+                    (index @18:17
+                      (name @18:17 values)
+                      (name @18:24 i))
+                    (index @18:29
+                      (name @18:29 values)
+                      (binary @18:36 add
+                        (name @18:36 i)
+                        (int-lit @18:40 1))))
+                  (assign @19:17
+                    (index @19:17
+                      (name @19:17 values)
+                      (binary @19:24 add
+                        (name @19:24 i)
+                        (int-lit @19:28 1)))
+                    (name @19:33 hold))))
+              (assign @21:13
+                (name @21:13 i)
+                (binary @21:17 add
+                  (name @21:17 i)
+                  (int-lit @21:21 1)))))
+          (assign @23:9
+            (name @23:9 pass)
+            (binary @23:16 add
+              (name @23:16 pass)
+              (int-lit @23:23 1)))))))
+  (fn @28:1 pub print_all
+    (params
+      (param @28:18 label
+        (string @28:25))
+      (param @28:33 values
+        (ref @28:41
+          (array @28:42 8
+            (int @28:43)))))
+    (block @28:52
+      (expr-stmt @29:5
+        (call @29:5 print
+          (name @29:11 label)))
+      (let @30:5 mut i
+        (int-lit @30:17 0))
+      (while @31:5
+        (binary @31:11 lt
+          (name @31:11 i)
+          (call @31:15 len
+            (name @31:19 values)))
+        (block @31:27
+          (expr-stmt @32:9
+            (call @32:9 print
+              (string-lit @32:15 " ")))
+          (expr-stmt @33:9
+            (call @33:9 print
+              (index @33:15
+                (name @33:15 values)
+                (name @33:22 i))))
+          (assign @34:9
+            (name @34:9 i)
+            (binary @34:13 add
+              (name @34:13 i)
+              (int-lit @34:17 1)))))
+      (expr-stmt @36:5
+        (call @36:5 println
+          (string-lit @36:13 "")))))
+  (fn @39:1 pub main
+    (params)
+    (block @39:15
+      (let @40:5 mut numbers
+        (array @40:22 8
+          (int @40:23))
+        (array-lit @40:33
+          (int-lit @40:34 5)
+          (int-lit @40:37 2)
+          (int-lit @40:40 9)
+          (int-lit @40:43 1)
+          (int-lit @40:46 7)
+          (int-lit @40:49 3)
+          (int-lit @40:52 8)
+          (int-lit @40:55 4)))
+      (expr-stmt @42:5
+        (call @42:5 print_all
+          (string-lit @42:15 "before:")
+          (name @42:26 numbers)))
+      (expr-stmt @43:5
+        (call @43:5 bubble_sort
+          (name @43:17 numbers)))
+      (expr-stmt @44:5
+        (call @44:5 print_all
+          (string-lit @44:15 "after: ")
+          (name @44:26 numbers))))))

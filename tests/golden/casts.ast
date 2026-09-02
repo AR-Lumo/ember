@@ -1,0 +1,114 @@
+(program
+  (fn @9:1 pub mean
+    (params
+      (param @9:13 values
+        (ref @9:21
+          (array @9:22 5
+            (int @9:23)))))
+    (returns
+      (float @9:35))
+    (block @9:41
+      (let @10:5 mut total
+        (int-lit @10:21 0))
+      (let @11:5 mut i
+        (int-lit @11:17 0))
+      (while @12:5
+        (binary @12:11 lt
+          (name @12:11 i)
+          (call @12:15 len
+            (name @12:19 values)))
+        (block @12:27
+          (assign @13:9
+            (name @13:9 total)
+            (binary @13:17 add
+              (name @13:17 total)
+              (index @13:25
+                (name @13:25 values)
+                (name @13:32 i))))
+          (assign @14:9
+            (name @14:9 i)
+            (binary @14:13 add
+              (name @14:13 i)
+              (int-lit @14:17 1)))))
+      (return @17:5
+        (binary @17:12 div
+          (cast @17:12
+            (float @17:21)
+            (name @17:12 total))
+          (cast @17:29
+            (float @17:44)
+            (call @17:29 len
+              (name @17:33 values)))))))
+  (fn @21:1 pub percent
+    (params
+      (param @21:16 part
+        (int @21:22))
+      (param @21:27 total
+        (int @21:34)))
+    (returns
+      (float @21:42))
+    (block @21:48
+      (return @22:5
+        (binary @22:12 div
+          (binary @22:12 mul
+            (cast @22:12
+              (float @22:20)
+              (name @22:12 part))
+            (float-lit @22:28 100))
+          (cast @22:36
+            (float @22:45)
+            (name @22:36 total))))))
+  (fn @25:1 pub main
+    (params)
+    (block @25:15
+      (let @26:5 counts
+        (array @26:17 5
+          (int @26:18))
+        (array-lit @26:28
+          (int-lit @26:29 3)
+          (int-lit @26:32 7)
+          (int-lit @26:35 8)
+          (int-lit @26:38 12)
+          (int-lit @26:42 20)))
+      (expr-stmt @28:5
+        (call @28:5 print
+          (string-lit @28:11 "mean: ")))
+      (expr-stmt @29:5
+        (call @29:5 println
+          (call @29:13 mean
+            (name @29:18 counts))))
+      (expr-stmt @31:5
+        (call @31:5 print
+          (string-lit @31:11 "12 is this percent of 50: ")))
+      (expr-stmt @32:5
+        (call @32:5 println
+          (call @32:13 percent
+            (int-lit @32:21 12)
+            (int-lit @32:25 50))))
+      (expr-stmt @35:5
+        (call @35:5 print
+          (string-lit @35:11 "3.9 as int: ")))
+      (expr-stmt @36:5
+        (call @36:5 println
+          (cast @36:13
+            (int @36:20)
+            (float-lit @36:13 3.9))))
+      (expr-stmt @37:5
+        (call @37:5 print
+          (string-lit @37:11 "-3.9 as int: ")))
+      (expr-stmt @38:5
+        (call @38:5 println
+          (cast @38:13
+            (int @38:21)
+            (unary @38:13 neg
+              (float-lit @38:14 3.9)))))
+      (expr-stmt @42:5
+        (call @42:5 print
+          (string-lit @42:11 "1 as float + 0.5 = ")))
+      (expr-stmt @43:5
+        (call @43:5 println
+          (binary @43:13 add
+            (cast @43:13
+              (float @43:18)
+              (int-lit @43:13 1))
+            (float-lit @43:26 0.5)))))))

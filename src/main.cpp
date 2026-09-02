@@ -1,0 +1,63 @@
+// Entry point for the `ember` binary.
+//
+// Phase 0: the command line is parsed for real; every subcommand then
+// reports that its pipeline stage is not implemented yet. Phases 1-5
+// fill these in.
+
+#include "cli.hpp"
+
+#include "ember/codegen/codegen.hpp"
+
+#include <iostream>
+#include <span>
+#include <string_view>
+#include <vector>
+
+namespace {
+
+int run_command(const ember::cli::Command& command) {
+    using ember::cli::CommandKind;
+
+    switch (command.kind) {
+        case CommandKind::Help:
+            std::cout << ember::cli::kUsage << '\n';
+            return ember::cli::kExitSuccess;
+
+        case CommandKind::Version:
+            std::cout << ember::cli::version_string() << '\n';
+            return ember::cli::kExitSuccess;
+
+        case CommandKind::Build: {
+            const std::filesystem::path output =
+                command.output.value_or(ember::cli::default_output_path(command.input));
+            return ember::cli::build_file(command.input, output);
+        }
+
+        case CommandKind::Run:
+            return ember::cli::run_file(command.input);
+
+        case CommandKind::Check:
+            return ember::cli::check_file(command.input);
+    }
+
+    return ember::cli::kExitSuccess;
+}
+
+}  // namespace
+
+int main(int argc, char** argv) {
+    std::vector<std::string_view> args;
+    args.reserve(static_cast<std::size_t>(argc > 0 ? argc - 1 : 0));
+    for (int i = 1; i < argc; ++i) {
+        args.emplace_back(argv[i]);
+    }
+
+    const ember::cli::ParseResult parsed = ember::cli::parse_args(args);
+
+    if (const auto* error = std::get_if<ember::cli::UsageError>(&parsed)) {
+        std::cerr << "error: " << error->message << "\n\n" << ember::cli::kUsage << '\n';
+        return ember::cli::kExitUsage;
+    }
+
+    return run_command(std::get<ember::cli::Command>(parsed));
+}

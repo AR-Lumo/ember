@@ -1,0 +1,10 @@
+# Build trees
+/build/
+/cmake-build-*/
+
+# Compiled Ember programs and intermediate artifacts
+*.exe
+*.ll
+*.o
+*.obj
+*.pdb

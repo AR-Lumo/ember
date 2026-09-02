@@ -1,0 +1,188 @@
+9:1-9:4      kw_pub      pub
+9:5-9:7      kw_fn       fn
+9:8-9:12     ident       mean
+9:12-9:13    l_paren     (
+9:13-9:19    ident       values
+9:19-9:20    colon       :
+9:21-9:22    amp         &
+9:22-9:23    l_bracket   [
+9:23-9:26    kw_int      int
+9:26-9:27    semi        ;
+9:28-9:29    int_lit     5  = 5
+9:29-9:30    r_bracket   ]
+9:30-9:31    r_paren     )
+9:32-9:34    arrow       ->
+9:35-9:40    kw_float    float
+9:41-9:42    l_brace     {
+10:5-10:8    kw_let      let
+10:9-10:12   kw_mut      mut
+10:13-10:18  ident       total
+10:19-10:20  eq          =
+10:21-10:22  int_lit     0  = 0
+10:22-10:23  semi        ;
+11:5-11:8    kw_let      let
+11:9-11:12   kw_mut      mut
+11:13-11:14  ident       i
+11:15-11:16  eq          =
+11:17-11:18  int_lit     0  = 0
+11:18-11:19  semi        ;
+12:5-12:10   kw_while    while
+12:11-12:12  ident       i
+12:13-12:14  lt          <
+12:15-12:18  ident       len
+12:18-12:19  l_paren     (
+12:19-12:25  ident       values
+12:25-12:26  r_paren     )
+12:27-12:28  l_brace     {
+13:9-13:14   ident       total
+13:15-13:16  eq          =
+13:17-13:22  ident       total
+13:23-13:24  plus        +
+13:25-13:31  ident       values
+13:31-13:32  l_bracket   [
+13:32-13:33  ident       i
+13:33-13:34  r_bracket   ]
+13:34-13:35  semi        ;
+14:9-14:10   ident       i
+14:11-14:12  eq          =
+14:13-14:14  ident       i
+14:15-14:16  plus        +
+14:17-14:18  int_lit     1  = 1
+14:18-14:19  semi        ;
+15:5-15:6    r_brace     }
+17:5-17:11   kw_return   return
+17:12-17:17  ident       total
+17:18-17:20  kw_as       as
+17:21-17:26  kw_float    float
+17:27-17:28  slash       /
+17:29-17:32  ident       len
+17:32-17:33  l_paren     (
+17:33-17:39  ident       values
+17:39-17:40  r_paren     )
+17:41-17:43  kw_as       as
+17:44-17:49  kw_float    float
+17:49-17:50  semi        ;
+18:1-18:2    r_brace     }
+21:1-21:4    kw_pub      pub
+21:5-21:7    kw_fn       fn
+21:8-21:15   ident       percent
+21:15-21:16  l_paren     (
+21:16-21:20  ident       part
+21:20-21:21  colon       :
+21:22-21:25  kw_int      int
+21:25-21:26  comma       ,
+21:27-21:32  ident       total
+21:32-21:33  colon       :
+21:34-21:37  kw_int      int
+21:37-21:38  r_paren     )
+21:39-21:41  arrow       ->
+21:42-21:47  kw_float    float
+21:48-21:49  l_brace     {
+22:5-22:11   kw_return   return
+22:12-22:16  ident       part
+22:17-22:19  kw_as       as
+22:20-22:25  kw_float    float
+22:26-22:27  star        *
+22:28-22:33  float_lit   100.0  = 100
+22:34-22:35  slash       /
+22:36-22:41  ident       total
+22:42-22:44  kw_as       as
+22:45-22:50  kw_float    float
+22:50-22:51  semi        ;
+23:1-23:2    r_brace     }
+25:1-25:4    kw_pub      pub
+25:5-25:7    kw_fn       fn
+25:8-25:12   ident       main
+25:12-25:13  l_paren     (
+25:13-25:14  r_paren     )
+25:15-25:16  l_brace     {
+26:5-26:8    kw_let      let
+26:9-26:15   ident       counts
+26:15-26:16  colon       :
+26:17-26:18  l_bracket   [
+26:18-26:21  kw_int      int
+26:21-26:22  semi        ;
+26:23-26:24  int_lit     5  = 5
+26:24-26:25  r_bracket   ]
+26:26-26:27  eq          =
+26:28-26:29  l_bracket   [
+26:29-26:30  int_lit     3  = 3
+26:30-26:31  comma       ,
+26:32-26:33  int_lit     7  = 7
+26:33-26:34  comma       ,
+26:35-26:36  int_lit     8  = 8
+26:36-26:37  comma       ,
+26:38-26:40  int_lit     12  = 12
+26:40-26:41  comma       ,
+26:42-26:44  int_lit     20  = 20
+26:44-26:45  r_bracket   ]
+26:45-26:46  semi        ;
+28:5-28:10   ident       print
+28:10-28:11  l_paren     (
+28:11-28:19  string_lit  "mean: "  = "mean: " (6 bytes)
+28:19-28:20  r_paren     )
+28:20-28:21  semi        ;
+29:5-29:12   ident       println
+29:12-29:13  l_paren     (
+29:13-29:17  ident       mean
+29:17-29:18  l_paren     (
+29:18-29:24  ident       counts
+29:24-29:25  r_paren     )
+29:25-29:26  r_paren     )
+29:26-29:27  semi        ;
+31:5-31:10   ident       print
+31:10-31:11  l_paren     (
+31:11-31:39  string_lit  "12 is this percent of 50: "  = "12 is this percent of 50: " (26 bytes)
+31:39-31:40  r_paren     )
+31:40-31:41  semi        ;
+32:5-32:12   ident       println
+32:12-32:13  l_paren     (
+32:13-32:20  ident       percent
+32:20-32:21  l_paren     (
+32:21-32:23  int_lit     12  = 12
+32:23-32:24  comma       ,
+32:25-32:27  int_lit     50  = 50
+32:27-32:28  r_paren     )
+32:28-32:29  r_paren     )
+32:29-32:30  semi        ;
+35:5-35:10   ident       print
+35:10-35:11  l_paren     (
+35:11-35:25  string_lit  "3.9 as int: "  = "3.9 as int: " (12 bytes)
+35:25-35:26  r_paren     )
+35:26-35:27  semi        ;
+36:5-36:12   ident       println
+36:12-36:13  l_paren     (
+36:13-36:16  float_lit   3.9  = 3.9
+36:17-36:19  kw_as       as
+36:20-36:23  kw_int      int
+36:23-36:24  r_paren     )
+36:24-36:25  semi        ;
+37:5-37:10   ident       print
+37:10-37:11  l_paren     (
+37:11-37:26  string_lit  "-3.9 as int: "  = "-3.9 as int: " (13 bytes)
+37:26-37:27  r_paren     )
+37:27-37:28  semi        ;
+38:5-38:12   ident       println
+38:12-38:13  l_paren     (
+38:13-38:14  minus       -
+38:14-38:17  float_lit   3.9  = 3.9
+38:18-38:20  kw_as       as
+38:21-38:24  kw_int      int
+38:24-38:25  r_paren     )
+38:25-38:26  semi        ;
+42:5-42:10   ident       print
+42:10-42:11  l_paren     (
+42:11-42:32  string_lit  "1 as float + 0.5 = "  = "1 as float + 0.5 = " (19 bytes)
+42:32-42:33  r_paren     )
+42:33-42:34  semi        ;
+43:5-43:12   ident       println
+43:12-43:13  l_paren     (
+43:13-43:14  int_lit     1  = 1
+43:15-43:17  kw_as       as
+43:18-43:23  kw_float    float
+43:24-43:25  plus        +
+43:26-43:29  float_lit   0.5  = 0.5
+43:29-43:30  r_paren     )
+43:30-43:31  semi        ;
+44:1-44:2    r_brace     }
+44:2-44:2    eof

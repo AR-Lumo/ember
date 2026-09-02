@@ -1,0 +1,151 @@
+(program
+  (const @4:1 pub MAX_RETRIES
+    (int @4:24)
+    (int-lit @4:30 3))
+  (const @5:1 LARGE
+    (int @5:14)
+    (int-lit @5:20 1000000))
+  (const @6:1 GOLDEN_RATIO
+    (float @6:21)
+    (float-lit @6:29 1.618))
+  (const @7:1 AVOGADRO
+    (float @7:17)
+    (float-lit @7:25 6.02e+23))
+  (const @8:1 GREETING
+    (string @8:17)
+    (string-lit @8:26 "hi\tthere\n"))
+  (const @9:1 ENABLED
+    (bool @9:16)
+    (bool-lit @9:23 true))
+  (const @10:1 DISABLED
+    (bool @10:17)
+    (bool-lit @10:24 false))
+  (struct @12:1 Config
+    (field @13:5 pub retries
+      (int @13:18))
+    (field @14:5 pub ratio
+      (float @14:16))
+    (field @15:5 pub verbose
+      (bool @15:18))
+    (field @16:5 pub label
+      (string @16:16)))
+  (impl @19:1 Config
+    (fn @21:5 pub should_retry
+      (params
+        (self-ref @21:25)
+        (param @21:32 attempt
+          (int @21:41)))
+      (returns
+        (bool @21:49))
+      (block @21:54
+        (return @22:9
+          (binary @22:16 or
+            (binary @22:16 and
+              (binary @22:16 lt
+                (name @22:16 attempt)
+                (field-get @22:26 retries
+                  (name @22:26 self)))
+              (unary @22:42 not
+                (field-get @22:43 verbose
+                  (name @22:43 self))))
+            (binary @22:59 ne
+              (name @22:59 attempt)
+              (int-lit @22:70 0)))))))
+  (fn @27:1 pub arithmetic
+    (params
+      (param @27:19 a
+        (int @27:22))
+      (param @27:27 b
+        (int @27:30)))
+    (returns
+      (int @27:38))
+    (block @27:42
+      (let @28:5 mut total
+        (binary @28:21 sub
+          (binary @28:21 add
+            (name @28:21 a)
+            (name @28:25 b))
+          (binary @28:29 rem
+            (binary @28:29 div
+              (binary @28:29 mul
+                (name @28:29 a)
+                (name @28:33 b))
+              (int-lit @28:37 2))
+            (int-lit @28:41 3))))
+      (assign @29:5
+        (name @29:5 total)
+        (unary @29:13 neg
+          (name @29:14 total)))
+      (while @30:5
+        (binary @30:11 gt
+          (name @30:11 total)
+          (int-lit @30:19 0))
+        (block @30:21
+          (if @31:9
+            (binary @31:12 and
+              (binary @31:12 ge
+                (name @31:12 total)
+                (int-lit @31:21 100))
+              (binary @31:28 le
+                (name @31:28 total)
+                (int-lit @31:37 200)))
+            (block @31:41
+              (assign @32:13
+                (name @32:13 total)
+                (binary @32:21 sub
+                  (name @32:21 total)
+                  (int-lit @32:29 1))))
+            (else @33:16
+              (block @33:16
+                (if @34:13
+                  (binary @34:16 eq
+                    (name @34:16 a)
+                    (name @34:21 b))
+                  (block @34:23
+                    (assign @35:17
+                      (name @35:17 total)
+                      (int-lit @35:25 0)))
+                  (else @36:20
+                    (block @36:20
+                      (assign @37:17
+                        (name @37:17 total)
+                        (binary @37:25 sub
+                          (name @37:25 total)
+                          (int-lit @37:33 2)))))))))))
+      (return @41:5
+        (name @41:12 total))))
+  (fn @45:1 pub first
+    (params
+      (param @45:14 items
+        (array @45:21 3
+          (int @45:22))))
+    (returns
+      (int @45:34))
+    (block @45:38
+      (return @46:5
+        (index @46:12
+          (name @46:12 items)
+          (int-lit @46:18 0)))))
+  (fn @49:1 pub main
+    (params)
+    (block @49:15
+      (let @50:5 config
+        (struct-lit @50:18 Config
+          (init @51:9 retries
+            (name @51:18 MAX_RETRIES))
+          (init @52:9 ratio
+            (name @52:16 GOLDEN_RATIO))
+          (init @53:9 verbose
+            (name @53:18 ENABLED))
+          (init @54:9 label
+            (name @54:16 GREETING))))
+      (expr-stmt @56:5
+        (call @56:5 println
+          (method-call @56:13 should_retry
+            (name @56:13 config)
+            (int-lit @56:33 1))))
+      (expr-stmt @57:5
+        (call @57:5 println
+          (call @57:13 arithmetic
+            (int-lit @57:24 10)
+            (int-lit @57:28 4)))))))

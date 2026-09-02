@@ -1,0 +1,13 @@
+2:1-2:4      kw_pub      pub
+2:5-2:7      kw_fn       fn
+2:8-2:12     ident       main
+2:12-2:13    l_paren     (
+2:13-2:14    r_paren     )
+2:15-2:16    l_brace     {
+3:5-3:12     ident       println
+3:12-3:13    l_paren     (
+3:13-3:27    string_lit  "hello, world"  = "hello, world" (12 bytes)
+3:27-3:28    r_paren     )
+3:28-3:29    semi        ;
+4:1-4:2      r_brace     }
+4:2-4:2      eof

@@ -1,0 +1,102 @@
+(program
+  (fn @7:1 pub fib_iterative
+    (params
+      (param @7:22 n
+        (int @7:25)))
+    (returns
+      (int @7:33))
+    (block @7:37
+      (let @8:5 mut previous
+        (int-lit @8:24 0))
+      (let @9:5 mut current
+        (int-lit @9:23 1))
+      (let @10:5 mut i
+        (int-lit @10:17 0))
+      (while @11:5
+        (binary @11:11 lt
+          (name @11:11 i)
+          (name @11:15 n))
+        (block @11:17
+          (let @12:9 next
+            (binary @12:20 add
+              (name @12:20 previous)
+              (name @12:31 current)))
+          (assign @13:9
+            (name @13:9 previous)
+            (name @13:20 current))
+          (assign @14:9
+            (name @14:9 current)
+            (name @14:19 next))
+          (assign @15:9
+            (name @15:9 i)
+            (binary @15:13 add
+              (name @15:13 i)
+              (int-lit @15:17 1)))))
+      (return @17:5
+        (name @17:12 previous))))
+  (fn @21:1 pub fib_recursive
+    (params
+      (param @21:22 n
+        (int @21:25)))
+    (returns
+      (int @21:33))
+    (block @21:37
+      (if @22:5
+        (binary @22:8 lt
+          (name @22:8 n)
+          (int-lit @22:12 2))
+        (block @22:14
+          (return @23:9
+            (name @23:16 n))))
+      (return @25:5
+        (binary @25:12 add
+          (call @25:12 fib_recursive
+            (binary @25:26 sub
+              (name @25:26 n)
+              (int-lit @25:30 1)))
+          (call @25:35 fib_recursive
+            (binary @25:49 sub
+              (name @25:49 n)
+              (int-lit @25:53 2)))))))
+  (fn @28:1 pub main
+    (params)
+    (block @28:15
+      (expr-stmt @29:5
+        (call @29:5 print
+          (string-lit @29:11 "first ten:")))
+      (let @30:5 mut i
+        (int-lit @30:17 0))
+      (while @31:5
+        (binary @31:11 lt
+          (name @31:11 i)
+          (int-lit @31:15 10))
+        (block @31:18
+          (expr-stmt @32:9
+            (call @32:9 print
+              (string-lit @32:15 " ")))
+          (expr-stmt @33:9
+            (call @33:9 print
+              (call @33:15 fib_iterative
+                (name @33:29 i))))
+          (assign @34:9
+            (name @34:9 i)
+            (binary @34:13 add
+              (name @34:13 i)
+              (int-lit @34:17 1)))))
+      (expr-stmt @36:5
+        (call @36:5 println
+          (string-lit @36:13 "")))
+      (expr-stmt @38:5
+        (call @38:5 print
+          (string-lit @38:11 "fib_iterative(30) = ")))
+      (expr-stmt @39:5
+        (call @39:5 println
+          (call @39:13 fib_iterative
+            (int-lit @39:27 30))))
+      (expr-stmt @41:5
+        (call @41:5 print
+          (string-lit @41:11 "fib_recursive(20) = ")))
+      (expr-stmt @42:5
+        (call @42:5 println
+          (call @42:13 fib_recursive
+            (int-lit @42:27 20)))))))

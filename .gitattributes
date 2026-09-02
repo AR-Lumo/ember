@@ -1,0 +1,11 @@
+# Normalize everything to LF in the repository. The golden snapshots are
+# compared byte-for-byte after normalization, but keeping the stored form
+# stable avoids a whole class of "works on my machine" diffs.
+* text=auto eol=lf
+
+# Ember sources and recorded snapshots are always LF.
+*.em    text eol=lf
+*.tokens text eol=lf
+*.ast   text eol=lf
+*.check text eol=lf
+*.out   text eol=lf

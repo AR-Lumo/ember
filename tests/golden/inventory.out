@@ -1,0 +1,7 @@
+bolts: 120 @ 3c = 360c
+widgets: 2 @ 250c = 500c
+  reorder: widgets
+gaskets: 4 @ 45c = 180c
+  reorder: gaskets
+total value: 1040c
+lines needing reorder: 2

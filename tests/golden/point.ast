@@ -1,0 +1,56 @@
+(program
+  (struct @2:1 Point
+    (field @3:5 pub x
+      (int @3:12))
+    (field @4:5 pub y
+      (int @4:12)))
+  (impl @7:1 Point
+    (fn @9:5 pub distance_sq
+      (params
+        (self-ref @9:24)
+        (param @9:31 other
+          (named @9:38 Point)))
+      (returns
+        (int @9:48))
+      (block @9:52
+        (let @10:9 dx
+          (binary @10:18 sub
+            (field-get @10:18 x
+              (name @10:18 self))
+            (field-get @10:27 x
+              (name @10:27 other))))
+        (let @11:9 dy
+          (binary @11:18 sub
+            (field-get @11:18 y
+              (name @11:18 self))
+            (field-get @11:27 y
+              (name @11:27 other))))
+        (return @12:9
+          (binary @12:16 add
+            (binary @12:16 mul
+              (name @12:16 dx)
+              (name @12:21 dx))
+            (binary @12:26 mul
+              (name @12:26 dy)
+              (name @12:31 dy)))))))
+  (const @16:1 ORIGIN
+    (named @16:15 Point)
+    (struct-lit @16:23 Point
+      (init @16:31 x
+        (int-lit @16:34 0))
+      (init @16:37 y
+        (int-lit @16:40 0))))
+  (fn @18:1 pub main
+    (params)
+    (block @18:15
+      (let @19:5 p
+        (struct-lit @19:13 Point
+          (init @19:21 x
+            (int-lit @19:24 3))
+          (init @19:27 y
+            (int-lit @19:30 4))))
+      (expr-stmt @20:5
+        (call @20:5 println
+          (method-call @20:13 distance_sq
+            (name @20:13 p)
+            (name @20:27 ORIGIN)))))))

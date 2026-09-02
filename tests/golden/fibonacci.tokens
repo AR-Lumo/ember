@@ -1,0 +1,171 @@
+7:1-7:4      kw_pub      pub
+7:5-7:7      kw_fn       fn
+7:8-7:21     ident       fib_iterative
+7:21-7:22    l_paren     (
+7:22-7:23    ident       n
+7:23-7:24    colon       :
+7:25-7:28    kw_int      int
+7:28-7:29    r_paren     )
+7:30-7:32    arrow       ->
+7:33-7:36    kw_int      int
+7:37-7:38    l_brace     {
+8:5-8:8      kw_let      let
+8:9-8:12     kw_mut      mut
+8:13-8:21    ident       previous
+8:22-8:23    eq          =
+8:24-8:25    int_lit     0  = 0
+8:25-8:26    semi        ;
+9:5-9:8      kw_let      let
+9:9-9:12     kw_mut      mut
+9:13-9:20    ident       current
+9:21-9:22    eq          =
+9:23-9:24    int_lit     1  = 1
+9:24-9:25    semi        ;
+10:5-10:8    kw_let      let
+10:9-10:12   kw_mut      mut
+10:13-10:14  ident       i
+10:15-10:16  eq          =
+10:17-10:18  int_lit     0  = 0
+10:18-10:19  semi        ;
+11:5-11:10   kw_while    while
+11:11-11:12  ident       i
+11:13-11:14  lt          <
+11:15-11:16  ident       n
+11:17-11:18  l_brace     {
+12:9-12:12   kw_let      let
+12:13-12:17  ident       next
+12:18-12:19  eq          =
+12:20-12:28  ident       previous
+12:29-12:30  plus        +
+12:31-12:38  ident       current
+12:38-12:39  semi        ;
+13:9-13:17   ident       previous
+13:18-13:19  eq          =
+13:20-13:27  ident       current
+13:27-13:28  semi        ;
+14:9-14:16   ident       current
+14:17-14:18  eq          =
+14:19-14:23  ident       next
+14:23-14:24  semi        ;
+15:9-15:10   ident       i
+15:11-15:12  eq          =
+15:13-15:14  ident       i
+15:15-15:16  plus        +
+15:17-15:18  int_lit     1  = 1
+15:18-15:19  semi        ;
+16:5-16:6    r_brace     }
+17:5-17:11   kw_return   return
+17:12-17:20  ident       previous
+17:20-17:21  semi        ;
+18:1-18:2    r_brace     }
+21:1-21:4    kw_pub      pub
+21:5-21:7    kw_fn       fn
+21:8-21:21   ident       fib_recursive
+21:21-21:22  l_paren     (
+21:22-21:23  ident       n
+21:23-21:24  colon       :
+21:25-21:28  kw_int      int
+21:28-21:29  r_paren     )
+21:30-21:32  arrow       ->
+21:33-21:36  kw_int      int
+21:37-21:38  l_brace     {
+22:5-22:7    kw_if       if
+22:8-22:9    ident       n
+22:10-22:11  lt          <
+22:12-22:13  int_lit     2  = 2
+22:14-22:15  l_brace     {
+23:9-23:15   kw_return   return
+23:16-23:17  ident       n
+23:17-23:18  semi        ;
+24:5-24:6    r_brace     }
+25:5-25:11   kw_return   return
+25:12-25:25  ident       fib_recursive
+25:25-25:26  l_paren     (
+25:26-25:27  ident       n
+25:28-25:29  minus       -
+25:30-25:31  int_lit     1  = 1
+25:31-25:32  r_paren     )
+25:33-25:34  plus        +
+25:35-25:48  ident       fib_recursive
+25:48-25:49  l_paren     (
+25:49-25:50  ident       n
+25:51-25:52  minus       -
+25:53-25:54  int_lit     2  = 2
+25:54-25:55  r_paren     )
+25:55-25:56  semi        ;
+26:1-26:2    r_brace     }
+28:1-28:4    kw_pub      pub
+28:5-28:7    kw_fn       fn
+28:8-28:12   ident       main
+28:12-28:13  l_paren     (
+28:13-28:14  r_paren     )
+28:15-28:16  l_brace     {
+29:5-29:10   ident       print
+29:10-29:11  l_paren     (
+29:11-29:23  string_lit  "first ten:"  = "first ten:" (10 bytes)
+29:23-29:24  r_paren     )
+29:24-29:25  semi        ;
+30:5-30:8    kw_let      let
+30:9-30:12   kw_mut      mut
+30:13-30:14  ident       i
+30:15-30:16  eq          =
+30:17-30:18  int_lit     0  = 0
+30:18-30:19  semi        ;
+31:5-31:10   kw_while    while
+31:11-31:12  ident       i
+31:13-31:14  lt          <
+31:15-31:17  int_lit     10  = 10
+31:18-31:19  l_brace     {
+32:9-32:14   ident       print
+32:14-32:15  l_paren     (
+32:15-32:18  string_lit  " "  = " " (1 bytes)
+32:18-32:19  r_paren     )
+32:19-32:20  semi        ;
+33:9-33:14   ident       print
+33:14-33:15  l_paren     (
+33:15-33:28  ident       fib_iterative
+33:28-33:29  l_paren     (
+33:29-33:30  ident       i
+33:30-33:31  r_paren     )
+33:31-33:32  r_paren     )
+33:32-33:33  semi        ;
+34:9-34:10   ident       i
+34:11-34:12  eq          =
+34:13-34:14  ident       i
+34:15-34:16  plus        +
+34:17-34:18  int_lit     1  = 1
+34:18-34:19  semi        ;
+35:5-35:6    r_brace     }
+36:5-36:12   ident       println
+36:12-36:13  l_paren     (
+36:13-36:15  string_lit  ""  = "" (0 bytes)
+36:15-36:16  r_paren     )
+36:16-36:17  semi        ;
+38:5-38:10   ident       print
+38:10-38:11  l_paren     (
+38:11-38:33  string_lit  "fib_iterative(30) = "  = "fib_iterative(30) = " (20 bytes)
+38:33-38:34  r_paren     )
+38:34-38:35  semi        ;
+39:5-39:12   ident       println
+39:12-39:13  l_paren     (
+39:13-39:26  ident       fib_iterative
+39:26-39:27  l_paren     (
+39:27-39:29  int_lit     30  = 30
+39:29-39:30  r_paren     )
+39:30-39:31  r_paren     )
+39:31-39:32  semi        ;
+41:5-41:10   ident       print
+41:10-41:11  l_paren     (
+41:11-41:33  string_lit  "fib_recursive(20) = "  = "fib_recursive(20) = " (20 bytes)
+41:33-41:34  r_paren     )
+41:34-41:35  semi        ;
+42:5-42:12   ident       println
+42:12-42:13  l_paren     (
+42:13-42:26  ident       fib_recursive
+42:26-42:27  l_paren     (
+42:27-42:29  int_lit     20  = 20
+42:29-42:30  r_paren     )
+42:30-42:31  r_paren     )
+42:31-42:32  semi        ;
+43:1-43:2    r_brace     }
+43:2-43:2    eof

@@ -1,0 +1,3 @@
+first ten: 0 1 1 2 3 5 8 13 21 34
+fib_iterative(30) = 832040
+fib_recursive(20) = 6765

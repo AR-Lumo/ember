@@ -1,0 +1,123 @@
+4:1-4:4      kw_pub      pub
+4:5-4:7      kw_fn       fn
+4:8-4:17     ident       sum_three
+4:17-4:18    l_paren     (
+4:18-4:24    ident       values
+4:24-4:25    colon       :
+4:26-4:27    l_bracket   [
+4:27-4:30    kw_int      int
+4:30-4:31    semi        ;
+4:32-4:33    int_lit     3  = 3
+4:33-4:34    r_bracket   ]
+4:34-4:35    r_paren     )
+4:36-4:38    arrow       ->
+4:39-4:42    kw_int      int
+4:43-4:44    l_brace     {
+5:5-5:11     kw_return   return
+5:12-5:18    ident       values
+5:18-5:19    l_bracket   [
+5:19-5:20    int_lit     0  = 0
+5:20-5:21    r_bracket   ]
+5:22-5:23    plus        +
+5:24-5:30    ident       values
+5:30-5:31    l_bracket   [
+5:31-5:32    int_lit     1  = 1
+5:32-5:33    r_bracket   ]
+5:34-5:35    plus        +
+5:36-5:42    ident       values
+5:42-5:43    l_bracket   [
+5:43-5:44    int_lit     2  = 2
+5:44-5:45    r_bracket   ]
+5:45-5:46    semi        ;
+6:1-6:2      r_brace     }
+9:1-9:4      kw_pub      pub
+9:5-9:7      kw_fn       fn
+9:8-9:12     ident       main
+9:12-9:13    l_paren     (
+9:13-9:14    r_paren     )
+9:15-9:16    l_brace     {
+10:5-10:8    kw_let      let
+10:9-10:16   ident       numbers
+10:16-10:17  colon       :
+10:18-10:19  l_bracket   [
+10:19-10:22  kw_int      int
+10:22-10:23  semi        ;
+10:24-10:25  int_lit     3  = 3
+10:25-10:26  r_bracket   ]
+10:27-10:28  eq          =
+10:29-10:30  l_bracket   [
+10:30-10:31  int_lit     1  = 1
+10:31-10:32  comma       ,
+10:33-10:34  int_lit     2  = 2
+10:34-10:35  comma       ,
+10:36-10:37  int_lit     3  = 3
+10:37-10:38  r_bracket   ]
+10:38-10:39  semi        ;
+11:5-11:8    kw_let      let
+11:9-11:15   ident       ratios
+11:15-11:16  colon       :
+11:17-11:18  l_bracket   [
+11:18-11:23  kw_float    float
+11:23-11:24  semi        ;
+11:25-11:26  int_lit     2  = 2
+11:26-11:27  r_bracket   ]
+11:28-11:29  eq          =
+11:30-11:31  l_bracket   [
+11:31-11:34  float_lit   0.5  = 0.5
+11:34-11:35  comma       ,
+11:36-11:39  float_lit   1.5  = 1.5
+11:39-11:40  r_bracket   ]
+11:40-11:41  semi        ;
+12:5-12:8    kw_let      let
+12:9-12:14   ident       flags
+12:14-12:15  colon       :
+12:16-12:17  l_bracket   [
+12:17-12:21  kw_bool     bool
+12:21-12:22  semi        ;
+12:23-12:24  int_lit     2  = 2
+12:24-12:25  r_bracket   ]
+12:26-12:27  eq          =
+12:28-12:29  l_bracket   [
+12:29-12:33  bool_lit    true  = true
+12:33-12:34  comma       ,
+12:35-12:40  bool_lit    false  = false
+12:40-12:41  r_bracket   ]
+12:41-12:42  semi        ;
+13:5-13:8    kw_let      let
+13:9-13:12   kw_mut      mut
+13:13-13:18  ident       total
+13:19-13:20  eq          =
+13:21-13:30  ident       sum_three
+13:30-13:31  l_paren     (
+13:31-13:38  ident       numbers
+13:38-13:39  r_paren     )
+13:39-13:40  semi        ;
+14:5-14:10   ident       total
+14:11-14:12  eq          =
+14:13-14:18  ident       total
+14:19-14:20  plus        +
+14:21-14:22  int_lit     1  = 1
+14:22-14:23  semi        ;
+15:5-15:12   ident       println
+15:12-15:13  l_paren     (
+15:13-15:18  ident       total
+15:18-15:19  r_paren     )
+15:19-15:20  semi        ;
+16:5-16:12   ident       println
+16:12-16:13  l_paren     (
+16:13-16:19  ident       ratios
+16:19-16:20  l_bracket   [
+16:20-16:21  int_lit     0  = 0
+16:21-16:22  r_bracket   ]
+16:22-16:23  r_paren     )
+16:23-16:24  semi        ;
+17:5-17:12   ident       println
+17:12-17:13  l_paren     (
+17:13-17:18  ident       flags
+17:18-17:19  l_bracket   [
+17:19-17:20  int_lit     1  = 1
+17:20-17:21  r_bracket   ]
+17:21-17:22  r_paren     )
+17:22-17:23  semi        ;
+18:1-18:2    r_brace     }
+18:2-18:2    eof
