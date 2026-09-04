@@ -5,6 +5,7 @@
 #endif
 
 #include <map>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -81,12 +82,15 @@ using typeck::TypePtr;
 struct Slot {
     llvm::Value* address = nullptr;
     TypePtr type = nullptr;
+    /// For an owned type: an i1 that is true while this slot still holds
+    /// a value it must free. Null for types that need no cleanup.
+    llvm::Value* drop_flag = nullptr;
 };
 
 class Emitter {
 public:
     Emitter(const std::vector<ModuleInput>& modules, const typeck::CheckResult& checked,
-            const CompileOptions& options)
+            const CompileOptions& options, const llvm::DataLayout* layout)
         : modules_(modules),
           checked_(checked),
           context_(std::make_unique<llvm::LLVMContext>()),
@@ -96,6 +100,17 @@ public:
         // length keeps len() O(1) and lets a string hold a NUL byte.
         string_type_ = llvm::StructType::create(*context_, {ptr_type(), int_type()},
                                                 "ember.string");
+        // A growable container is { buffer, length, capacity }. One
+        // layout serves every `Vec<T>` and `String`, because the element
+        // size is known at each use site rather than carried at runtime.
+        buffer_type_ = llvm::StructType::create(
+            *context_, {ptr_type(), int_type(), int_type()}, "ember.buffer");
+
+        // Set before anything is emitted: a `Vec<T>` push needs the size
+        // of T, and asking a module with no layout gives nonsense.
+        if (layout != nullptr) {
+            module_->setDataLayout(*layout);
+        }
     }
 
     bool run() {
@@ -133,6 +148,7 @@ private:
     std::vector<ast::Diagnostic> diagnostics_;
 
     llvm::StructType* string_type_ = nullptr;
+    llvm::StructType* buffer_type_ = nullptr;
     std::map<std::string, llvm::StructType*> struct_types_;
     std::map<std::string, llvm::Function*> functions_;
     std::map<std::string, llvm::GlobalVariable*> constants_;
@@ -194,6 +210,9 @@ private:
             case TypeKind::Array:
                 return llvm::ArrayType::get(lower(type->element),
                                             static_cast<std::uint64_t>(type->length));
+            case TypeKind::Vec:
+            case TypeKind::StringBuf:
+                return buffer_type_;
             case TypeKind::Generic:
                 // Unreachable: only instantiated bodies are emitted, and
                 // every type in one has been substituted.
@@ -331,10 +350,12 @@ private:
         // Fall off the end: the checker has already proved this is only
         // reachable for functions that return nothing.
         if (!builder_.GetInsertBlock()->getTerminator()) {
+            emit_all_drops();
             emit_default_return();
         }
 
-        pop_scope();
+        // The parameter scope was already covered by emit_all_drops.
+        scopes_.pop_back();
         current_function_ = nullptr;
         current_info_ = nullptr;
     }
@@ -356,11 +377,132 @@ private:
     }
 
     // -----------------------------------------------------------------
-    // Scopes
+    // Scopes and drops
+    //
+    // Every owned local gets a drop flag beside it: an i1 set when the
+    // value is stored and cleared when it moves away. At the end of the
+    // scope each live local is freed, newest first.
+    //
+    // A flag rather than a static decision, because a value can be moved
+    // on one path and not another - `if c { consume(v); }` - and only the
+    // running program knows which happened. The flag is a stack slot the
+    // optimizer folds away wherever the answer is obvious.
     // -----------------------------------------------------------------
 
     void push_scope() { scopes_.emplace_back(); }
-    void pop_scope() { scopes_.pop_back(); }
+
+    /// Drops everything the scope still owns, then discards it.
+    void pop_scope() {
+        emit_scope_drops(scopes_.back());
+        scopes_.pop_back();
+    }
+
+    void emit_scope_drops(const std::map<std::string, Slot>& scope) {
+        if (block_terminated()) {
+            return;  // a return already dropped everything on its way out
+        }
+        // Reverse declaration order, so a value is dropped before
+        // anything it was built from.
+        for (auto slot = scope.rbegin(); slot != scope.rend(); ++slot) {
+            emit_conditional_drop(slot->second);
+        }
+    }
+
+    /// `if (flag) drop(value)`, for one slot.
+    void emit_conditional_drop(const Slot& slot) {
+        if (slot.drop_flag == nullptr || !typeck::is_owned(slot.type)) {
+            return;
+        }
+
+        llvm::BasicBlock* drop_block = llvm::BasicBlock::Create(*context_, "drop");
+        llvm::BasicBlock* after = llvm::BasicBlock::Create(*context_, "drop.end");
+
+        llvm::Value* live = builder_.CreateLoad(bool_type(), slot.drop_flag, "live");
+        builder_.CreateCondBr(live, drop_block, after);
+
+        drop_block->insertInto(current_function_);
+        builder_.SetInsertPoint(drop_block);
+        emit_drop(slot.type, slot.address);
+        builder_.CreateBr(after);
+
+        after->insertInto(current_function_);
+        builder_.SetInsertPoint(after);
+    }
+
+    /// Frees whatever `address` owns, recursing into aggregates.
+    void emit_drop(TypePtr type, llvm::Value* address) {
+        if (!typeck::is_owned(type)) {
+            return;
+        }
+
+        switch (type->kind) {
+            case TypeKind::Vec:
+            case TypeKind::StringBuf: {
+                // The elements of a `Vec<T>` where T itself owns memory
+                // would need a loop here; v2 only allows scalar and
+                // borrowed element types, which the checker enforces.
+                llvm::Value* buffer = builder_.CreateLoad(
+                    ptr_type(), builder_.CreateStructGEP(buffer_type_, address, 0), "buf");
+                builder_.CreateCall(runtime("ember_free", void_type(), {ptr_type()}), {buffer});
+                // Null the pointer so a double drop cannot free twice,
+                // whatever the flags say.
+                builder_.CreateStore(llvm::ConstantPointerNull::get(ptr_type()),
+                                     builder_.CreateStructGEP(buffer_type_, address, 0));
+                return;
+            }
+
+            case TypeKind::Struct: {
+                const typeck::StructInfo& info = checked_.structs.at(typeck::to_string(type));
+                llvm::StructType* layout = struct_types_.at(typeck::to_string(type));
+                for (const typeck::FieldInfo& field : info.fields) {
+                    if (typeck::is_owned(field.type)) {
+                        emit_drop(field.type,
+                                  builder_.CreateStructGEP(
+                                      layout, address, static_cast<unsigned>(field.index)));
+                    }
+                }
+                return;
+            }
+
+            case TypeKind::Array: {
+                llvm::Type* layout = lower(type);
+                for (std::int64_t i = 0; i < type->length; ++i) {
+                    emit_drop(type->element,
+                              builder_.CreateInBoundsGEP(
+                                  layout, address,
+                                  {builder_.getInt64(0), builder_.getInt64(
+                                                             static_cast<std::uint64_t>(i))}));
+                }
+                return;
+            }
+
+            default:
+                return;
+        }
+    }
+
+    /// Drops every live local in every open scope. Used on the way out
+    /// of a function, where the scopes are not popped one at a time.
+    void emit_all_drops() {
+        for (auto scope = scopes_.rbegin(); scope != scopes_.rend(); ++scope) {
+            for (auto slot = scope->rbegin(); slot != scope->rend(); ++slot) {
+                emit_conditional_drop(slot->second);
+            }
+        }
+    }
+
+    /// A stack slot for an owned local, plus the flag that says whether
+    /// it still holds something.
+    llvm::Value* create_drop_flag(const std::string& name) {
+        llvm::Value* flag = create_entry_alloca(bool_type(), name + ".live");
+        // Cleared in the entry block: a value declared inside a loop is
+        // dead again on each new iteration until it is stored.
+        llvm::IRBuilder<> entry_builder(&current_function_->getEntryBlock(),
+                                        std::next(current_function_->getEntryBlock().begin(),
+                                                  0));
+        builder_.CreateStore(builder_.getInt1(false), flag);
+        return flag;
+    }
 
     const Slot* lookup(const std::string& name) const {
         for (auto scope = scopes_.rbegin(); scope != scopes_.rend(); ++scope) {
@@ -429,8 +571,17 @@ private:
     void emit_let(const ast::LetStmt& statement) {
         const TypePtr type = binding_type(statement);
         llvm::Value* slot = create_entry_alloca(lower(type), statement.name);
+
+        // The flag is created before the initializer runs, so that a
+        // `let` inside a loop starts each iteration owning nothing.
+        llvm::Value* flag =
+            typeck::is_owned(type) ? create_drop_flag(statement.name) : nullptr;
+
         builder_.CreateStore(emit_as(*statement.value, type), slot);
-        scopes_.back()[statement.name] = Slot{slot, type};
+        if (flag != nullptr) {
+            builder_.CreateStore(builder_.getInt1(true), flag);
+        }
+        scopes_.back()[statement.name] = Slot{slot, type, flag};
     }
 
     /// The type the checker gave this binding. Re-deriving it here
@@ -445,10 +596,14 @@ private:
 
     void emit_return(const ast::ReturnStmt& statement) {
         if (statement.value == nullptr) {
+            emit_all_drops();
             emit_default_return();
             return;
         }
         llvm::Value* value = emit_as(*statement.value, current_info_->return_type);
+        // After the value is in hand: the returned local has had its flag
+        // cleared by the move above, so this frees everything else.
+        emit_all_drops();
         if (current_is_entry_point_) {
             builder_.CreateRet(llvm::ConstantInt::get(llvm::Type::getInt32Ty(*context_), 0));
         } else {
@@ -518,7 +673,32 @@ private:
     void emit_assign(const ast::AssignStmt& statement) {
         const TypePtr target = type_of(*statement.target);
         llvm::Value* address = emit_address(*statement.target);
+
+        // Overwriting an owned value frees what was there, or the old
+        // buffer would be lost with nothing left pointing at it.
+        const Slot* slot = slot_of(*statement.target);
+        if (typeck::is_owned(target)) {
+            if (slot != nullptr) {
+                emit_conditional_drop(*slot);
+            } else {
+                emit_drop(target, address);
+            }
+        }
+
         builder_.CreateStore(emit_as(*statement.value, target), address);
+
+        if (slot != nullptr && slot->drop_flag != nullptr) {
+            builder_.CreateStore(builder_.getInt1(true), slot->drop_flag);
+        }
+    }
+
+    /// The slot a place expression names, when it names one directly.
+    const Slot* slot_of(const ast::Expr& expr) const {
+        const auto* name = ast::node_cast<ast::NameExpr>(&expr);
+        if (name == nullptr || !name->module.empty()) {
+            return nullptr;
+        }
+        return lookup(name->name);
     }
 
     // -----------------------------------------------------------------
@@ -571,8 +751,24 @@ private:
                                                 ? emit_value(*index.object)
                                                 : emit_address(*index.object);
                 llvm::Value* offset = emit_value(*index.index);
-                emit_bounds_check(offset, base->length, index.span);
 
+                if (base->kind == TypeKind::Vec) {
+                    // A `Vec` indexes into its heap buffer, and its
+                    // length is a runtime value rather than part of the
+                    // type, so the bounds check loads it.
+                    llvm::Value* length = builder_.CreateLoad(
+                        int_type(), builder_.CreateStructGEP(buffer_type_, base_address, 1),
+                        "len");
+                    emit_dynamic_bounds_check(offset, length);
+
+                    llvm::Value* buffer = builder_.CreateLoad(
+                        ptr_type(), builder_.CreateStructGEP(buffer_type_, base_address, 0),
+                        "buf");
+                    return builder_.CreateInBoundsGEP(lower(base->element), buffer, {offset},
+                                                      "elem");
+                }
+
+                emit_bounds_check(offset, base->length, index.span);
                 llvm::Type* array_type = lower(base);
                 return builder_.CreateInBoundsGEP(
                     array_type, base_address, {builder_.getInt64(0), offset}, "elem");
@@ -587,6 +783,24 @@ private:
         llvm::Value* slot = create_entry_alloca(lower(type), "temp");
         builder_.CreateStore(emit_value(expr), slot);
         return slot;
+    }
+
+    /// The same check against a length only known at runtime.
+    void emit_dynamic_bounds_check(llvm::Value* index, llvm::Value* length) {
+        llvm::BasicBlock* ok = llvm::BasicBlock::Create(*context_, "bounds.ok");
+        llvm::BasicBlock* fail = llvm::BasicBlock::Create(*context_, "bounds.fail");
+
+        builder_.CreateCondBr(builder_.CreateICmpULT(index, length), ok, fail);
+
+        fail->insertInto(current_function_);
+        builder_.SetInsertPoint(fail);
+        builder_.CreateCall(
+            runtime("ember_panic_index_out_of_bounds", void_type(), {int_type(), int_type()}),
+            {index, length});
+        builder_.CreateUnreachable();
+
+        ok->insertInto(current_function_);
+        builder_.SetInsertPoint(ok);
     }
 
     /// §9 says follow C for the low-level rules, and C does not bounds
@@ -653,7 +867,19 @@ private:
             case ast::ExprKind::Name: {
                 const auto& name = static_cast<const ast::NameExpr&>(expr);
                 const TypePtr type = type_of(expr);
-                return builder_.CreateLoad(lower(type), emit_address(expr), name.name);
+                llvm::Value* value =
+                    builder_.CreateLoad(lower(type), emit_address(expr), name.name);
+
+                // The checker decided this read hands ownership on, so
+                // this slot must no longer free the buffer.
+                if (checked_.is_move(current_instance_, expr)) {
+                    if (const Slot* slot = slot_of(expr)) {
+                        if (slot->drop_flag != nullptr) {
+                            builder_.CreateStore(builder_.getInt1(false), slot->drop_flag);
+                        }
+                    }
+                }
+                return value;
             }
 
             case ast::ExprKind::FieldAccess:
@@ -889,12 +1115,54 @@ private:
                                    callee->getReturnType()->isVoidTy() ? "" : "call");
     }
 
+    /// Size of one element, for the growth arithmetic.
+    llvm::Value* size_of(TypePtr element) {
+        return builder_.getInt64(
+            module_->getDataLayout().getTypeAllocSize(lower(element)).getFixedValue());
+    }
+
+    /// The address of a container argument, whether it was passed by
+    /// reference or named directly.
+    llvm::Value* container_address(const ast::Expr& expr) {
+        const TypePtr type = type_of(expr);
+        return (type != nullptr && type->kind == TypeKind::Reference) ? emit_value(expr)
+                                                                     : emit_address(expr);
+    }
+
     llvm::Value* emit_intrinsic(const ast::CallExpr& expr) {
+        if (expr.callee == "new_vec" || expr.callee == "new_string") {
+            // An empty container is { null, 0, 0 }. Nothing is allocated
+            // until the first push, so an unused one costs no heap.
+            llvm::Value* value = llvm::UndefValue::get(buffer_type_);
+            value = builder_.CreateInsertValue(
+                value, llvm::ConstantPointerNull::get(ptr_type()), {0});
+            value = builder_.CreateInsertValue(value, builder_.getInt64(0), {1});
+            value = builder_.CreateInsertValue(value, builder_.getInt64(0), {2});
+            return value;
+        }
+
+        if (expr.callee == "push") {
+            return emit_push(expr);
+        }
+        if (expr.callee == "pop") {
+            return emit_pop(expr);
+        }
+        if (expr.callee == "push_str") {
+            return emit_push_str(expr);
+        }
+
         if (expr.callee == "len") {
+            const TypePtr argument = typeck::strip_reference(type_of(*expr.args.front()));
+
+            if (argument->kind == TypeKind::Vec || argument->kind == TypeKind::StringBuf) {
+                // A growable container carries its length at runtime.
+                llvm::Value* address = container_address(*expr.args.front());
+                return builder_.CreateLoad(
+                    int_type(), builder_.CreateStructGEP(buffer_type_, address, 1), "len");
+            }
+
             // An array's length is part of its type, so `len` folds to a
             // constant. The argument is still evaluated for its effects.
-            const TypePtr argument =
-                typeck::strip_reference(type_of(*expr.args.front()));
             emit_value(*expr.args.front());
             return builder_.getInt64(static_cast<std::uint64_t>(argument->length));
         }
@@ -902,6 +1170,21 @@ private:
         const bool newline = expr.callee == "println";
         const ast::Expr& argument = *expr.args.front();
         const TypePtr type = typeck::strip_reference(type_of(argument));
+
+        if (type->kind == TypeKind::StringBuf) {
+            // A `String` prints its buffer and length directly, the same
+            // way a `string` view does.
+            llvm::Value* address = container_address(argument);
+            builder_.CreateCall(
+                runtime(newline ? "ember_println_string" : "ember_print_string", void_type(),
+                        {ptr_type(), int_type()}),
+                {builder_.CreateLoad(ptr_type(),
+                                     builder_.CreateStructGEP(buffer_type_, address, 0)),
+                 builder_.CreateLoad(int_type(),
+                                     builder_.CreateStructGEP(buffer_type_, address, 1))});
+            return nullptr;
+        }
+
         llvm::Value* value = emit_as(argument, type);
 
         switch (type->kind) {
@@ -955,6 +1238,95 @@ private:
             return builder_.CreateFPToSI(value, int_type(), "cast");
         }
         return value;
+    }
+
+    /// `push(v, x)`: grow if the buffer is full, store, bump the length.
+    llvm::Value* emit_push(const ast::CallExpr& expr) {
+        const TypePtr container = typeck::strip_reference(type_of(*expr.args[0]));
+        llvm::Value* address = container_address(*expr.args[0]);
+        llvm::Value* value = emit_as(*expr.args[1], container->element);
+
+        llvm::Value* buffer_field = builder_.CreateStructGEP(buffer_type_, address, 0);
+        llvm::Value* length_field = builder_.CreateStructGEP(buffer_type_, address, 1);
+        llvm::Value* capacity_field = builder_.CreateStructGEP(buffer_type_, address, 2);
+
+        llvm::Value* length = builder_.CreateLoad(int_type(), length_field, "len");
+
+        // The runtime decides whether to grow and by how much, and hands
+        // back the buffer, which realloc may have moved.
+        llvm::Value* grown = builder_.CreateCall(
+            runtime("ember_grow", ptr_type(),
+                    {ptr_type(), int_type(), int_type(), ptr_type()}),
+            {builder_.CreateLoad(ptr_type(), buffer_field, "buf"), size_of(container->element),
+             length, capacity_field});
+        builder_.CreateStore(grown, buffer_field);
+
+        builder_.CreateStore(
+            value, builder_.CreateInBoundsGEP(lower(container->element), grown, {length}));
+        builder_.CreateStore(builder_.CreateAdd(length, builder_.getInt64(1)), length_field);
+        return nullptr;
+    }
+
+    /// `pop(v)`: the last element, with the length reduced by one.
+    llvm::Value* emit_pop(const ast::CallExpr& expr) {
+        const TypePtr container = typeck::strip_reference(type_of(*expr.args[0]));
+        llvm::Value* address = container_address(*expr.args[0]);
+
+        llvm::Value* length_field = builder_.CreateStructGEP(buffer_type_, address, 1);
+        llvm::Value* length = builder_.CreateLoad(int_type(), length_field, "len");
+
+        llvm::BasicBlock* ok = llvm::BasicBlock::Create(*context_, "pop.ok");
+        llvm::BasicBlock* empty = llvm::BasicBlock::Create(*context_, "pop.empty");
+        builder_.CreateCondBr(builder_.CreateICmpSGT(length, builder_.getInt64(0)), ok, empty);
+
+        empty->insertInto(current_function_);
+        builder_.SetInsertPoint(empty);
+        llvm::Value* what = builder_.CreateGlobalString("Vec", "popwhat");
+        builder_.CreateCall(runtime("ember_panic_empty", void_type(), {ptr_type(), int_type()}),
+                            {what, builder_.getInt64(3)});
+        builder_.CreateUnreachable();
+
+        ok->insertInto(current_function_);
+        builder_.SetInsertPoint(ok);
+
+        llvm::Value* last = builder_.CreateSub(length, builder_.getInt64(1), "last");
+        builder_.CreateStore(last, length_field);
+
+        llvm::Value* buffer = builder_.CreateLoad(
+            ptr_type(), builder_.CreateStructGEP(buffer_type_, address, 0), "buf");
+        return builder_.CreateLoad(
+            lower(container->element),
+            builder_.CreateInBoundsGEP(lower(container->element), buffer, {last}), "popped");
+    }
+
+    /// `push_str(s, text)`: append bytes, growing the buffer as needed.
+    llvm::Value* emit_push_str(const ast::CallExpr& expr) {
+        llvm::Value* address = container_address(*expr.args[0]);
+        const TypePtr text_type = typeck::strip_reference(type_of(*expr.args[1]));
+
+        llvm::Value* bytes = nullptr;
+        llvm::Value* count = nullptr;
+        if (text_type->kind == TypeKind::StringBuf) {
+            llvm::Value* other = container_address(*expr.args[1]);
+            bytes = builder_.CreateLoad(ptr_type(),
+                                        builder_.CreateStructGEP(buffer_type_, other, 0));
+            count = builder_.CreateLoad(int_type(),
+                                        builder_.CreateStructGEP(buffer_type_, other, 1));
+        } else {
+            llvm::Value* view = emit_as(*expr.args[1], text_type);
+            bytes = builder_.CreateExtractValue(view, {0});
+            count = builder_.CreateExtractValue(view, {1});
+        }
+
+        llvm::Value* buffer_field = builder_.CreateStructGEP(buffer_type_, address, 0);
+        llvm::Value* appended = builder_.CreateCall(
+            runtime("ember_string_append", ptr_type(),
+                    {ptr_type(), ptr_type(), ptr_type(), ptr_type(), int_type()}),
+            {builder_.CreateLoad(ptr_type(), buffer_field, "buf"),
+             builder_.CreateStructGEP(buffer_type_, address, 1),
+             builder_.CreateStructGEP(buffer_type_, address, 2), bytes, count});
+        builder_.CreateStore(appended, buffer_field);
+        return nullptr;
     }
 
     llvm::Value* emit_struct_literal(const ast::StructLitExpr& expr) {
@@ -1173,17 +1545,22 @@ CompileResult compile_to_string(const std::vector<ModuleInput>& modules,
                                 const CompileOptions& options) {
     CompileResult result;
 
-    Emitter emitter(modules, checked, options);
+    // The layout has to exist before any IR is built: a `Vec<T>` push
+    // needs the size of T.
+    std::string error;
+    llvm::TargetMachine* machine = host_target_machine(error);
+    const std::optional<llvm::DataLayout> layout =
+        machine != nullptr ? std::optional<llvm::DataLayout>{machine->createDataLayout()}
+                           : std::nullopt;
+
+    Emitter emitter(modules, checked, options, layout ? &*layout : nullptr);
     if (!emitter.run()) {
         result.diagnostics = std::move(emitter.diagnostics());
         return result;
     }
 
-    std::string error;
-    llvm::TargetMachine* machine = host_target_machine(error);
     if (machine != nullptr) {
         emitter.module().setTargetTriple(machine->getTargetTriple());
-        emitter.module().setDataLayout(machine->createDataLayout());
         run_optimization_pipeline(emitter.module(), machine, options.optimization_level);
     }
 
@@ -1199,12 +1576,6 @@ CompileResult compile(const std::vector<ModuleInput>& modules,
                       const CompileOptions& options) {
     CompileResult result;
 
-    Emitter emitter(modules, checked, options);
-    if (!emitter.run()) {
-        result.diagnostics = std::move(emitter.diagnostics());
-        return result;
-    }
-
     std::string error;
     llvm::TargetMachine* machine = host_target_machine(error);
     if (machine == nullptr) {
@@ -1213,8 +1584,14 @@ CompileResult compile(const std::vector<ModuleInput>& modules,
         return result;
     }
 
+    const llvm::DataLayout layout = machine->createDataLayout();
+    Emitter emitter(modules, checked, options, &layout);
+    if (!emitter.run()) {
+        result.diagnostics = std::move(emitter.diagnostics());
+        return result;
+    }
+
     emitter.module().setTargetTriple(machine->getTargetTriple());
-    emitter.module().setDataLayout(machine->createDataLayout());
     run_optimization_pipeline(emitter.module(), machine, options.optimization_level);
 
     std::error_code code;

@@ -40,6 +40,13 @@ enum class TypeKind {
     Reference,
     /// `[T; N]`
     Array,
+    /// `Vec<T>`: a growable array. Owns a heap buffer, so it moves on
+    /// assignment and is dropped when its owner goes out of scope.
+    Vec,
+    /// `String`: a growable, owned string buffer. Distinct from
+    /// `string`, which is a borrowed fixed-length view - the same split
+    /// Rust makes between `String` and `&str`.
+    StringBuf,
     /// The type of a function that returns nothing.
     Void,
     /// Poison. Produced wherever an error was already reported, and
@@ -58,6 +65,11 @@ struct Type {
     std::int64_t length = 0;
     /// Type arguments, for a generic struct. Empty otherwise.
     std::vector<const Type*> args;
+    /// Set for a Struct whose fields transitively own heap memory, so
+    /// that the struct moves and drops like the values inside it.
+    /// Filled in when the struct is laid out, since a Type alone does
+    /// not know its own fields.
+    bool owns_heap = false;
 };
 
 using TypePtr = const Type*;
@@ -83,6 +95,10 @@ public:
     TypePtr generic_type(const std::string& name);
     TypePtr reference_to(TypePtr element);
     TypePtr array_of(TypePtr element, std::int64_t length);
+    TypePtr vec_of(TypePtr element);
+    /// Record that a struct type owns heap memory through its fields.
+    void mark_owning(TypePtr type);
+    TypePtr string_buf_type() const noexcept { return string_buf_; }
 
 private:
     TypePtr intern(Type type);
@@ -91,12 +107,14 @@ private:
     std::map<std::pair<std::string, std::vector<TypePtr>>, TypePtr> structs_;
     std::map<std::string, TypePtr> generics_;
     std::map<TypePtr, TypePtr> references_;
+    std::map<TypePtr, TypePtr> vecs_;
     std::map<std::pair<TypePtr, std::int64_t>, TypePtr> arrays_;
 
     TypePtr int_ = nullptr;
     TypePtr float_ = nullptr;
     TypePtr bool_ = nullptr;
     TypePtr string_ = nullptr;
+    TypePtr string_buf_ = nullptr;
     TypePtr void_ = nullptr;
     TypePtr error_ = nullptr;
 };
@@ -116,6 +134,18 @@ inline TypePtr strip_reference(TypePtr type) noexcept {
 /// True when `type` still mentions an unsubstituted type parameter, and
 /// so cannot be laid out or lowered.
 bool is_generic(TypePtr type) noexcept;
+
+/// True when a value of this type owns heap memory.
+///
+/// This is the whole of the ownership model in one predicate. An owned
+/// value moves rather than copies, cannot be used after it moves, and is
+/// dropped when its owner goes out of scope. Everything else - the
+/// primitives, `&T`, and aggregates built only from those - is freely
+/// copyable and needs no cleanup, exactly as before.
+///
+/// A `&T` is never owned however owned its pointee: a reference is a
+/// borrow, which is why it can be passed without moving anything.
+bool is_owned(TypePtr type) noexcept;
 
 /// Numeric types, which are the ones arithmetic accepts.
 inline bool is_numeric(TypePtr type) noexcept {

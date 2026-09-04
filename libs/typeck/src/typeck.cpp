@@ -13,7 +13,8 @@ using ast::Diagnostic;
 using ast::Span;
 
 /// §5: recognized by the compiler rather than declared in a library.
-constexpr std::array<std::string_view, 3> kIntrinsics{"println", "print", "len"};
+constexpr std::array<std::string_view, 8> kIntrinsics{
+    "println", "print", "len", "new_vec", "push", "pop", "new_string", "push_str"};
 
 /// One binding visible in a scope.
 struct Binding {
@@ -23,6 +24,12 @@ struct Binding {
     /// suggestion would be bad advice for one.
     bool is_parameter = false;
     Span span;
+
+    /// Set once the value has been moved out, so a later use can be
+    /// reported. Only ever true for an owned type.
+    bool moved = false;
+    /// Where it was moved, for the "moved here" note.
+    Span moved_at;
 };
 
 /// A stack of lexical scopes. Inner scopes shadow outer ones, as in Rust.
@@ -44,6 +51,16 @@ public:
     }
 
     const Binding* lookup(const std::string& name) const {
+        for (auto scope = scopes_.rbegin(); scope != scopes_.rend(); ++scope) {
+            const auto found = scope->find(name);
+            if (found != scope->end()) {
+                return &found->second;
+            }
+        }
+        return nullptr;
+    }
+
+    Binding* lookup_mutable(const std::string& name) {
         for (auto scope = scopes_.rbegin(); scope != scopes_.rend(); ++scope) {
             const auto found = scope->find(name);
             if (found != scope->end()) {
@@ -181,6 +198,11 @@ private:
     /// Type parameters that are merely in scope, while a template's own
     /// signature is being resolved. Their names become Generic types.
     std::vector<std::string> generic_scope_;
+
+    /// The bare name currently on the left of an `=`. Writing to a
+    /// variable is not a use of what it held, so assigning into a moved
+    /// binding gives it a value again rather than being an error.
+    const ast::Expr* assignment_target_ = nullptr;
 
     /// Each template's signature resolved once, with Generic
     /// placeholders where its type parameters appear. Instantiating
@@ -467,6 +489,11 @@ private:
             // Infinite-size types are found afterwards, by walking the
             // whole containment graph: a struct can reach itself through
             // another struct or through an array, not just directly.
+            if (is_owned(resolved.type)) {
+                // The struct now owns heap memory too, so it moves and
+                // drops like the field inside it.
+                types().mark_owning(types().struct_type(info.name));
+            }
             info.fields.push_back(std::move(resolved));
         }
     }
@@ -587,7 +614,8 @@ private:
         if (type->kind == TypeKind::Generic) {
             return type->name == name;
         }
-        if (type->kind == TypeKind::Reference || type->kind == TypeKind::Array) {
+        if (type->kind == TypeKind::Reference || type->kind == TypeKind::Array ||
+            type->kind == TypeKind::Vec) {
             return mentions_parameter(type->element, name);
         }
         if (type->kind == TypeKind::Struct) {
@@ -698,6 +726,76 @@ private:
     }
 
     // -----------------------------------------------------------------
+    // Ownership
+    //
+    // A value whose type owns heap memory - a `Vec`, a `String`, or an
+    // aggregate containing one - moves rather than copies. After it
+    // moves, the source is dead: using it is an error, and it is not
+    // dropped at scope end because something else owns it now.
+    //
+    // There is no borrow checker. `&T` still borrows without moving and
+    // is still unchecked, exactly as §4 describes, so none of this needs
+    // lifetimes. What it buys is that heap memory is freed exactly once,
+    // automatically, with no runtime bookkeeping.
+    // -----------------------------------------------------------------
+
+    /// Records that `expr` gives up ownership of whatever it names.
+    ///
+    /// Only a bare local can be moved *from*: moving out of a field or
+    /// an element would leave a hole the drop code could not reason
+    /// about, so those are rejected rather than tracked.
+    void move_out_of(const ast::Expr& expr) {
+        const TypePtr type = recorded_type(expr);
+        if (!is_owned(type)) {
+            return;  // copies; nothing to track
+        }
+
+        if (const auto* name = ast::node_cast<ast::NameExpr>(&expr)) {
+            if (name->module.empty()) {
+                if (Binding* binding = scopes_.lookup_mutable(name->name)) {
+                    binding->moved = true;
+                    binding->moved_at = expr.span;
+                    // Recorded for codegen, which has to clear the drop
+                    // flag on exactly the expressions the checker
+                    // decided were moves.
+                    result_.moved_expressions.emplace(current_instance_, &expr);
+                    return;
+                }
+            }
+        }
+
+        switch (expr.kind) {
+            case ast::ExprKind::FieldAccess:
+            case ast::ExprKind::Index:
+                report("cannot move out of `" + to_string(type) + "` here", expr.span,
+                       "only a whole variable can be moved")
+                    .with_note("a field or element cannot be moved out on its own, because "
+                               "what remains would be half-owned");
+                return;
+            default:
+                // A temporary - a call result, a literal - owns itself
+                // and is simply handed on.
+                return;
+        }
+    }
+
+    /// Reports a use of a value that has already been moved away.
+    /// Returns true when the binding is still live.
+    bool check_not_moved(const ast::NameExpr& expr, const Binding& binding) {
+        if (!binding.moved) {
+            return true;
+        }
+        Diagnostic& diagnostic =
+            report("use of moved value `" + expr.name + "`", expr.span,
+                   "`" + expr.name + "` was moved and no longer holds a value");
+        diagnostic.with_note("moved at " + location_of(binding.moved_at));
+        diagnostic.with_note("`" + to_string(binding.type) +
+                             "` owns heap memory, so assigning or passing it moves it "
+                             "rather than copying");
+        return false;
+    }
+
+    // -----------------------------------------------------------------
     // Modules
     //
     // Every item is stored under a fully qualified name: `Point` in the
@@ -800,6 +898,8 @@ private:
                 return types().reference_to(substitute(type->element, bindings));
             case TypeKind::Array:
                 return types().array_of(substitute(type->element, bindings), type->length);
+            case TypeKind::Vec:
+                return types().vec_of(substitute(type->element, bindings));
             case TypeKind::Struct: {
                 if (type->args.empty()) {
                     return type;
@@ -849,6 +949,11 @@ private:
         if (parameter->kind == TypeKind::Array) {
             return argument->kind == TypeKind::Array && parameter->length == argument->length &&
                    unify(parameter->element, argument->element, bindings);
+        }
+        if (parameter->kind == TypeKind::Vec) {
+            const TypePtr concrete = strip_reference(argument);
+            return concrete != nullptr && concrete->kind == TypeKind::Vec &&
+                   unify(parameter->element, concrete->element, bindings);
         }
         if (parameter->kind == TypeKind::Struct && !parameter->args.empty()) {
             const TypePtr concrete = strip_reference(argument);
@@ -1042,6 +1147,40 @@ private:
                 generic_scope_.end()) {
                 return types().generic_type(type.name);
             }
+        }
+
+        // The two owned built-ins. They behave like generic structs in
+        // type position but are known to the compiler, since there is no
+        // way to write a heap-allocating type in Ember itself.
+        if (type.module.empty() && type.name == "Vec") {
+            if (type.type_args.size() != 1) {
+                report("`Vec` takes 1 type argument but " +
+                           std::to_string(type.type_args.size()) + " " +
+                           (type.type_args.size() == 1 ? "was" : "were") + " given",
+                       type.span, "write it as `Vec<int>`");
+                return types().error_type();
+            }
+            const TypePtr element = resolve_type(*type.type_args.front());
+
+            // Dropping a `Vec` frees its buffer, not each element in it.
+            // An element that owns memory of its own would be leaked, so
+            // it is refused rather than quietly lost.
+            if (is_owned(element)) {
+                report("`Vec<" + to_string(element) + ">` is not supported",
+                       type.span, "a `Vec` element cannot own heap memory of its own")
+                    .with_note("dropping the outer `Vec` would leak every element; wrap the "
+                               "element in a struct with a `&` field, or keep it flat");
+                return types().error_type();
+            }
+            return types().vec_of(element);
+        }
+        if (type.module.empty() && type.name == "String") {
+            if (!type.type_args.empty()) {
+                report("`String` is not a generic type", type.span,
+                       "it takes no type arguments");
+                return types().error_type();
+            }
+            return types().string_buf_type();
         }
 
         const std::optional<std::string> qualified =
@@ -1263,7 +1402,7 @@ private:
             // Parameters are immutable bindings, as in Rust without
             // `mut`; assigning to one is a diagnostic, not a silent copy.
             const Binding* existing =
-                scopes_.declare(name, Binding{info.param_types[i], false, true, param.span});
+                scopes_.declare(name, Binding{info.param_types[i], false, true, param.span, false, {}});
             if (existing != nullptr) {
                 Diagnostic& diagnostic =
                     report("duplicate definition of parameter `" + name + "`", param.name_span,
@@ -1348,13 +1487,20 @@ private:
     }
 
     void check_let(const ast::LetStmt& statement) {
-        const TypePtr initializer = check_expr(*statement.value);
+        // An annotation is resolved first and handed down, so an
+        // expression with nothing else to go on - `new_vec()`, or an
+        // empty array literal - can take its type from it. Everything
+        // else ignores the hint and is checked against it as before.
+        const TypePtr hint =
+            statement.declared_type ? resolve_type(*statement.declared_type) : nullptr;
+
+        const TypePtr initializer = check_expr(*statement.value, hint);
         TypePtr type = initializer;
 
         if (statement.declared_type) {
             // Annotated: the annotation wins, and the initializer is
             // checked against it. This is the §7 worked example.
-            type = resolve_type(*statement.declared_type);
+            type = hint;
             if (!assignable(type, initializer)) {
                 report_mismatch(statement.value->span, type, initializer);
             }
@@ -1364,10 +1510,13 @@ private:
             type = types().error_type();
         }
 
+        // `let b = a;` takes ownership from `a`.
+        move_out_of(*statement.value);
+
         result_.binding_types[{current_instance_, &statement}] = type;
 
         const Binding* existing = scopes_.declare(
-            statement.name, Binding{type, statement.is_mutable, false, statement.name_span});
+            statement.name, Binding{type, statement.is_mutable, false, statement.name_span, false, {}});
         if (existing != nullptr) {
             // Shadowing in an inner scope is fine; redeclaring in the
             // same one is not.
@@ -1391,6 +1540,7 @@ private:
         }
 
         const TypePtr actual = check_expr(*statement.value);
+        move_out_of(*statement.value);
         if (expected != nullptr && expected->kind == TypeKind::Void) {
             report("returning a value from a function with no return type",
                    statement.value->span, "this function returns nothing");
@@ -1422,8 +1572,18 @@ private:
     }
 
     void check_assign(const ast::AssignStmt& statement) {
+        // A bare name on the left is written, not read. Anything more
+        // complex - `p.x`, `xs[0]` - does read the container, so only
+        // the simple case is exempt from the moved check.
+        assignment_target_ = ast::node_cast<ast::NameExpr>(statement.target.get()) != nullptr
+                                 ? statement.target.get()
+                                 : nullptr;
         const TypePtr target = check_expr(*statement.target);
-        const TypePtr value = check_expr(*statement.value);
+        assignment_target_ = nullptr;
+
+        // The target's type is the hint, so `a = new_vec();` knows what
+        // it is building.
+        const TypePtr value = check_expr(*statement.value, target);
 
         if (!is_assignable_place(*statement.target)) {
             report("invalid assignment target", statement.target->span,
@@ -1434,6 +1594,17 @@ private:
 
         if (!assignable(target, value)) {
             report_mismatch(statement.value->span, target, value);
+        }
+
+        move_out_of(*statement.value);
+
+        // Assigning back into a moved-out variable makes it live again.
+        if (const auto* name = ast::node_cast<ast::NameExpr>(statement.target.get())) {
+            if (name->module.empty()) {
+                if (Binding* binding = scopes_.lookup_mutable(name->name)) {
+                    binding->moved = false;
+                }
+            }
         }
     }
 
@@ -1518,7 +1689,7 @@ private:
         return result_.expr_types.count({current_instance_, &expr}) != 0;
     }
 
-    TypePtr check_expr(const ast::Expr& expr) {
+    TypePtr check_expr(const ast::Expr& expr, TypePtr hint = nullptr) {
         switch (expr.kind) {
             case ast::ExprKind::IntLit:
                 return record(expr, types().int_type());
@@ -1536,7 +1707,7 @@ private:
             case ast::ExprKind::Binary:
                 return check_binary(static_cast<const ast::BinaryExpr&>(expr));
             case ast::ExprKind::Call:
-                return check_call(static_cast<const ast::CallExpr&>(expr));
+                return check_call(static_cast<const ast::CallExpr&>(expr), hint);
             case ast::ExprKind::MethodCall:
                 return check_method_call(static_cast<const ast::MethodCallExpr&>(expr));
             case ast::ExprKind::FieldAccess:
@@ -1548,7 +1719,7 @@ private:
             case ast::ExprKind::StructLit:
                 return check_struct_literal(static_cast<const ast::StructLitExpr&>(expr));
             case ast::ExprKind::ArrayLit:
-                return check_array_literal(static_cast<const ast::ArrayLitExpr&>(expr));
+                return check_array_literal(static_cast<const ast::ArrayLitExpr&>(expr), hint);
         }
         return record(expr, types().error_type());
     }
@@ -1557,7 +1728,11 @@ private:
         // A local always wins, and can never be module-qualified.
         if (expr.module.empty()) {
             if (const Binding* binding = scopes_.lookup(expr.name)) {
-                return record(expr, binding->type);
+                record(expr, binding->type);
+                if (&expr != assignment_target_ && !check_not_moved(expr, *binding)) {
+                    return record(expr, types().error_type());
+                }
+                return binding->type;
             }
         }
 
@@ -1715,10 +1890,10 @@ private:
         return types().error_type();
     }
 
-    TypePtr check_call(const ast::CallExpr& expr) {
+    TypePtr check_call(const ast::CallExpr& expr, TypePtr hint = nullptr) {
         // Intrinsics belong to no module and are never qualified.
         if (expr.module.empty() && is_intrinsic(expr.callee)) {
-            return check_intrinsic(expr);
+            return check_intrinsic(expr, hint);
         }
 
         const std::optional<std::string> qualified =
@@ -1932,6 +2107,10 @@ private:
             if (!assignable(parameter, argument)) {
                 report_mismatch(args[i]->span, parameter, argument);
             }
+            // A `&T` parameter borrows; a `T` parameter takes ownership.
+            if (parameter != nullptr && parameter->kind != TypeKind::Reference) {
+                move_out_of(*args[i]);
+            }
         }
         for (std::size_t i = count; i < args.size(); ++i) {
             if (!already_checked(*args[i])) {
@@ -1943,7 +2122,14 @@ private:
     /// §5's intrinsics. They are variadic in neither arity nor type, but
     /// they do accept several unrelated types, which no user-declared
     /// signature can express in v1.
-    TypePtr check_intrinsic(const ast::CallExpr& expr) {
+    TypePtr check_intrinsic(const ast::CallExpr& expr, TypePtr hint = nullptr) {
+        if (expr.callee == "new_vec" || expr.callee == "new_string") {
+            return check_constructor(expr, hint);
+        }
+        if (expr.callee == "push" || expr.callee == "pop" || expr.callee == "push_str") {
+            return check_container_op(expr);
+        }
+
         for (const ast::ExprPtr& arg : expr.args) {
             check_expr(*arg);
         }
@@ -1957,9 +2143,10 @@ private:
                 return record(expr, types().int_type());
             }
             const TypePtr argument = strip_reference(recorded_type(*expr.args[0]));
-            if (!is_error(argument) && argument->kind != TypeKind::Array) {
+            if (!is_error(argument) && argument->kind != TypeKind::Array &&
+                argument->kind != TypeKind::Vec && argument->kind != TypeKind::StringBuf) {
                 report("cannot take the length of `" + to_string(argument) + "`",
-                       expr.args[0]->span, "`len` needs an array");
+                       expr.args[0]->span, "`len` needs an array, a `Vec` or a `String`");
             }
             return record(expr, types().int_type());
         }
@@ -1977,10 +2164,136 @@ private:
             Diagnostic& diagnostic =
                 report("cannot print a value of type `" + to_string(argument) + "`",
                        expr.args[0]->span, "`" + expr.callee + "` accepts `int`, `float`, "
-                                           "`bool` and `string`");
+                                           "`bool`, `string` and `String`");
             diagnostic.with_note("printing structs and arrays arrives with v2");
         }
         return record(expr, types().void_type());
+    }
+
+    /// `new_vec()` and `new_string()` have no arguments to infer from,
+    /// and there is no turbofish, so they take their type from where the
+    /// result is going.
+    TypePtr check_constructor(const ast::CallExpr& expr, TypePtr hint) {
+        for (const ast::ExprPtr& arg : expr.args) {
+            check_expr(*arg);
+        }
+        if (!expr.args.empty()) {
+            report("this function takes 0 arguments but " +
+                       std::to_string(expr.args.size()) + " " +
+                       (expr.args.size() == 1 ? "was" : "were") + " supplied",
+                   expr.span, "expected 0, found " + std::to_string(expr.args.size()));
+        }
+
+        if (expr.callee == "new_string") {
+            return record(expr, types().string_buf_type());
+        }
+
+        if (hint != nullptr && hint->kind == TypeKind::Vec) {
+            return record(expr, hint);
+        }
+        if (hint != nullptr && is_error(hint)) {
+            // The annotation was written but already rejected - one
+            // error for it is enough. A *missing* hint is a different
+            // situation and still needs reporting below, which is why
+            // this tests for null separately: is_error(nullptr) is true.
+            return record(expr, types().error_type());
+        }
+        report("cannot infer the element type of this `Vec`", expr.span,
+               "nothing here says what it will hold")
+            .with_note("annotate the binding, as in `let v: Vec<int> = new_vec();`");
+        return record(expr, types().error_type());
+    }
+
+    /// `push(v, x)`, `pop(v)` and `push_str(s, text)`.
+    ///
+    /// Each mutates its container through a reference, so the container
+    /// is borrowed rather than moved - otherwise a push would consume
+    /// the very thing it is pushing onto.
+    TypePtr check_container_op(const ast::CallExpr& expr) {
+        for (const ast::ExprPtr& arg : expr.args) {
+            check_expr(*arg);
+        }
+
+        const std::size_t expected = expr.callee == "pop" ? 1 : 2;
+        if (expr.args.size() != expected) {
+            report("this function takes " + std::to_string(expected) + " argument" +
+                       (expected == 1 ? "" : "s") + " but " +
+                       std::to_string(expr.args.size()) + " " +
+                       (expr.args.size() == 1 ? "was" : "were") + " supplied",
+                   expr.span,
+                   "expected " + std::to_string(expected) + ", found " +
+                       std::to_string(expr.args.size()));
+            return record(expr, types().error_type());
+        }
+
+        const TypePtr container = strip_reference(recorded_type(*expr.args[0]));
+        if (is_error(container)) {
+            return record(expr, types().error_type());
+        }
+
+        if (expr.callee == "push_str") {
+            if (container->kind != TypeKind::StringBuf) {
+                report("cannot push text onto `" + to_string(container) + "`",
+                       expr.args[0]->span, "`push_str` needs a `String`");
+                return record(expr, types().error_type());
+            }
+            check_container_is_mutable(*expr.args[0]);
+            const TypePtr text = recorded_type(*expr.args[1]);
+            if (!is_error(text) && text->kind != TypeKind::String &&
+                text->kind != TypeKind::StringBuf) {
+                report_mismatch(expr.args[1]->span, types().string_type(), text);
+            }
+            return record(expr, types().void_type());
+        }
+
+        if (container->kind != TypeKind::Vec) {
+            report("cannot " + expr.callee + " on `" + to_string(container) + "`",
+                   expr.args[0]->span, "`" + expr.callee + "` needs a `Vec`")
+                .with_note("a `[T; N]` has a fixed length; use a `Vec<T>` to grow one");
+            return record(expr, types().error_type());
+        }
+        check_container_is_mutable(*expr.args[0]);
+
+        if (expr.callee == "pop") {
+            return record(expr, container->element);
+        }
+
+        const TypePtr value = recorded_type(*expr.args[1]);
+        if (!assignable(container->element, value)) {
+            report_mismatch(expr.args[1]->span, container->element, value);
+        }
+        // The pushed value is stored in the vector, so ownership passes.
+        move_out_of(*expr.args[1]);
+        return record(expr, types().void_type());
+    }
+
+    /// A container being pushed to has to be a mutable binding, the same
+    /// rule assignment already applies.
+    void check_container_is_mutable(const ast::Expr& expr) {
+        const auto* name = ast::node_cast<ast::NameExpr>(&expr);
+        if (name == nullptr || !name->module.empty()) {
+            return;
+        }
+        const Binding* binding = scopes_.lookup(name->name);
+        if (binding == nullptr || binding->is_mutable) {
+            return;
+        }
+        // A `&Vec<T>` parameter is a borrow of someone else's mutable
+        // container, so writing through it is allowed - the same rule as
+        // assigning through a reference.
+        if (binding->type != nullptr && binding->type->kind == TypeKind::Reference) {
+            return;
+        }
+        if (binding->is_parameter) {
+            report("cannot modify parameter `" + name->name + "`", expr.span,
+                   "parameters are immutable in v1")
+                .with_note("take a `&" + to_string(binding->type) + "` to modify the "
+                           "caller's container");
+            return;
+        }
+        report("cannot modify immutable binding `" + name->name + "`", expr.span,
+               "`" + name->name + "` is not declared `mut`")
+            .with_note("declare it as `let mut " + name->name + "` to allow this");
     }
 
     static bool is_printable(TypePtr type) {
@@ -1989,6 +2302,7 @@ private:
             case TypeKind::Float:
             case TypeKind::Bool:
             case TypeKind::String:
+            case TypeKind::StringBuf:
                 return true;
             default:
                 return false;
@@ -2050,9 +2364,9 @@ private:
         }
 
         const TypePtr base = strip_reference(object);
-        if (base->kind != TypeKind::Array) {
+        if (base->kind != TypeKind::Array && base->kind != TypeKind::Vec) {
             report("cannot index into `" + to_string(object) + "`", expr.span,
-                   "only arrays can be indexed");
+                   "only arrays and `Vec`s can be indexed");
             return record(expr, types().error_type());
         }
         return record(expr, base->element);
@@ -2177,6 +2491,7 @@ private:
             if (!assignable(target->type, value)) {
                 report_mismatch(field.value->span, target->type, value);
             }
+            move_out_of(*field.value);
         }
 
         std::vector<std::string> missing;
@@ -2272,7 +2587,14 @@ private:
         return record(expr, instantiated);
     }
 
-    TypePtr check_array_literal(const ast::ArrayLitExpr& expr) {
+    TypePtr check_array_literal(const ast::ArrayLitExpr& expr, TypePtr hint = nullptr) {
+        if (expr.elements.empty() && hint != nullptr && hint->kind == TypeKind::Array &&
+            hint->length == 0) {
+            // `let xs: [int; 0] = [];` now works: the annotation says
+            // what the element type is, which bottom-up inference alone
+            // could never determine.
+            return record(expr, hint);
+        }
         if (expr.elements.empty()) {
             // Inference here runs bottom-up only, so there is nothing to
             // take an element type from. An annotation does not help
@@ -2288,11 +2610,13 @@ private:
         }
 
         const TypePtr element = check_expr(*expr.elements.front());
+        move_out_of(*expr.elements.front());
         for (std::size_t i = 1; i < expr.elements.size(); ++i) {
             const TypePtr other = check_expr(*expr.elements[i]);
             if (!assignable(element, other)) {
                 report_mismatch(expr.elements[i]->span, element, other);
             }
+            move_out_of(*expr.elements[i]);
         }
         return record(expr,
                       types().array_of(element, static_cast<std::int64_t>(expr.elements.size())));
@@ -2351,6 +2675,10 @@ const FunctionInfo* CheckResult::target_of(InstanceId instance, const ast::Expr&
 TypePtr CheckResult::binding_type(InstanceId instance, const ast::Stmt& statement) const {
     const auto found = binding_types.find({instance, &statement});
     return found != binding_types.end() ? found->second : nullptr;
+}
+
+bool CheckResult::is_move(InstanceId instance, const ast::Expr& expr) const {
+    return moved_expressions.count({instance, &expr}) != 0;
 }
 
 std::string_view stage_name() noexcept { return "type checker"; }

@@ -1,0 +1,247 @@
+(program
+  (fn @15:1 pub sum
+    (params
+      (param @15:12 values
+        (ref @15:20
+          (named @15:21 Vec))))
+    (returns
+      (int @15:34))
+    (block @15:38
+      (let @16:5 mut total
+        (int-lit @16:21 0))
+      (let @17:5 mut i
+        (int-lit @17:17 0))
+      (while @18:5
+        (binary @18:11 lt
+          (name @18:11 i)
+          (call @18:15 len
+            (name @18:19 values)))
+        (block @18:27
+          (assign @19:9
+            (name @19:9 total)
+            (binary @19:17 add
+              (name @19:17 total)
+              (index @19:25
+                (name @19:25 values)
+                (name @19:32 i))))
+          (assign @20:9
+            (name @20:9 i)
+            (binary @20:13 add
+              (name @20:13 i)
+              (int-lit @20:17 1)))))
+      (return @22:5
+        (name @22:12 total))))
+  (fn @26:1 pub consume
+    (params
+      (param @26:16 values
+        (named @26:24 Vec)))
+    (returns
+      (int @26:37))
+    (block @26:41
+      (return @27:5
+        (call @27:12 len
+          (name @27:16 values)))))
+  (fn @31:1 pub squares
+    (params
+      (param @31:16 count
+        (int @31:23)))
+    (returns
+      (named @31:31 Vec))
+    (block @31:40
+      (let @32:5 mut v
+        (named @32:16 Vec)
+        (call @32:27 new_vec))
+      (let @33:5 mut i
+        (int-lit @33:17 0))
+      (while @34:5
+        (binary @34:11 lt
+          (name @34:11 i)
+          (name @34:15 count))
+        (block @34:21
+          (expr-stmt @35:9
+            (call @35:9 push
+              (name @35:14 v)
+              (binary @35:17 mul
+                (name @35:17 i)
+                (name @35:21 i))))
+          (assign @36:9
+            (name @36:9 i)
+            (binary @36:13 add
+              (name @36:13 i)
+              (int-lit @36:17 1)))))
+      (return @38:5
+        (name @38:12 v))))
+  (fn @42:1 pub first_or
+    (params
+      (param @42:20 values
+        (ref @42:28
+          (named @42:29 Vec)))
+      (param @42:37 fallback
+        (named @42:47 T)))
+    (returns
+      (named @42:53 T))
+    (block @42:55
+      (if @43:5
+        (binary @43:8 gt
+          (call @43:8 len
+            (name @43:12 values))
+          (int-lit @43:22 0))
+        (block @43:24
+          (return @44:9
+            (index @44:16
+              (name @44:16 values)
+              (int-lit @44:23 0)))))
+      (return @46:5
+        (name @46:12 fallback))))
+  (struct @50:1 Reading
+    (field @51:5 pub samples
+      (named @51:18 Vec))
+    (field @52:5 pub label
+      (string @52:16)))
+  (fn @55:1 pub describe
+    (params
+      (param @55:17 r
+        (ref @55:20
+          (named @55:21 Reading))))
+    (block @55:30
+      (expr-stmt @56:5
+        (call @56:5 print
+          (field-get @56:11 label
+            (name @56:11 r))))
+      (expr-stmt @57:5
+        (call @57:5 print
+          (string-lit @57:11 ": ")))
+      (expr-stmt @58:5
+        (call @58:5 print
+          (call @58:11 len
+            (field-get @58:15 samples
+              (name @58:15 r)))))
+      (expr-stmt @59:5
+        (call @59:5 print
+          (string-lit @59:11 " samples summing to ")))
+      (expr-stmt @60:5
+        (call @60:5 println
+          (call @60:13 sum
+            (field-get @60:17 samples
+              (name @60:17 r)))))))
+  (fn @63:1 pub main
+    (params)
+    (block @63:15
+      (let @65:5 mut v
+        (named @65:16 Vec)
+        (call @65:27 new_vec))
+      (let @66:5 mut i
+        (int-lit @66:17 1))
+      (while @67:5
+        (binary @67:11 le
+          (name @67:11 i)
+          (int-lit @67:16 5))
+        (block @67:18
+          (expr-stmt @68:9
+            (call @68:9 push
+              (name @68:14 v)
+              (binary @68:17 mul
+                (name @68:17 i)
+                (int-lit @68:21 10))))
+          (assign @69:9
+            (name @69:9 i)
+            (binary @69:13 add
+              (name @69:13 i)
+              (int-lit @69:17 1)))))
+      (expr-stmt @72:5
+        (call @72:5 print
+          (string-lit @72:11 "length: ")))
+      (expr-stmt @73:5
+        (call @73:5 println
+          (call @73:13 len
+            (name @73:17 v))))
+      (expr-stmt @74:5
+        (call @74:5 print
+          (string-lit @74:11 "sum:    ")))
+      (expr-stmt @75:5
+        (call @75:5 println
+          (call @75:13 sum
+            (name @75:17 v))))
+      (expr-stmt @76:5
+        (call @76:5 print
+          (string-lit @76:11 "last:   ")))
+      (expr-stmt @77:5
+        (call @77:5 println
+          (call @77:13 pop
+            (name @77:17 v))))
+      (assign @78:5
+        (index @78:5
+          (name @78:5 v)
+          (int-lit @78:7 0))
+        (int-lit @78:12 99))
+      (expr-stmt @79:5
+        (call @79:5 print
+          (string-lit @79:11 "first:  ")))
+      (expr-stmt @80:5
+        (call @80:5 println
+          (index @80:13
+            (name @80:13 v)
+            (int-lit @80:15 0))))
+      (let @83:5 made
+        (call @83:16 squares
+          (int-lit @83:24 6)))
+      (expr-stmt @84:5
+        (call @84:5 print
+          (string-lit @84:11 "squares: ")))
+      (expr-stmt @85:5
+        (call @85:5 println
+          (call @85:13 sum
+            (name @85:17 made))))
+      (expr-stmt @86:5
+        (call @86:5 print
+          (string-lit @86:11 "first_or: ")))
+      (expr-stmt @87:5
+        (call @87:5 println
+          (call @87:13 first_or
+            (name @87:22 made)
+            (int-lit @87:28 0))))
+      (let @91:5 reading
+        (struct-lit @91:19 Reading
+          (init @91:29 samples
+            (name @91:38 made))
+          (init @91:44 label
+            (string-lit @91:51 "reading"))))
+      (expr-stmt @92:5
+        (call @92:5 describe
+          (name @92:14 reading)))
+      (let @95:5 mut message
+        (named @95:22 String)
+        (call @95:31 new_string))
+      (expr-stmt @96:5
+        (call @96:5 push_str
+          (name @96:14 message)
+          (string-lit @96:23 "built ")))
+      (expr-stmt @97:5
+        (call @97:5 push_str
+          (name @97:14 message)
+          (string-lit @97:23 "one ")))
+      (expr-stmt @98:5
+        (call @98:5 push_str
+          (name @98:14 message)
+          (string-lit @98:23 "piece ")))
+      (expr-stmt @99:5
+        (call @99:5 push_str
+          (name @99:14 message)
+          (string-lit @99:23 "at a time")))
+      (expr-stmt @100:5
+        (call @100:5 println
+          (name @100:13 message)))
+      (expr-stmt @101:5
+        (call @101:5 print
+          (string-lit @101:11 "string length: ")))
+      (expr-stmt @102:5
+        (call @102:5 println
+          (call @102:13 len
+            (name @102:17 message))))
+      (expr-stmt @106:5
+        (call @106:5 print
+          (string-lit @106:11 "consumed: ")))
+      (expr-stmt @107:5
+        (call @107:5 println
+          (call @107:13 consume
+            (name @107:21 v)))))))

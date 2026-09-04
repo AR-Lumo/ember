@@ -175,6 +175,8 @@ A tour by way of the pieces. The full grammar is in
 | `bool` | `true` or `false` |
 | `string` | Immutable, fixed-length view over bytes |
 | `[T; N]` | Fixed-size array of `N` elements |
+| `Vec<T>` | Growable array. Owns a heap buffer |
+| `String` | Growable string buffer. Owns a heap buffer |
 | `&T` | Non-owning reference |
 | `struct` | Nominal record type, no inheritance |
 
@@ -371,12 +373,89 @@ Two rules worth knowing:
 Modules may import each other in a cycle. Every module is collected
 before any body is checked, so neither has to come first.
 
+### Dynamic arrays and strings
+
+`[T; N]` has its length in its type. `Vec<T>` grows:
+
+```ember
+let mut v: Vec<int> = new_vec();
+push(v, 10);
+push(v, 20);
+println(len(v));     // 2
+println(v[0]);       // 10
+println(pop(v));     // 20
+```
+
+`String` is the growable counterpart to `string`, which stays a borrowed
+fixed-length view — the same split Rust makes between `String` and
+`&str`:
+
+```ember
+let mut message: String = new_string();
+push_str(message, "built ");
+push_str(message, "a piece at a time");
+println(message);
+```
+
+`new_vec()` takes its element type from the binding, since there is no
+turbofish and nothing in the call to infer from. That same rule now also
+lets `let xs: [int; 0] = [];` work.
+
+### Ownership
+
+`Vec` and `String` own heap memory, and so does any struct holding one.
+Owned values **move** rather than copy, and are **freed automatically**
+when their owner goes out of scope:
+
+```ember
+let mut a: Vec<int> = new_vec();
+let b = a;           // the buffer moves to b
+println(len(a));     // error: use of moved value `a`
+```
+
+```console
+error: use of moved value `a`
+ --> main.em:5:17
+  |
+5 |     println(len(a));
+  |                 ^ `a` was moved and no longer holds a value
+  = note: moved at main.em:4:13
+  = note: `Vec<int>` owns heap memory, so assigning or passing it moves it rather than copying
+```
+
+Nothing is reference-counted and nothing is collected. The compiler works
+out where each buffer dies and frees it there, so a million vectors
+built and dropped in a loop hold flat memory.
+
+Passing by value moves; passing `&T` borrows and does not:
+
+```ember
+pub fn sum(v: &Vec<int>) -> int { ... }    // caller keeps it
+pub fn consume(v: Vec<int>) -> int { ... } // caller gives it up
+```
+
+**There is still no borrow checker.** `&T` remains an unchecked
+non-owning pointer exactly as it always was, so none of this needs
+lifetimes — returning a reference to a local will still compile and then
+dangle. What ownership buys is that heap memory is freed exactly once,
+automatically, with no runtime bookkeeping.
+
+Assigning into a moved-from variable gives it a value again. A value
+moved on only one path of an `if` is tracked with a one-bit flag the
+optimizer folds away wherever the answer is obvious.
+
+Types with no heap behind them — `int`, `bool`, `string`, `[T; N]`,
+`&T`, and structs built only from those — are unaffected and still copy
+freely.
+
 ### Standard library
 
 The whole of it, recognized directly by the compiler:
 
-- `println(x)` and `print(x)` for `int`, `float`, `bool` and `string`
-- `len(arr)` for arrays
+- `println(x)` and `print(x)` for `int`, `float`, `bool`, `string` and `String`
+- `len(x)` for arrays, `Vec`s and `String`s
+- `new_vec()`, `push(v, x)`, `pop(v)`
+- `new_string()`, `push_str(s, text)`
 
 ---
 
@@ -395,6 +474,7 @@ also a regression test in the suite.
 | [`averages.em`](examples/averages.em) | Explicit `int`/`float` conversion with `as` |
 | [`generics.em`](examples/generics.em) | Generic functions and structs, monomorphized |
 | [`modules/`](examples/modules) | A program in three files, with `import` and `pub` |
+| [`ownership.em`](examples/ownership.em) | `Vec`, `String`, moves and automatic drops |
 
 ```console
 $ ember run examples/bubble_sort.em
@@ -457,16 +537,21 @@ v1 is deliberately small. These are the sharp edges worth knowing about.
   or from `bool`, `string` or a struct, and no reinterpreting cast.
   `float as int` truncates toward zero, and a value too large for an
   `int` is undefined — both as in C.
-- **No manual memory management yet.** There is no allocation, so there
-  is nothing to free — but also no way to build a data structure whose
-  size is not known at compile time.
 - **References are unchecked.** `&T` is a raw non-owning pointer with no
-  borrow checker and no lifetimes. Returning a reference to a local will
-  compile and then dangle.
-- **Strings are fixed views.** No concatenation, no slicing, no building
-  one at run time. `==` and `!=` work; ordering does not.
-- **Arrays are fixed-size.** The length is part of the type, so `len` is
-  a compile-time constant and there is no `push`.
+  borrow checker and no lifetimes. Returning a reference to a local, or
+  holding one past the drop of what it points at, will compile and then
+  dangle. Ownership governs who frees a buffer, not who may look at it.
+- **A field cannot be moved out of a struct.** Moving one out would
+  leave the struct half-owned with no way for the drop code to know
+  which parts are live, so it is rejected; move the whole struct.
+- **`Vec<T>` where `T` itself owns memory is not supported.** Dropping
+  one would need to walk and drop every element, which the runtime does
+  not do — a `Vec<Vec<int>>` is rejected rather than leaked.
+- **No slicing, no concatenation operator.** `push_str` builds a
+  `String`; `+` on strings is still not a thing, and there is no way to
+  take a sub-range of either a `Vec` or a `String`.
+- **No capacity control.** No `reserve`, no `shrink`, no way to ask what
+  a container has allocated.
 - **`pub` is parsed but not enforced.** Visibility starts mattering when
   modules land, so it is checked and carried through the compiler now to
   avoid a syntax change later.

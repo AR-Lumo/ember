@@ -761,12 +761,17 @@ EMBER_TEST(typeck_rejects_printing_a_struct) {
                    std::string{"cannot print a value of type `Point`"});
 }
 
-EMBER_TEST(typeck_rejects_an_empty_array_literal_exactly_once) {
-    // Inference is bottom-up, so `[]` has no element type to take. The
-    // annotation is checked against the literal rather than pushed into
-    // it, so this must not also report a mismatch.
-    const std::vector<ember::ast::Diagnostic> errors =
-        reject(in_main("let xs: [int; 0] = [];"));
+EMBER_TEST(typeck_takes_an_empty_array_element_type_from_the_annotation) {
+    // A `let` annotation is now pushed down into the initializer, so an
+    // expression with nothing else to go on can take its type from it.
+    // This used to be an error with no way to satisfy it.
+    accept(in_main("let xs: [int; 0] = [];\n    println(len(xs));"));
+}
+
+EMBER_TEST(typeck_rejects_an_empty_array_literal_with_nothing_to_infer_from) {
+    // Without an annotation there is still no element type to take, and
+    // that must be reported exactly once rather than cascading.
+    const std::vector<ember::ast::Diagnostic> errors = reject(in_main("let xs = [];"));
     EMBER_CHECK_EQ(errors.size(), std::size_t{1});
     EMBER_CHECK_EQ(errors.at(0).message,
                    std::string{"cannot infer the element type of an empty array"});

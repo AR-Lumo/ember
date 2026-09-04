@@ -112,6 +112,8 @@ field          = visibility identifier ":" type "," ;
 impl_block     = "impl" identifier "{" { function_decl } "}" ;
 
 type           = "int" | "float" | "bool" | "string"
+               | "Vec" "<" type ">"        (* growable array, v2 *)
+               | "String"                  (* growable string, v2 *)
                | [ identifier "::" ] identifier [ type_args ]
                                            (* struct type, optionally
                                               from another module *)
@@ -219,7 +221,9 @@ plus compiler-recognized intrinsics:
 - `println(x)` — works for `int`, `float`, `bool`, `string`
 - `print(x)` — same, no newline
 - Arithmetic/comparison operators (compiler intrinsics, not library calls)
-- `len(arr)` for arrays
+- `len(x)` for arrays, `Vec`s and `String`s
+- `new_vec()`, `push(v, x)`, `pop(v)` for `Vec<T>` (v2)
+- `new_string()`, `push_str(s, text)` for `String` (v2)
 
 Everything else (file I/O, collections, string manipulation) is v2+.
 

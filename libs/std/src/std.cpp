@@ -103,4 +103,79 @@ void ember_panic_divide_by_zero(void) {
     exit(101);
 }
 
+
+// --- heap -------------------------------------------------------------
+
+void* ember_alloc(int64_t bytes) {
+    if (bytes <= 0) {
+        // A zero-length buffer needs no allocation; null is a valid
+        // empty buffer everywhere below, and free(null) is a no-op.
+        return nullptr;
+    }
+    void* buffer = malloc(static_cast<size_t>(bytes));
+    if (buffer == nullptr) {
+        fflush(stdout);
+        fprintf(stderr, "ember: out of memory allocating %" PRId64 " bytes\n", bytes);
+        exit(101);
+    }
+    return buffer;
+}
+
+void* ember_realloc(void* buffer, int64_t bytes) {
+    if (bytes <= 0) {
+        free(buffer);
+        return nullptr;
+    }
+    void* grown = realloc(buffer, static_cast<size_t>(bytes));
+    if (grown == nullptr) {
+        fflush(stdout);
+        fprintf(stderr, "ember: out of memory growing to %" PRId64 " bytes\n", bytes);
+        exit(101);
+    }
+    return grown;
+}
+
+void ember_free(void* buffer) { free(buffer); }
+
+void* ember_grow(void* buffer, int64_t element_size, int64_t length, int64_t* capacity) {
+    if (length < *capacity) {
+        return buffer;
+    }
+    // Double, starting at four. Growing by a constant instead would make
+    // a run of pushes quadratic.
+    int64_t next = (*capacity == 0) ? 4 : *capacity * 2;
+    void* grown = ember_realloc(buffer, next * element_size);
+    *capacity = next;
+    return grown;
+}
+
+void ember_panic_empty(const char* what, int64_t what_length) {
+    fflush(stdout);
+    fputs("ember: cannot pop from an empty ", stderr);
+    if (what != nullptr && what_length > 0) {
+        fwrite(what, 1, static_cast<size_t>(what_length), stderr);
+    }
+    fputc('\n', stderr);
+    exit(101);
+}
+
+void* ember_string_append(void* buffer, int64_t* length, int64_t* capacity, const char* bytes,
+                          int64_t count) {
+    if (count <= 0) {
+        return buffer;
+    }
+    int64_t needed = *length + count;
+    if (needed > *capacity) {
+        int64_t next = (*capacity == 0) ? 16 : *capacity;
+        while (next < needed) {
+            next *= 2;
+        }
+        buffer = ember_realloc(buffer, next);
+        *capacity = next;
+    }
+    memcpy(static_cast<char*>(buffer) + *length, bytes, static_cast<size_t>(count));
+    *length = needed;
+    return buffer;
+}
+
 }  // extern "C"

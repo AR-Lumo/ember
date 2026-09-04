@@ -26,6 +26,7 @@
 #include <deque>
 #include <map>
 #include <memory>
+#include <set>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -183,6 +184,13 @@ struct CheckResult {
     /// annotation may name a type parameter.
     std::map<std::pair<InstanceId, const ast::Stmt*>, TypePtr> binding_types;
 
+    /// Expressions that give up ownership of what they name.
+    ///
+    /// Codegen needs the same answer the checker already worked out:
+    /// a local that has been moved from must have its drop flag cleared,
+    /// or its buffer would be freed twice.
+    std::set<std::pair<InstanceId, const ast::Expr*>> moved_expressions;
+
     /// The type of every expression, per instantiation it was checked in.
     std::map<std::pair<InstanceId, const ast::Expr*>, TypePtr> expr_types;
     /// Which function each call resolved to. Absent for intrinsics.
@@ -199,6 +207,9 @@ struct CheckResult {
 
     /// The type given to a `let` binding in `instance`.
     TypePtr binding_type(InstanceId instance, const ast::Stmt& statement) const;
+
+    /// Whether `expr` moved the value it named.
+    bool is_move(InstanceId instance, const ast::Expr& expr) const;
 };
 
 /// One module handed to the checker: its name, its tree, and what it

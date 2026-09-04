@@ -5,12 +5,13 @@
 namespace ember::typeck {
 
 TypeContext::TypeContext() {
-    int_ = intern(Type{TypeKind::Int, {}, nullptr, 0, {}});
-    float_ = intern(Type{TypeKind::Float, {}, nullptr, 0, {}});
-    bool_ = intern(Type{TypeKind::Bool, {}, nullptr, 0, {}});
-    string_ = intern(Type{TypeKind::String, {}, nullptr, 0, {}});
-    void_ = intern(Type{TypeKind::Void, {}, nullptr, 0, {}});
-    error_ = intern(Type{TypeKind::Error, {}, nullptr, 0, {}});
+    int_ = intern(Type{TypeKind::Int, {}, nullptr, 0, {}, false});
+    float_ = intern(Type{TypeKind::Float, {}, nullptr, 0, {}, false});
+    bool_ = intern(Type{TypeKind::Bool, {}, nullptr, 0, {}, false});
+    string_ = intern(Type{TypeKind::String, {}, nullptr, 0, {}, false});
+    string_buf_ = intern(Type{TypeKind::StringBuf, {}, nullptr, 0, {}, false});
+    void_ = intern(Type{TypeKind::Void, {}, nullptr, 0, {}, false});
+    error_ = intern(Type{TypeKind::Error, {}, nullptr, 0, {}, false});
 }
 
 TypePtr TypeContext::intern(Type type) {
@@ -24,7 +25,7 @@ TypePtr TypeContext::struct_type(const std::string& name, const std::vector<Type
     if (found != structs_.end()) {
         return found->second;
     }
-    const TypePtr type = intern(Type{TypeKind::Struct, name, nullptr, 0, args});
+    const TypePtr type = intern(Type{TypeKind::Struct, name, nullptr, 0, args, false});
     structs_.emplace(key, type);
     return type;
 }
@@ -34,7 +35,7 @@ TypePtr TypeContext::generic_type(const std::string& name) {
     if (found != generics_.end()) {
         return found->second;
     }
-    const TypePtr type = intern(Type{TypeKind::Generic, name, nullptr, 0, {}});
+    const TypePtr type = intern(Type{TypeKind::Generic, name, nullptr, 0, {}, false});
     generics_.emplace(name, type);
     return type;
 }
@@ -44,7 +45,7 @@ TypePtr TypeContext::reference_to(TypePtr element) {
     if (found != references_.end()) {
         return found->second;
     }
-    const TypePtr type = intern(Type{TypeKind::Reference, {}, element, 0, {}});
+    const TypePtr type = intern(Type{TypeKind::Reference, {}, element, 0, {}, false});
     references_.emplace(element, type);
     return type;
 }
@@ -55,9 +56,48 @@ TypePtr TypeContext::array_of(TypePtr element, std::int64_t length) {
     if (found != arrays_.end()) {
         return found->second;
     }
-    const TypePtr type = intern(Type{TypeKind::Array, {}, element, length, {}});
+    const TypePtr type = intern(Type{TypeKind::Array, {}, element, length, {}, false});
     arrays_.emplace(key, type);
     return type;
+}
+
+TypePtr TypeContext::vec_of(TypePtr element) {
+    const auto found = vecs_.find(element);
+    if (found != vecs_.end()) {
+        return found->second;
+    }
+    const TypePtr type = intern(Type{TypeKind::Vec, {}, element, 0, {}, false});
+    vecs_.emplace(element, type);
+    return type;
+}
+
+void TypeContext::mark_owning(TypePtr type) {
+    if (type != nullptr && type->kind == TypeKind::Struct) {
+        // The context owns every interned type, so this is writing to
+        // its own storage rather than through a caller's pointer.
+        const_cast<Type*>(type)->owns_heap = true;
+    }
+}
+
+bool is_owned(TypePtr type) noexcept {
+    if (type == nullptr) {
+        return false;
+    }
+    switch (type->kind) {
+        case TypeKind::Vec:
+        case TypeKind::StringBuf:
+            return true;
+        case TypeKind::Array:
+            // An array of owned elements owns them all.
+            return is_owned(type->element);
+        case TypeKind::Reference:
+            // A borrow never owns, however owned its pointee.
+            return false;
+        case TypeKind::Struct:
+            return type->owns_heap;
+        default:
+            return false;
+    }
 }
 
 bool is_generic(TypePtr type) noexcept {
@@ -111,6 +151,10 @@ std::string to_string(TypePtr type) {
             return "&" + to_string(type->element);
         case TypeKind::Array:
             return "[" + to_string(type->element) + "; " + std::to_string(type->length) + "]";
+        case TypeKind::Vec:
+            return "Vec<" + to_string(type->element) + ">";
+        case TypeKind::StringBuf:
+            return "String";
         case TypeKind::Void:
             return "()";
         case TypeKind::Error:

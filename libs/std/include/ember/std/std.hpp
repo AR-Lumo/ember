@@ -43,6 +43,37 @@ int8_t ember_string_eq(const char* left, int64_t left_length, const char* right,
 /// call to this on the failing branch of a bounds check.
 void ember_panic_index_out_of_bounds(int64_t index, int64_t length);
 
+// --- heap -----------------------------------------------------------
+//
+// A `Vec<T>` and a `String` are both { ptr, len, capacity }: a pointer
+// to a heap buffer, how much of it is live, and how much was allocated.
+// The compiler knows the element size, so these take it as an argument
+// rather than being generic - one runtime function serves every `Vec<T>`.
+
+/// Allocates `bytes`, or terminates if the allocator cannot.
+void* ember_alloc(int64_t bytes);
+
+/// Grows `buffer` to `bytes`, preserving its contents.
+void* ember_realloc(void* buffer, int64_t bytes);
+
+/// Frees a buffer. Null is allowed and does nothing, so dropping a
+/// never-used value is free.
+void ember_free(void* buffer);
+
+/// Ensures at least one more element fits, growing geometrically.
+/// Returns the (possibly moved) buffer and writes the new capacity.
+///
+/// Doubling keeps a run of pushes amortized O(1); growing by a constant
+/// would make building a vector quadratic.
+void* ember_grow(void* buffer, int64_t element_size, int64_t length, int64_t* capacity);
+
+/// Reports popping from an empty container and terminates.
+void ember_panic_empty(const char* what, int64_t what_length);
+
+/// Appends `length` bytes to a string buffer, growing it as needed.
+void* ember_string_append(void* buffer, int64_t* length, int64_t* capacity, const char* bytes,
+                          int64_t count);
+
 /// Reports a division or remainder by zero and terminates.
 void ember_panic_divide_by_zero(void);
 
