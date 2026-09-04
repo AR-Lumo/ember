@@ -830,12 +830,22 @@ private:
 
         switch (expr.kind) {
             case ast::ExprKind::FieldAccess:
-            case ast::ExprKind::Index:
-                report("cannot move out of `" + to_string(type) + "` here", expr.span,
-                       "only a whole variable can be moved")
-                    .with_note("a field or element cannot be moved out on its own, because "
-                               "what remains would be half-owned");
+            case ast::ExprKind::Index: {
+                Diagnostic& diagnostic =
+                    report("cannot move out of `" + to_string(type) + "` here", expr.span,
+                           "only a whole variable can be moved");
+                diagnostic.with_note("a field or element cannot be moved out on its own, "
+                                     "because what remains would be half-owned");
+
+                // There is a way to do what they meant, for a vector.
+                const auto* index = ast::node_cast<ast::IndexExpr>(&expr);
+                if (index != nullptr &&
+                    strip_reference(recorded_type(*index->object))->kind == TypeKind::Vec) {
+                    diagnostic.with_note("`pop` takes the last element out of a `Vec` and "
+                                         "shortens it, which leaves nothing half-owned");
+                }
                 return;
+            }
             default:
                 // A temporary - a call result, a literal - owns itself
                 // and is simply handed on.
@@ -1277,19 +1287,11 @@ private:
                        type.span, "write it as `Vec<int>`");
                 return types().error_type();
             }
-            const TypePtr element = resolve_type(*type.type_args.front());
-
-            // Dropping a `Vec` frees its buffer, not each element in it.
-            // An element that owns memory of its own would be leaked, so
-            // it is refused rather than quietly lost.
-            if (is_owned(element)) {
-                report("`Vec<" + to_string(element) + ">` is not supported",
-                       type.span, "a `Vec` element cannot own heap memory of its own")
-                    .with_note("dropping the outer `Vec` would leak every element; wrap the "
-                               "element in a struct with a `&` field, or keep it flat");
-                return types().error_type();
-            }
-            return types().vec_of(element);
+            // The element may own memory of its own: dropping the
+            // vector walks its live elements first. `move_out_of` still
+            // refuses to move one out of the middle, so `pop` is the
+            // only way to take ownership of an element back.
+            return types().vec_of(resolve_type(*type.type_args.front()));
         }
         if (type.module.empty() && type.name == "String") {
             if (!type.type_args.empty()) {

@@ -1,0 +1,109 @@
+(program
+  (fn @19:1 pub width
+    (params
+      (param @19:14 word
+        (ref @19:20
+          (named @19:21 String))))
+    (returns
+      (int @19:32))
+    (block @19:36
+      (return @20:5
+        (call @20:12 len
+          (name @20:16 word)))))
+  (fn @24:1 pub make
+    (params
+      (param @24:13 text
+        (string @24:19)))
+    (returns
+      (named @24:30 String))
+    (block @24:37
+      (let @25:5 mut out
+        (named @25:18 String)
+        (call @25:27 new_string))
+      (expr-stmt @26:5
+        (call @26:5 push_str
+          (name @26:14 out)
+          (name @26:19 text)))
+      (return @27:5
+        (name @27:12 out))))
+  (fn @30:1 pub main
+    (params)
+    (block @30:15
+      (let @31:5 mut words
+        (named @31:20 Vec)
+        (call @31:34 new_vec))
+      (expr-stmt @32:5
+        (call @32:5 push
+          (name @32:10 words)
+          (call @32:17 make
+            (string-lit @32:22 "ember"))))
+      (expr-stmt @33:5
+        (call @33:5 push
+          (name @33:10 words)
+          (call @33:17 make
+            (string-lit @33:22 "compiles"))))
+      (expr-stmt @34:5
+        (call @34:5 push
+          (name @34:10 words)
+          (call @34:17 make
+            (string-lit @34:22 "to native code"))))
+      (expr-stmt @36:5
+        (call @36:5 print
+          (string-lit @36:11 "words:   ")))
+      (expr-stmt @37:5
+        (call @37:5 println
+          (call @37:13 len
+            (name @37:17 words))))
+      (let @40:5 mut letters
+        (int-lit @40:23 0))
+      (let @41:5 mut i
+        (int-lit @41:17 0))
+      (while @42:5
+        (binary @42:11 lt
+          (name @42:11 i)
+          (call @42:15 len
+            (name @42:19 words)))
+        (block @42:26
+          (expr-stmt @43:9
+            (call @43:9 print
+              (string-lit @43:15 "  ")))
+          (expr-stmt @44:9
+            (call @44:9 println
+              (index @44:17
+                (name @44:17 words)
+                (name @44:23 i))))
+          (assign @45:9
+            (name @45:9 letters)
+            (binary @45:19 add
+              (name @45:19 letters)
+              (call @45:29 width
+                (index @45:35
+                  (name @45:35 words)
+                  (name @45:41 i)))))
+          (assign @46:9
+            (name @46:9 i)
+            (binary @46:13 add
+              (name @46:13 i)
+              (int-lit @46:17 1)))))
+      (expr-stmt @48:5
+        (call @48:5 print
+          (string-lit @48:11 "letters: ")))
+      (expr-stmt @49:5
+        (call @49:5 println
+          (name @49:13 letters)))
+      (let @52:5 last
+        (call @52:16 pop
+          (name @52:20 words)))
+      (expr-stmt @53:5
+        (call @53:5 print
+          (string-lit @53:11 "popped:  ")))
+      (expr-stmt @54:5
+        (call @54:5 println
+          (name @54:13 last)))
+      (expr-stmt @55:5
+        (call @55:5 print
+          (string-lit @55:11 "left:    ")))
+      (expr-stmt @56:5
+        (call @56:5 println
+          (call @56:13 len
+            (name @56:17 words)))))))

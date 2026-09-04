@@ -467,6 +467,36 @@ println(message);
 turbofish and nothing in the call to infer from. That same rule now also
 lets `let xs: [int; 0] = [];` work.
 
+An element may own memory of its own — `Vec<String>`, `Vec<Vec<int>>`,
+as deep as you like. Dropping such a vector is not one `free`: it walks
+its live elements, drops each, and only then releases the buffer they
+sat in.
+
+```ember
+let mut words: Vec<String> = new_vec();
+push(words, make("ember"));       // `make` returns a String; it moves in
+
+println(words[0]);                // reads an element without taking it
+let last = pop(words);            // takes one back out, shortening the vector
+```
+
+Reading `words[i]` borrows. Moving an element *out* of the middle is
+refused, because the vector would go on counting something it no longer
+holds — `pop` is how ownership comes back, and the error says so:
+
+```console
+error: cannot move out of `String` here
+  --> main.em:11:17
+   |
+11 |     let taken = words[0];
+   |                 ^^^^^^^^ only a whole variable can be moved
+   = note: a field or element cannot be moved out on its own, because what remains would be half-owned
+   = note: `pop` takes the last element out of a `Vec` and shortens it, which leaves nothing half-owned
+```
+
+[`examples/word_list.em`](examples/word_list.em) is the whole thing end
+to end.
+
 ### Ownership
 
 `Vec` and `String` own heap memory, and so does any struct holding one.
@@ -666,12 +696,11 @@ v1 is deliberately small. These are the sharp edges worth knowing about.
   borrow checker and no lifetimes. Returning a reference to a local, or
   holding one past the drop of what it points at, will compile and then
   dangle. Ownership governs who frees a buffer, not who may look at it.
-- **A field cannot be moved out of a struct.** Moving one out would
-  leave the struct half-owned with no way for the drop code to know
-  which parts are live, so it is rejected; move the whole struct.
-- **`Vec<T>` where `T` itself owns memory is not supported.** Dropping
-  one would need to walk and drop every element, which the runtime does
-  not do — a `Vec<Vec<int>>` is rejected rather than leaked.
+- **A field or element cannot be moved out of what holds it.** Moving
+  one out would leave the container half-owned, with no way for the drop
+  code to know which parts are still live — so it is rejected. Move the
+  whole struct, or use `pop` to shorten a `Vec` and take its last
+  element back.
 - **No slicing, no concatenation operator.** `push_str` builds a
   `String`; `+` on strings is still not a thing, and there is no way to
   take a sub-range of either a `Vec` or a `String`.

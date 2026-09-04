@@ -157,14 +157,112 @@ EMBER_TEST(vec_composes_with_generics) {
            "}\n");
 }
 
-EMBER_TEST(vec_rejects_an_element_type_that_owns_memory) {
-    // Dropping a `Vec` frees its buffer, not each element. An element
-    // owning memory of its own would be leaked, so it is refused rather
-    // than quietly lost. Reported once, not twice.
+// ---------------------------------------------------------------------
+// Vectors whose elements own memory
+//
+// Dropping one of these is not a single `free`: it walks the live
+// elements, drops each, and only then releases the buffer under them.
+// What keeps that sound is that an element can never be moved out of the
+// middle - the vector would go on counting something it no longer holds.
+// ---------------------------------------------------------------------
+
+EMBER_TEST(vec_accepts_an_element_type_that_owns_memory) {
+    accept(in_main("let mut words: Vec<String> = new_vec();\n"
+                   "    let mut w: String = new_string();\n"
+                   "    push_str(w, \"ember\");\n"
+                   "    push(words, w);\n"
+                   "    println(len(words));"));
+}
+
+EMBER_TEST(vec_accepts_a_vector_of_vectors) {
+    // The drop is recursive, so the nesting can go as deep as it likes.
+    accept(in_main("let mut grid: Vec<Vec<int>> = new_vec();\n"
+                   "    let mut row: Vec<int> = new_vec();\n"
+                   "    push(row, 1);\n"
+                   "    push(grid, row);\n"
+                   "    println(len(grid));"));
+}
+
+EMBER_TEST(vec_moves_a_pushed_value_into_the_container) {
+    EMBER_CHECK_EQ(first_error(in_main("let mut words: Vec<String> = new_vec();\n"
+                                       "    let mut w: String = new_string();\n"
+                                       "    push(words, w);\n"
+                                       "    println(w);")),
+                   std::string{"use of moved value `w`"});
+}
+
+EMBER_TEST(vec_refuses_to_move_an_owned_element_out) {
+    // The rule that makes the drop loop safe.
     const std::vector<ember::ast::Diagnostic> errors =
-        reject(in_main("let mut v: Vec<Vec<int>> = new_vec();"));
-    EMBER_CHECK_EQ(errors.size(), std::size_t{1});
-    EMBER_CHECK_EQ(errors.at(0).message, std::string{"`Vec<Vec<int>>` is not supported"});
+        reject(in_main("let mut words: Vec<String> = new_vec();\n"
+                       "    let taken = words[0];\n"
+                       "    println(taken);"));
+    EMBER_CHECK_EQ(errors.at(0).message, std::string{"cannot move out of `String` here"});
+}
+
+EMBER_TEST(vec_points_at_pop_when_an_element_cannot_be_moved_out) {
+    // There is a way to do what they meant, so the diagnostic says so.
+    const std::vector<ember::ast::Diagnostic> errors =
+        reject(in_main("let mut words: Vec<String> = new_vec();\n"
+                       "    let taken = words[0];\n"
+                       "    println(taken);"));
+    bool mentions_pop = false;
+    for (const std::string& note : errors.at(0).notes) {
+        mentions_pop = mentions_pop || note.find("`pop`") != std::string::npos;
+    }
+    EMBER_CHECK_MSG(mentions_pop, "no note pointing at `pop`");
+}
+
+EMBER_TEST(vec_hands_ownership_back_through_pop) {
+    // `pop` shortens the vector, so nothing is left half-owned and the
+    // binding really does own what it got.
+    accept(in_main("let mut words: Vec<String> = new_vec();\n"
+                   "    let mut w: String = new_string();\n"
+                   "    push(words, w);\n"
+                   "    let taken = pop(words);\n"
+                   "    println(taken);"));
+}
+
+EMBER_TEST(vec_lends_an_owned_element_without_moving_it) {
+    accept("pub fn width(word: &String) -> int { return len(word); }\n" +
+           in_main("let mut words: Vec<String> = new_vec();\n"
+                   "    let mut w: String = new_string();\n"
+                   "    push(words, w);\n"
+                   "    println(width(words[0]));\n"
+                   "    println(words[0]);"));
+}
+
+EMBER_TEST(vec_drops_its_elements_before_its_buffer) {
+    if (!ember::codegen::is_available()) {
+        return;
+    }
+    // A `Vec<int>` frees one block; a `Vec<String>` has to walk what is
+    // in it first, which is the loop this looks for.
+    const std::string flat = compile_ir(in_main("let mut v: Vec<int> = new_vec();\n"
+                                                "    push(v, 1);"));
+    EMBER_CHECK_MSG(flat.find("drop.each") == std::string::npos,
+                    "a flat vector should need no element loop:\n" + flat);
+
+    const std::string owned = compile_ir(in_main("let mut v: Vec<String> = new_vec();\n"
+                                                 "    let mut w: String = new_string();\n"
+                                                 "    push(v, w);"));
+    EMBER_CHECK_MSG(owned.find("drop.each") != std::string::npos,
+                    "no element drop loop for a `Vec<String>`:\n" + owned);
+}
+
+EMBER_TEST(vec_frees_an_owned_value_a_statement_throws_away) {
+    if (!ember::codegen::is_available()) {
+        return;
+    }
+    // `pop(v);` takes an element out and discards it. The vector has
+    // already given it up, so this statement is its last owner and has
+    // to free it or it leaks.
+    const std::string ir = compile_ir(in_main("let mut v: Vec<String> = new_vec();\n"
+                                              "    let mut w: String = new_string();\n"
+                                              "    push(v, w);\n"
+                                              "    pop(v);"));
+    EMBER_CHECK_MSG(ir.find("discarded") != std::string::npos,
+                    "a discarded owned value was left unfreed:\n" + ir);
 }
 
 EMBER_TEST(vec_accepts_an_array_of_vectors) {

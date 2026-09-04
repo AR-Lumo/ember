@@ -506,9 +506,13 @@ private:
 
             case TypeKind::Vec:
             case TypeKind::StringBuf: {
-                // The elements of a `Vec<T>` where T itself owns memory
-                // would need a loop here; v2 only allows scalar and
-                // borrowed element types, which the checker enforces.
+                // A `Vec<String>` owns its elements as well as the
+                // buffer holding them, so each live one is dropped
+                // before the ground goes out from under it. A `String`
+                // is bytes and never needs this.
+                if (type->kind == TypeKind::Vec && typeck::is_owned(type->element)) {
+                    emit_element_drops(type, address);
+                }
                 llvm::Value* buffer = builder_.CreateLoad(
                     ptr_type(), builder_.CreateStructGEP(buffer_type_, address, 0), "buf");
                 builder_.CreateCall(runtime("ember_free", void_type(), {ptr_type()}), {buffer});
@@ -547,6 +551,44 @@ private:
             default:
                 return;
         }
+    }
+
+    /// Drops elements `0..len` of a vector whose elements own memory.
+    ///
+    /// The length is what governs, not the capacity: the slots past the
+    /// end were never written, so reading them to drop them would be
+    /// dropping whatever the allocator happened to leave there.
+    void emit_element_drops(TypePtr type, llvm::Value* address) {
+        llvm::Type* element = lower(type->element);
+        llvm::Value* buffer = builder_.CreateLoad(
+            ptr_type(), builder_.CreateStructGEP(buffer_type_, address, 0), "buf");
+        llvm::Value* length = builder_.CreateLoad(
+            int_type(), builder_.CreateStructGEP(buffer_type_, address, 1), "len");
+
+        // In the entry block, so a vector dropped inside a loop does not
+        // allocate a counter on every turn.
+        llvm::Value* index = create_entry_alloca(int_type(), "drop.i");
+        builder_.CreateStore(builder_.getInt64(0), index);
+
+        llvm::BasicBlock* head = llvm::BasicBlock::Create(*context_, "drop.each");
+        llvm::BasicBlock* body = llvm::BasicBlock::Create(*context_, "drop.each.body");
+        llvm::BasicBlock* done = llvm::BasicBlock::Create(*context_, "drop.each.end");
+        builder_.CreateBr(head);
+
+        head->insertInto(current_function_);
+        builder_.SetInsertPoint(head);
+        llvm::Value* i = builder_.CreateLoad(int_type(), index, "i");
+        builder_.CreateCondBr(builder_.CreateICmpSLT(i, length), body, done);
+
+        body->insertInto(current_function_);
+        builder_.SetInsertPoint(body);
+        // Recursive, so a `Vec<Vec<String>>` unwinds all the way down.
+        emit_drop(type->element, builder_.CreateInBoundsGEP(element, buffer, {i}));
+        builder_.CreateStore(builder_.CreateAdd(i, builder_.getInt64(1)), index);
+        builder_.CreateBr(head);
+
+        done->insertInto(current_function_);
+        builder_.SetInsertPoint(done);
     }
 
     /// Drops every live local in every open scope. Used on the way out
@@ -629,10 +671,44 @@ private:
             case ast::StmtKind::Assign:
                 return emit_assign(static_cast<const ast::AssignStmt&>(statement));
             case ast::StmtKind::Expr:
-                emit_value(*static_cast<const ast::ExprStmt&>(statement).expr);
+                emit_expr_statement(static_cast<const ast::ExprStmt&>(statement));
                 return;
             case ast::StmtKind::Block:
                 return emit_block(static_cast<const ast::BlockStmt&>(statement).block);
+        }
+    }
+
+    /// An expression evaluated for its effect, with its value thrown
+    /// away - which for an owned value means freed rather than dropped
+    /// on the floor. `pop(v);` on a `Vec<String>` is the reachable case:
+    /// the vector gave up the element, so this statement is its last
+    /// owner.
+    void emit_expr_statement(const ast::ExprStmt& statement) {
+        llvm::Value* value = emit_value(*statement.expr);
+        const TypePtr type = type_of(*statement.expr);
+        if (value == nullptr || !typeck::is_owned(type) || is_place(*statement.expr)) {
+            return;
+        }
+
+        llvm::Value* temporary = create_entry_alloca(lower(type), "discarded");
+        builder_.CreateStore(value, temporary);
+        emit_drop(type, temporary);
+    }
+
+    /// Whether an expression names storage something else owns.
+    ///
+    /// The distinction only matters for a discarded value: freeing a
+    /// place would free what its owner will free again, while a
+    /// temporary has no other owner to do it. This is the same split
+    /// the checker makes when it decides what may be moved.
+    static bool is_place(const ast::Expr& expr) {
+        switch (expr.kind) {
+            case ast::ExprKind::Name:
+            case ast::ExprKind::FieldAccess:
+            case ast::ExprKind::Index:
+                return true;
+            default:
+                return false;
         }
     }
 
