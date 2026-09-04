@@ -153,6 +153,7 @@ ember build <file.em> [-o <output>]   compile to a native executable
 ember run <file.em>                   compile and run in one step
 ember check <file.em>                 type-check only, no codegen
 
+  -O0 .. -O3       optimization level (default: -O0)
   -v, --verbose    say which modules were compiled and which were cached
       --fresh      recompile every module, ignoring cached object files
 ```
@@ -161,6 +162,25 @@ Exit codes are `0` on success, `1` when the program failed to compile,
 and `2` when the command line itself was wrong. A compiled program that
 hits a runtime error — an out-of-bounds index, a division by zero —
 exits `101`.
+
+### Optimization
+
+`-O0` through `-O3`, spelled the way C spells them, running LLVM's
+standard per-module pipeline. A bare `-O` is refused rather than guessed
+at: gcc reads it as `-O1` and clang as `-O2`, and there is no reason to
+pick a side silently.
+
+On a Collatz search over 300,000 starting points:
+
+| | time |
+|---|---|
+| `-O0` | 0.43s |
+| `-O1` | 0.27s |
+| `-O2` | 0.27s |
+| `-O3` | 0.24s |
+
+The default is `-O0`, as it is for every C compiler: it compiles faster,
+and the IR it produces still reads like the source it came from.
 
 ### Incremental builds
 
@@ -199,6 +219,10 @@ compiling shapes.em
 The cache key is the fingerprint in the object's file name, so a hit is
 just a file existing — there is no manifest that can disagree with what
 is on disk. `--fresh` ignores it. Deleting `.ember` is always safe.
+
+Each optimization level keeps its own objects, so working at `-O0` and
+dropping to `-O2` to check something does not recompile the program each
+way round.
 
 ---
 
@@ -674,9 +698,10 @@ v1 is deliberately small. These are the sharp edges worth knowing about.
   file recording another module's types and signatures. That is what a
   package manager distributing binaries would need; one distributing
   source, the way Cargo does, would not.
-- **Whole-program optimization is gone.** A cross-module call used to be
-  a direct call in one LLVM module and could be inlined; now it crosses
-  an object-file boundary. There is no `-O` flag or LTO to win it back.
+- **Optimization stops at the module boundary.** A cross-module call
+  used to be a direct call in one LLVM module and could be inlined; now
+  it crosses an object-file boundary that `-O3` cannot see across.
+  There is no LTO to win that back.
 - **Module paths are one level deep.** `geometry::Point` works;
   `shapes::geometry::Point` does not. There are no nested modules and no
   search path — an imported module is a file beside the importer.

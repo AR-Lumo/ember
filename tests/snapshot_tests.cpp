@@ -905,6 +905,37 @@ EMBER_TEST(cli_parses_the_incremental_build_flags) {
     EMBER_CHECK(!plain.build.verbose);
 }
 
+EMBER_TEST(cli_parses_an_optimization_level) {
+    const auto result = parse({"build", "-O2", "main.em"});
+    EMBER_CHECK_EQ(command_of(result).build.optimization_level, 2u);
+
+    const auto bare = parse({"build", "main.em"});
+    EMBER_CHECK_EQ(command_of(bare).build.optimization_level, 0u);
+}
+
+EMBER_TEST(cli_rejects_an_optimization_level_it_does_not_have) {
+    EMBER_CHECK_EQ(usage_message(parse({"build", "-O4", "main.em"})),
+                   std::string{"expected an optimization level `-O0` through `-O3`, "
+                               "found `-O4`"});
+}
+
+EMBER_TEST(cli_will_not_guess_what_a_bare_dash_o_means) {
+    // gcc reads it as -O1 and clang as -O2. Refusing beats picking.
+    EMBER_CHECK_MSG(
+        usage_message(parse({"build", "-O", "main.em"})).find("requires a level") !=
+            std::string::npos,
+        usage_message(parse({"build", "-O", "main.em"})));
+}
+
+EMBER_TEST(cli_keeps_the_output_flag_distinct_from_the_optimization_flag) {
+    // `-o` and `-O` differ only in case, and one of them takes an
+    // argument, so this is worth pinning down.
+    const auto result = parse({"build", "-o", "app", "-O1", "main.em"});
+    const ember::cli::Command& command = command_of(result);
+    EMBER_CHECK_EQ(command.output->string(), std::string{"app"});
+    EMBER_CHECK_EQ(command.build.optimization_level, 1u);
+}
+
 EMBER_TEST(cli_run_takes_the_build_flags_too) {
     // `run` compiles before it runs, so the same decisions apply to it.
     const auto result = parse({"run", "--verbose", "hello.em"});

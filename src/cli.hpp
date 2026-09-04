@@ -44,6 +44,10 @@ struct BuildOptions {
     bool verbose = false;
     /// Ignore cached objects and lower every module again.
     bool fresh = false;
+    /// What `-O` asked for, 0 to 3. Zero is the default, as it is for
+    /// every C compiler: an unoptimized build compiles faster and its
+    /// generated code still resembles the source it came from.
+    unsigned optimization_level = 0;
 
     friend bool operator==(const BuildOptions&, const BuildOptions&) = default;
 };

@@ -47,18 +47,47 @@ std::variant<std::filesystem::path, UsageError> check_extension(std::string_view
 
 bool is_flag(std::string_view arg) { return !arg.empty() && arg.front() == '-'; }
 
+/// What the shared build-flag parser made of one argument.
+struct FlagOutcome {
+    /// Whether this argument was one of the build flags at all.
+    bool recognized = false;
+    /// Set when it was recognized but malformed, so a bad `-O` reports
+    /// what is wrong with it instead of "unknown option".
+    std::optional<std::string> error;
+};
+
 /// Flags that mean the same thing to `build` and `run`, because both of
-/// them compile. Returns false when the argument is not one of them.
-bool parse_build_flag(std::string_view arg, BuildOptions& options) {
+/// them compile.
+FlagOutcome parse_build_flag(std::string_view arg, BuildOptions& options) {
     if (arg == "-v" || arg == "--verbose") {
         options.verbose = true;
-        return true;
+        return FlagOutcome{true, std::nullopt};
     }
     if (arg == "--fresh") {
         options.fresh = true;
-        return true;
+        return FlagOutcome{true, std::nullopt};
     }
-    return false;
+
+    // `-O2`, spelled as C spells it (§9). Lowercase `-o` is the output
+    // path and is handled by `build` alone, so the case matters.
+    if (arg.rfind("-O", 0) == 0) {
+        const std::string_view level = arg.substr(2);
+        if (level.size() == 1 && level.front() >= '0' && level.front() <= '3') {
+            options.optimization_level = static_cast<unsigned>(level.front() - '0');
+            return FlagOutcome{true, std::nullopt};
+        }
+        if (level.empty()) {
+            // gcc reads a bare `-O` as `-O1` and clang as `-O2`. With
+            // no agreement to follow, guessing would be worse than
+            // asking.
+            return FlagOutcome{
+                true, "`-O` requires a level, e.g. `-O2` (gcc and clang disagree on what "
+                      "a bare `-O` means, so ember does not guess)"};
+        }
+        return FlagOutcome{true, "expected an optimization level `-O0` through `-O3`, found `" +
+                                     std::string{arg} + "`"};
+    }
+    return FlagOutcome{false, std::nullopt};
 }
 
 /// `run` and `check` both take exactly one positional argument. `run`
@@ -70,8 +99,14 @@ ParseResult parse_single_input(CommandKind kind, std::string_view subcommand,
     BuildOptions options;
 
     for (const std::string_view arg : args) {
-        if (kind == CommandKind::Run && parse_build_flag(arg, options)) {
-            continue;
+        if (kind == CommandKind::Run) {
+            const FlagOutcome outcome = parse_build_flag(arg, options);
+            if (outcome.error.has_value()) {
+                return usage_error(*outcome.error);
+            }
+            if (outcome.recognized) {
+                continue;
+            }
         }
         if (is_flag(arg)) {
             return usage_error("unknown option `" + std::string{arg} + "`");
@@ -104,7 +139,11 @@ ParseResult parse_build(std::span<const std::string_view> args) {
 
     for (std::size_t i = 0; i < args.size();) {
         const std::string_view arg = args[i];
-        if (parse_build_flag(arg, options)) {
+        const FlagOutcome outcome = parse_build_flag(arg, options);
+        if (outcome.error.has_value()) {
+            return usage_error(*outcome.error);
+        }
+        if (outcome.recognized) {
             i += 1;
         } else if (arg == "-o" || arg == "--output") {
             if (i + 1 >= args.size()) {
@@ -154,6 +193,7 @@ const std::string_view kUsage =
     "\n"
     "OPTIONS:\n"
     "    -o, --output <path>   output path for `build` (default: input stem)\n"
+    "    -O0 .. -O3            optimization level (default: -O0)\n"
     "    -v, --verbose         report which modules were compiled and which were cached\n"
     "        --fresh           recompile every module, ignoring cached object files\n"
     "    -h, --help            print this message\n"
@@ -427,10 +467,10 @@ std::vector<ModuleBuild> plan_build(const FrontEnd& front_end,
     }
 
     // Anything that changes the generated code and is not a source file:
-    // the compiler that will do the lowering, and how it was asked to.
-    std::uint64_t base = hash_into(
-        hash_into(kHashSeed, version_string()),
-        std::to_string(options.optimization_level) + "/" + std::string{codegen::llvm_version()});
+    // the compiler that will do the lowering. The optimization level is
+    // deliberately *not* here - it goes in the object's name below.
+    std::uint64_t base =
+        hash_into(hash_into(kHashSeed, version_string()), codegen::llvm_version());
 
     // A compiler rebuilt from different sources usually still reports
     // the same version, so its size and timestamp stand in for what the
@@ -460,9 +500,17 @@ std::vector<ModuleBuild> plan_build(const FrontEnd& front_end,
         }
 
         // The stem alone can collide across directories, so the path
-        // goes in the name too; the pair is the sweep prefix below.
+        // goes in the name too; the whole thing is the sweep prefix
+        // below.
+        //
+        // The optimization level is part of the prefix rather than the
+        // fingerprint so that each level keeps its own objects and
+        // sweeps only its own: flipping between `-O0` while working and
+        // `-O2` to check something does not recompile the program each
+        // way round.
         const std::string prefix = modules[i].path.stem().string() + "-" +
-                                   hex(hash_into(kHashSeed, modules[i].path.string()), 8);
+                                   hex(hash_into(kHashSeed, modules[i].path.string()), 8) + "-O" +
+                                   std::to_string(options.optimization_level);
 
         ModuleBuild build;
         build.name = modules[i].name;
@@ -499,7 +547,7 @@ void sweep_stale_objects(const std::filesystem::path& cache,
 
 /// Compile a checked program all the way to a native executable.
 int emit_executable(const FrontEnd& front_end, const std::filesystem::path& output,
-                    bool fresh, bool verbose) {
+                    const BuildOptions& build) {
     if (!codegen::is_available()) {
         std::cerr << "error: this build of ember has no code generator\n";
         std::cerr << "note: the compiler was built without LLVM; reconfigure with "
@@ -517,6 +565,7 @@ int emit_executable(const FrontEnd& front_end, const std::filesystem::path& outp
 
     codegen::CompileOptions options;
     options.output = codegen::OutputKind::Object;
+    options.optimization_level = build.optimization_level;
 
     const std::filesystem::path cache =
         cache_directory(front_end.loaded.modules.front().path);
@@ -524,28 +573,28 @@ int emit_executable(const FrontEnd& front_end, const std::filesystem::path& outp
     const std::vector<codegen::ModuleInput> inputs = front_end.codegen_modules();
 
     std::vector<std::filesystem::path> objects;
-    for (const ModuleBuild& build : plan) {
-        objects.push_back(build.object);
+    for (const ModuleBuild& module : plan) {
+        objects.push_back(module.object);
 
-        if (build.cached && !fresh) {
-            if (verbose) {
-                std::cerr << "  cached  " << build.label() << "\n";
+        if (module.cached && !build.fresh) {
+            if (build.verbose) {
+                std::cerr << "  cached  " << module.label() << "\n";
             }
             continue;
         }
-        if (verbose) {
-            std::cerr << "compiling " << build.label() << "\n";
+        if (build.verbose) {
+            std::cerr << "compiling " << module.label() << "\n";
         }
 
-        options.module_name = build.source.string();
-        options.target_module = build.name;
+        options.module_name = module.source.string();
+        options.target_module = module.name;
 
         // Written under a private name and moved into place, so a second
         // ember running over the same sources cannot be caught reading a
         // half-written object.
         std::random_device entropy;
         const std::filesystem::path partial =
-            build.object.string() + ".tmp" + std::to_string(entropy());
+            module.object.string() + ".tmp" + std::to_string(entropy());
         const codegen::CompileResult compiled =
             codegen::compile(inputs, front_end.checked, partial, options);
         if (!compiled.ok()) {
@@ -556,13 +605,13 @@ int emit_executable(const FrontEnd& front_end, const std::filesystem::path& outp
         }
 
         std::error_code code;
-        std::filesystem::rename(partial, build.object, code);
+        std::filesystem::rename(partial, module.object, code);
         if (code) {
             // Losing the race is fine: whoever won wrote the same bytes,
             // because the name is a hash of everything that went in.
             std::filesystem::remove(partial, code);
-            if (!std::filesystem::exists(build.object)) {
-                std::cerr << "error: cannot write `" << build.object.string() << "`\n";
+            if (!std::filesystem::exists(module.object)) {
+                std::cerr << "error: cannot write `" << module.object.string() << "`\n";
                 return kExitCompileError;
             }
         }
@@ -570,7 +619,7 @@ int emit_executable(const FrontEnd& front_end, const std::filesystem::path& outp
 
     sweep_stale_objects(cache, plan);
 
-    if (verbose) {
+    if (build.verbose) {
         std::cerr << " linking  " << output.filename().string() << "\n";
     }
     return link_executable(objects, output);
@@ -590,7 +639,7 @@ int build_file(const std::filesystem::path& input, const std::filesystem::path& 
     if (!front_end.ok) {
         return kExitCompileError;
     }
-    return emit_executable(front_end, output, options.fresh, options.verbose);
+    return emit_executable(front_end, output, options);
 }
 
 int run_file(const std::filesystem::path& input, const BuildOptions& options) {
@@ -607,8 +656,7 @@ int run_file(const std::filesystem::path& input, const BuildOptions& options) {
         ("ember-run-" + std::to_string(entropy()) + std::string{".exe"});
 
     const ScratchFile scratch{executable};
-    if (emit_executable(front_end, scratch.path(), options.fresh, options.verbose) !=
-        kExitSuccess) {
+    if (emit_executable(front_end, scratch.path(), options) != kExitSuccess) {
         return kExitCompileError;
     }
 

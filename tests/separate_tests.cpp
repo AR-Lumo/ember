@@ -551,6 +551,34 @@ EMBER_TEST(separate_compilation_links_a_generic_two_modules_both_instantiated) {
     EMBER_CHECK_MSG(result.output.find("11") != std::string::npos, result.output);
 }
 
+EMBER_TEST(incremental_build_caches_each_optimization_level_separately) {
+    if (!ember::codegen::is_available()) {
+        return;
+    }
+    // Flipping between `-O0` while working and `-O2` to check something
+    // must not recompile the program each way round, so the level is
+    // part of the object's name rather than its fingerprint.
+    const Workspace workspace;
+    write_program(workspace);
+
+    workspace.run("main.em", "-O2");
+    workspace.run("main.em", "-O0");
+
+    const ProcessResult again = workspace.run("main.em", "-O2");
+    EMBER_CHECK_MSG(cached(again, "main.em"),
+                    "switching back to -O2 recompiled:\n" + again.output);
+    EMBER_CHECK_MSG(cached(again, "shapes.em"), again.output);
+
+    int objects = 0;
+    std::error_code ignored;
+    for (const fs::directory_entry& entry :
+         fs::directory_iterator(workspace.path(".ember"), ignored)) {
+        objects += entry.path().extension() == ".o" ? 1 : 0;
+    }
+    // Three modules at two levels, and neither level swept the other.
+    EMBER_CHECK_EQ(objects, 6);
+}
+
 EMBER_TEST(incremental_build_keeps_one_object_per_module) {
     if (!ember::codegen::is_available()) {
         return;

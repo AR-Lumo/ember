@@ -239,6 +239,7 @@ ember build file.em -o output      # compile to native executable
 ember run file.em                  # compile + run in one step
 ember check file.em                # type-check only, no codegen
 
+  -O0 .. -O3                       # optimization level, default -O0   (v2)
   -v, --verbose                    # report per-module compile/cache decisions
       --fresh                      # ignore cached object files       (v2)
 ```

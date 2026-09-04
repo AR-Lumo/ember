@@ -13,6 +13,7 @@ add_executable(ember_snapshot_tests
     ownership_tests.cpp
     closure_tests.cpp
     separate_tests.cpp
+    optimization_tests.cpp
 )
 
 target_include_directories(ember_snapshot_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
