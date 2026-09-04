@@ -1,0 +1,5 @@
+distance_sq: 25
+magnitude_sq: 25
+manhattan: 7
+origin.x: 0
+counter: 12

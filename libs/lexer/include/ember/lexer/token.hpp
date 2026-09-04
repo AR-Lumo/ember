@@ -41,6 +41,8 @@ enum class TokenKind {
     KwSelf,
     /// `as`, the explicit conversion operator required by section 4.
     KwAs,
+    /// `import`, which pulls another module into scope.
+    KwImport,
 
     // Primitive type names. The grammar spells these as terminals, so
     // they are reserved words rather than ordinary identifiers.
@@ -61,6 +63,8 @@ enum class TokenKind {
     Comma,
     Semicolon,
     Colon,
+    /// `::`, which separates a module from the item inside it.
+    ColonColon,
     Dot,
     Arrow,
 

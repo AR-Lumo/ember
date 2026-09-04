@@ -85,9 +85,9 @@ struct Slot {
 
 class Emitter {
 public:
-    Emitter(const ast::Program& program, const typeck::CheckResult& checked,
+    Emitter(const std::vector<ModuleInput>& modules, const typeck::CheckResult& checked,
             const CompileOptions& options)
-        : program_(program),
+        : modules_(modules),
           checked_(checked),
           context_(std::make_unique<llvm::LLVMContext>()),
           module_(std::make_unique<llvm::Module>(options.module_name, *context_)),
@@ -125,7 +125,7 @@ public:
     std::vector<ast::Diagnostic>& diagnostics() { return diagnostics_; }
 
 private:
-    const ast::Program& program_;
+    const std::vector<ModuleInput>& modules_;
     const typeck::CheckResult& checked_;
     std::unique_ptr<llvm::LLVMContext> context_;
     std::unique_ptr<llvm::Module> module_;
@@ -145,6 +145,13 @@ private:
     /// separate type for every expression per instance, so every lookup
     /// has to say which one it means.
     typeck::InstanceId current_instance_ = typeck::kRootInstance;
+    /// The module whose items are being emitted, so a name can be
+    /// qualified the same way the checker qualified it.
+    std::string current_module_;
+
+    std::string qualify(const std::string& name) const {
+        return current_module_.empty() ? name : current_module_ + "::" + name;
+    }
 
     typeck::TypePtr type_of(const ast::Expr& expr) const {
         return checked_.type_of(current_instance_, expr);
@@ -223,7 +230,7 @@ private:
     /// `main` is emitted as the C entry point `i32 main()`, so the system
     /// linker finds it and the process exits 0.
     static bool is_entry_point(const typeck::FunctionInfo& info) {
-        return !info.is_method() && info.name == "main";
+        return !info.is_method() && info.module.empty() && info.name == "main";
     }
 
     llvm::FunctionType* signature_of(const typeck::FunctionInfo& info) {
@@ -264,26 +271,31 @@ private:
     }
 
     void emit_function_bodies() {
-        emit_concrete_bodies();
+        for (const ModuleInput& module : modules_) {
+            current_module_ = module.name;
+            emit_concrete_bodies(*module.program);
+        }
 
         for (const typeck::Instantiation& instance : checked_.instantiations) {
             current_instance_ = instance.id;
+            current_module_ = instance.info.module;
             emit_function(*instance.decl, instance.info);
         }
         current_instance_ = typeck::kRootInstance;
+        current_module_.clear();
     }
 
-    void emit_concrete_bodies() {
-        for (const ast::ItemPtr& item : program_.items) {
+    void emit_concrete_bodies(const ast::Program& program) {
+        for (const ast::ItemPtr& item : program.items) {
             if (const auto* declaration = ast::node_cast<ast::FunctionDecl>(item.get())) {
-                const auto entry = checked_.functions.find(declaration->name);
+                const auto entry = checked_.functions.find(qualify(declaration->name));
                 if (entry != checked_.functions.end() && entry->second.decl == declaration) {
                     emit_function(*declaration, entry->second);
                 }
             } else if (const auto* block = ast::node_cast<ast::ImplBlock>(item.get())) {
                 for (const std::unique_ptr<ast::FunctionDecl>& method : block->methods) {
-                    const auto entry =
-                        checked_.methods.find(std::make_pair(block->type_name, method->name));
+                    const auto entry = checked_.methods.find(
+                        std::make_pair(qualify(block->type_name), method->name));
                     if (entry != checked_.methods.end() && entry->second.decl == method.get()) {
                         emit_function(*method, entry->second);
                     }
@@ -522,7 +534,9 @@ private:
                 if (const Slot* slot = lookup(name.name)) {
                     return slot->address;
                 }
-                const auto constant = constants_.find(name.name);
+                const auto constant =
+                    constants_.find(name.module.empty() ? qualify(name.name)
+                                                        : name.module + "::" + name.name);
                 if (constant != constants_.end()) {
                     return constant->second;
                 }
@@ -827,7 +841,10 @@ private:
         // callee name is `max`, but the symbol is `max__int`.
         const typeck::FunctionInfo* target = checked_.target_of(current_instance_, expr);
         const typeck::FunctionInfo& info =
-            target != nullptr ? *target : checked_.functions.at(expr.callee);
+            target != nullptr
+                ? *target
+                : checked_.functions.at(expr.module.empty() ? qualify(expr.callee)
+                                                            : expr.module + "::" + expr.callee);
         std::vector<llvm::Value*> args;
         args.reserve(expr.args.size());
         for (std::size_t i = 0; i < expr.args.size(); ++i) {
@@ -977,17 +994,29 @@ private:
     /// which means its value has to be foldable at compile time. That is
     /// the same rule C and Rust apply, and the diagnostic says so.
     void emit_constants() {
-        for (const ast::ItemPtr& item : program_.items) {
+        for (const ModuleInput& module : modules_) {
+            current_module_ = module.name;
+            emit_module_constants(*module.program);
+        }
+        current_module_.clear();
+    }
+
+    void emit_module_constants(const ast::Program& program) {
+        for (const ast::ItemPtr& item : program.items) {
             const auto* declaration = ast::node_cast<ast::ConstDecl>(item.get());
-            if (declaration == nullptr || constants_.count(declaration->name) != 0) {
+            if (declaration == nullptr) {
                 continue;
             }
-            const auto entry = checked_.constants.find(declaration->name);
+            const std::string qualified = qualify(declaration->name);
+            if (constants_.count(qualified) != 0) {
+                continue;
+            }
+            const auto entry = checked_.constants.find(qualified);
             if (entry == checked_.constants.end()) {
                 continue;
             }
 
-            llvm::Constant* value = fold(*declaration->value, entry->second);
+            llvm::Constant* value = fold(*declaration->value, entry->second.type);
             if (value == nullptr) {
                 report(declaration->value->span, "constant initializer is not a constant",
                        "a `const` must be computable at compile time")
@@ -995,10 +1024,10 @@ private:
                 continue;
             }
 
-            auto* global = new llvm::GlobalVariable(*module_, lower(entry->second), true,
+            auto* global = new llvm::GlobalVariable(*module_, lower(entry->second.type), true,
                                                     llvm::GlobalValue::PrivateLinkage, value,
-                                                    declaration->name);
-            constants_[declaration->name] = global;
+                                                    qualified);
+            constants_[qualified] = global;
         }
     }
 
@@ -1139,13 +1168,12 @@ void run_optimization_pipeline(llvm::Module& module, llvm::TargetMachine* machin
 
 }  // namespace
 
-CompileResult compile_to_string(const ast::Program& program,
+CompileResult compile_to_string(const std::vector<ModuleInput>& modules,
                                 const typeck::CheckResult& checked,
-                                const ast::SourceFile& source, const CompileOptions& options) {
-    (void)source;
+                                const CompileOptions& options) {
     CompileResult result;
 
-    Emitter emitter(program, checked, options);
+    Emitter emitter(modules, checked, options);
     if (!emitter.run()) {
         result.diagnostics = std::move(emitter.diagnostics());
         return result;
@@ -1165,13 +1193,13 @@ CompileResult compile_to_string(const ast::Program& program,
     return result;
 }
 
-CompileResult compile(const ast::Program& program, const typeck::CheckResult& checked,
-                      const ast::SourceFile& source, const std::filesystem::path& output_path,
+CompileResult compile(const std::vector<ModuleInput>& modules,
+                      const typeck::CheckResult& checked,
+                      const std::filesystem::path& output_path,
                       const CompileOptions& options) {
-    (void)source;
     CompileResult result;
 
-    Emitter emitter(program, checked, options);
+    Emitter emitter(modules, checked, options);
     if (!emitter.run()) {
         result.diagnostics = std::move(emitter.diagnostics());
         return result;
@@ -1216,6 +1244,22 @@ CompileResult compile(const ast::Program& program, const typeck::CheckResult& ch
     return result;
 }
 
+CompileResult compile_to_string(const ast::Program& program,
+                                const typeck::CheckResult& checked,
+                                const ast::SourceFile& source, const CompileOptions& options) {
+    (void)source;
+    return compile_to_string(std::vector<ModuleInput>{ModuleInput{{}, &program}}, checked,
+                             options);
+}
+
+CompileResult compile(const ast::Program& program, const typeck::CheckResult& checked,
+                      const ast::SourceFile& source, const std::filesystem::path& output_path,
+                      const CompileOptions& options) {
+    (void)source;
+    return compile(std::vector<ModuleInput>{ModuleInput{{}, &program}}, checked, output_path,
+                   options);
+}
+
 #else  // !EMBER_HAVE_LLVM
 
 namespace {
@@ -1229,6 +1273,16 @@ CompileResult unavailable() {
 }
 
 }  // namespace
+
+CompileResult compile_to_string(const std::vector<ModuleInput>&, const typeck::CheckResult&,
+                                const CompileOptions&) {
+    return unavailable();
+}
+
+CompileResult compile(const std::vector<ModuleInput>&, const typeck::CheckResult&,
+                      const std::filesystem::path&, const CompileOptions&) {
+    return unavailable();
+}
 
 CompileResult compile_to_string(const ast::Program&, const typeck::CheckResult&,
                                 const ast::SourceFile&, const CompileOptions&) {

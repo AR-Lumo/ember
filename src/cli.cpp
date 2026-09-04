@@ -165,34 +165,46 @@ namespace {
 
 /// Everything the back end needs from a successful front-end run.
 struct FrontEnd {
-    std::optional<ast::SourceFile> source;
-    parser::ParseResult parsed;
+    /// Every file the program is made of, so a diagnostic from any
+    /// module can be rendered against the right source.
+    ast::SourceMap sources;
+    parser::LoadResult loaded;
     typeck::CheckResult checked;
     bool ok = false;
+
+    /// The modules in the shape codegen wants.
+    std::vector<codegen::ModuleInput> codegen_modules() const {
+        std::vector<codegen::ModuleInput> modules;
+        for (const parser::Module& module : loaded.modules) {
+            modules.push_back(codegen::ModuleInput{module.name, module.program.get()});
+        }
+        return modules;
+    }
 };
 
-/// Lex, parse and type-check, reporting to stderr and stopping at the
-/// first stage that fails: a bad token stream makes the parse
-/// meaningless, and a bad tree makes the types meaningless, so
+/// Load, parse and type-check a whole program, reporting to stderr and
+/// stopping at the first stage that fails: a bad token stream makes the
+/// parse meaningless, and a bad tree makes the types meaningless, so
 /// continuing would only bury the real error.
 FrontEnd run_front_end(const std::filesystem::path& input) {
     FrontEnd result;
 
-    result.source = ast::SourceFile::load(input);
-    if (!result.source.has_value()) {
-        std::cerr << "error: cannot read `" << input.string() << "`\n";
+    // Loading pulls in every module the entry file imports, transitively.
+    result.loaded = parser::load_program(input, result.sources);
+    if (!result.loaded.ok()) {
+        std::cerr << ast::render_all(result.loaded.diagnostics, result.sources);
         return result;
     }
 
-    result.parsed = parser::parse_source(*result.source);
-    if (!result.parsed.ok()) {
-        std::cerr << ast::render_all(result.parsed.diagnostics, *result.source);
-        return result;
+    std::vector<typeck::ModuleInput> modules;
+    for (const parser::Module& module : result.loaded.modules) {
+        modules.push_back(
+            typeck::ModuleInput{module.name, module.program.get(), module.imports});
     }
 
-    result.checked = typeck::check(*result.parsed.program, *result.source);
+    result.checked = typeck::check(modules, result.sources);
     if (!result.checked.ok()) {
-        std::cerr << ast::render_all(result.checked.diagnostics, *result.source);
+        std::cerr << ast::render_all(result.checked.diagnostics, result.sources);
         return result;
     }
 
@@ -272,7 +284,7 @@ int emit_executable(const FrontEnd& front_end, const std::filesystem::path& outp
     // it is checked here rather than by `ember check`.
     const std::vector<ast::Diagnostic> entry = codegen::verify_entry_point(front_end.checked);
     if (!entry.empty()) {
-        std::cerr << ast::render_all(entry, *front_end.source);
+        std::cerr << ast::render_all(entry, front_end.sources);
         return kExitCompileError;
     }
 
@@ -282,13 +294,12 @@ int emit_executable(const FrontEnd& front_end, const std::filesystem::path& outp
 
     codegen::CompileOptions options;
     options.output = codegen::OutputKind::Object;
-    options.module_name = front_end.source->path();
+    options.module_name = front_end.loaded.modules.front().path.string();
 
-    const codegen::CompileResult compiled =
-        codegen::compile(*front_end.parsed.program, front_end.checked, *front_end.source,
-                         scratch.path(), options);
+    const codegen::CompileResult compiled = codegen::compile(
+        front_end.codegen_modules(), front_end.checked, scratch.path(), options);
     if (!compiled.ok()) {
-        std::cerr << ast::render_all(compiled.diagnostics, *front_end.source);
+        std::cerr << ast::render_all(compiled.diagnostics, front_end.sources);
         return kExitCompileError;
     }
 

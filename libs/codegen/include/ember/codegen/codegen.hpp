@@ -74,16 +74,36 @@ struct CompileResult {
     bool ok() const noexcept { return diagnostics.empty(); }
 };
 
+/// One module to lower, paired with the name its items were qualified
+/// under. Mirrors typeck::ModuleInput.
+struct ModuleInput {
+    std::string name;
+    const ast::Program* program = nullptr;
+};
+
 /// Lower a checked program and write the result to `output_path`.
 ///
-/// `checked` must have come from a successful `typeck::check` of this
-/// same program: codegen reads the recorded expression types rather than
+/// `checked` must have come from a successful `typeck::check` of these
+/// same modules: codegen reads the recorded expression types rather than
 /// re-deriving them, and assumes every one of them is present.
-CompileResult compile(const ast::Program& program, const typeck::CheckResult& checked,
-                      const ast::SourceFile& source, const std::filesystem::path& output_path,
+///
+/// Every module becomes one LLVM module. They are compiled together
+/// rather than separately, so a call across an `import` is a direct call
+/// and the whole program optimizes as a unit; separate compilation would
+/// need a real object-file interface, which v2 does not have.
+CompileResult compile(const std::vector<ModuleInput>& modules,
+                      const typeck::CheckResult& checked, const std::filesystem::path& output_path,
                       const CompileOptions& options = {});
 
 /// Lower a checked program to LLVM IR text without touching the disk.
+CompileResult compile_to_string(const std::vector<ModuleInput>& modules,
+                                const typeck::CheckResult& checked,
+                                const CompileOptions& options = {});
+
+/// Single-module convenience wrappers.
+CompileResult compile(const ast::Program& program, const typeck::CheckResult& checked,
+                      const ast::SourceFile& source, const std::filesystem::path& output_path,
+                      const CompileOptions& options = {});
 CompileResult compile_to_string(const ast::Program& program,
                                 const typeck::CheckResult& checked,
                                 const ast::SourceFile& source,

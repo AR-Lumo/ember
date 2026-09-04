@@ -32,7 +32,9 @@
 #include "ember/ast/span.hpp"
 #include "ember/lexer/token.hpp"
 
+#include <filesystem>
 #include <memory>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -60,6 +62,36 @@ ParseResult parse(const std::vector<lexer::Token>& tokens, const ast::SourceFile
 /// lexing fails the parser is not run: a bad token stream produces
 /// cascading nonsense errors that bury the real ones.
 ParseResult parse_source(const ast::SourceFile& source);
+
+/// One file of a multi-file program.
+struct Module {
+    /// As other files name it in an `import`. Empty for the entry
+    /// module, which nothing can import.
+    std::string name;
+    std::filesystem::path path;
+    ast::FileId file = ast::kMainFile;
+    std::unique_ptr<ast::Program> program;
+    /// The modules this one imported, in source order.
+    std::vector<std::string> imports;
+
+    bool is_entry() const noexcept { return name.empty(); }
+};
+
+struct LoadResult {
+    /// The entry module first, then every module reachable from it.
+    std::vector<Module> modules;
+    std::vector<ast::Diagnostic> diagnostics;
+
+    bool ok() const noexcept { return diagnostics.empty(); }
+};
+
+/// Read, lex and parse `entry` and everything it imports, transitively.
+///
+/// A module named `geometry` lives in `geometry.em` beside the file that
+/// imported it. Each file is loaded once however many modules import it,
+/// so a cycle between two modules terminates and is legal: names are
+/// resolved after every module is parsed, so neither has to come first.
+LoadResult load_program(const std::filesystem::path& entry, ast::SourceMap& sources);
 
 }  // namespace ember::parser
 

@@ -52,11 +52,18 @@ struct Diagnostic {
 };
 
 /// Render one diagnostic in the §7 format, newline-terminated.
+///
+/// The SourceMap overload is the one a multi-file program needs: with
+/// `import`, consecutive diagnostics can point into different files, so
+/// each one is resolved through its span's file id. The single-file
+/// overload stays for callers that have only ever seen one file.
 std::string render(const Diagnostic& diagnostic, const SourceFile& source);
+std::string render(const Diagnostic& diagnostic, const SourceMap& sources);
 
 /// Render several diagnostics, blank-line separated, followed by a
 /// summary line such as "error: aborting due to 2 previous errors".
 std::string render_all(const std::vector<Diagnostic>& diagnostics, const SourceFile& source);
+std::string render_all(const std::vector<Diagnostic>& diagnostics, const SourceMap& sources);
 
 }  // namespace ember::ast
 

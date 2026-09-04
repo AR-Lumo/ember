@@ -7,8 +7,8 @@
 
 namespace ember::ast {
 
-SourceFile::SourceFile(std::string path, std::string contents)
-    : path_(std::move(path)), contents_(std::move(contents)) {
+SourceFile::SourceFile(std::string path, std::string contents, FileId id)
+    : path_(std::move(path)), contents_(std::move(contents)), id_(id) {
     line_starts_.push_back(0);
     for (std::uint32_t offset = 0; offset < size(); ++offset) {
         if (contents_[offset] == '\n') {
@@ -64,6 +64,25 @@ std::string_view SourceFile::text_of(Span span) const {
     const std::uint32_t start = std::min(span.start, size());
     const std::uint32_t end = std::clamp(span.end, start, size());
     return std::string_view{contents_}.substr(start, end - start);
+}
+
+FileId SourceMap::add(std::string path, std::string contents) {
+    const auto id = static_cast<FileId>(files_.size());
+    files_.emplace_back(std::move(path), std::move(contents), id);
+    return id;
+}
+
+const SourceFile& SourceMap::file(FileId id) const {
+    return files_[id < files_.size() ? id : 0];
+}
+
+const SourceFile* SourceMap::find(std::string_view path) const {
+    for (const SourceFile& candidate : files_) {
+        if (candidate.path() == path) {
+            return &candidate;
+        }
+    }
+    return nullptr;
 }
 
 }  // namespace ember::ast

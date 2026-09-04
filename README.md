@@ -297,6 +297,80 @@ Struct literals infer their type arguments from the field values —
 out in an expression, where `Pair<int> { }` would be ambiguous with a
 chain of comparisons; in type position they are explicit.
 
+### Modules
+
+A program may span several files. `import` names a module, and a module
+called `geometry` lives in `geometry.em` beside the file that imports it:
+
+In `geometry.em`:
+
+```ember
+pub struct Point {
+    pub x: int,
+    pub y: int,
+}
+
+pub fn magnitude_sq(p: Point) -> int {
+    return p.x * p.x + p.y * p.y;
+}
+
+fn private_helper() -> int { return 1; }
+```
+
+In `main.em` beside it:
+
+```ember
+import geometry;
+
+pub fn main() {
+    let p = geometry::Point { x: 3, y: 4 };
+    println(geometry::magnitude_sq(p));
+}
+```
+
+```console
+$ ember run main.em
+25
+```
+
+Items are reached through `module::item`. Each module keeps its own
+namespace, so two modules may both declare a `helper` or a `Value`
+without colliding — the symbols they emit are prefixed (`a__helper`,
+`b__helper`), and the entry module's stay unprefixed so the linker still
+finds `main`.
+
+**This is where `pub` starts doing something.** Until modules there was
+no boundary to enforce it across; now anything not marked `pub` is
+private to the file that declared it.
+
+Reach for `private_helper` from `main.em` and the note points into the
+other file:
+
+```console
+error: function `geometry::private_helper` is private
+ --> main.em:4:23
+  |
+4 |     println(geometry::private_helper());
+  |                       ^^^^^^^^^^^^^^ `geometry::private_helper` is not declared `pub`
+  = note: declared at geometry.em:10:4
+```
+
+That applies to types, constants and individual struct fields too. A
+struct with any non-`pub` field cannot be built from outside its module
+at all — every field needs a value and a private one cannot be given
+one — so the module has to offer a constructor instead.
+
+Two rules worth knowing:
+
+- **Imports are not transitive.** If `mid` imports `geometry`, a file
+  that imports `mid` still cannot name `geometry`.
+- **Unqualified names resolve within one module only.** There are no
+  implicit imports, so `magnitude_sq(...)` never silently finds
+  another module's function.
+
+Modules may import each other in a cycle. Every module is collected
+before any body is checked, so neither has to come first.
+
 ### Standard library
 
 The whole of it, recognized directly by the compiler:
@@ -320,6 +394,7 @@ also a regression test in the suite.
 | [`inventory.em`](examples/inventory.em) | An array of structs, methods calling methods |
 | [`averages.em`](examples/averages.em) | Explicit `int`/`float` conversion with `as` |
 | [`generics.em`](examples/generics.em) | Generic functions and structs, monomorphized |
+| [`modules/`](examples/modules) | A program in three files, with `import` and `pub` |
 
 ```console
 $ ember run examples/bubble_sort.em
@@ -400,7 +475,13 @@ v1 is deliberately small. These are the sharp edges worth knowing about.
   parameters, or an `impl` block over a generic type, is reported as
   unsupported rather than mis-compiled.
 - **No closures or function values.**
-- **One file per program.** No `import`.
+- **No separate compilation.** A program's modules are compiled
+  together into one object file, so a call across an `import` is direct
+  and the whole program optimizes as a unit — but changing one module
+  rebuilds everything, and there is no way to ship a compiled library.
+- **Module paths are one level deep.** `geometry::Point` works;
+  `shapes::geometry::Point` does not. There are no nested modules and no
+  search path — an imported module is a file beside the importer.
 
 The spec's §6 sketches where these go next.
 

@@ -58,6 +58,9 @@ struct TypeRef {
     /// Type arguments for a generic Named type: the `int` of `Pair<int>`.
     /// Empty for everything else.
     std::vector<TypeRefPtr> type_args;
+    /// The module a Named type was qualified with: the `geometry` of
+    /// `geometry::Point`. Empty when unqualified.
+    std::string module;
 };
 
 /// One declared type parameter: the `T` of `fn max<T>(...)`.
@@ -177,12 +180,16 @@ struct ArrayLitExpr : Expr {
     explicit ArrayLitExpr(Span span) : Expr(kKind, span) {}
 };
 
-/// A bare identifier, including `self`.
+/// A bare identifier, including `self`, optionally qualified by a
+/// module: `count` or `config::MAX_RETRIES`.
 struct NameExpr : Expr {
     static constexpr ExprKind kKind = ExprKind::Name;
     std::string name;
+    /// Empty when unqualified.
+    std::string module;
 
-    NameExpr(Span span, std::string n) : Expr(kKind, span), name(std::move(n)) {}
+    NameExpr(Span span, std::string n, std::string owner = {})
+        : Expr(kKind, span), name(std::move(n)), module(std::move(owner)) {}
 };
 
 struct UnaryExpr : Expr {
@@ -209,6 +216,8 @@ struct BinaryExpr : Expr {
 struct CallExpr : Expr {
     static constexpr ExprKind kKind = ExprKind::Call;
     std::string callee;
+    /// The module the callee was qualified with. Empty when unqualified.
+    std::string module;
     Span callee_span;
     std::vector<ExprPtr> args;
 
@@ -276,6 +285,8 @@ struct CastExpr : Expr {
 struct StructLitExpr : Expr {
     static constexpr ExprKind kKind = ExprKind::StructLit;
     std::string type_name;
+    /// The module the type was qualified with. Empty when unqualified.
+    std::string module;
     Span type_name_span;
     std::vector<FieldInit> fields;
 
@@ -399,6 +410,7 @@ enum class ItemKind {
     Struct,
     Impl,
     Const,
+    Import,
 };
 
 struct Item {
@@ -520,9 +532,27 @@ struct ConstDecl : Item {
           name_span(const_name_span) {}
 };
 
+/// `import geometry;`
+///
+/// The name is both the module's identity and the stem of the file it
+/// lives in, so `import geometry;` reads `geometry.em` from the
+/// importing file's own directory.
+struct ImportDecl : Item {
+    static constexpr ItemKind kKind = ItemKind::Import;
+    std::string module;
+    Span module_span;
+
+    ImportDecl(Span span, std::string name, Span name_span)
+        : Item(kKind, span, false), module(std::move(name)), module_span(name_span) {}
+};
+
 /// A whole source file.
 struct Program {
     std::vector<ItemPtr> items;
+    /// The module this file provides, as other files name it in an
+    /// `import`. Empty for the program's entry file, which nothing can
+    /// import.
+    std::string module;
 };
 
 // ---------------------------------------------------------------------

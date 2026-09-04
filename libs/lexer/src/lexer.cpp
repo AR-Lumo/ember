@@ -104,7 +104,8 @@ public:
             }
             lex_token();
         }
-        tokens_.push_back(Token{TokenKind::Eof, ast::Span{position(), position()}, {}, {}});
+        tokens_.push_back(
+            Token{TokenKind::Eof, ast::Span{position(), position(), source_.id()}, {}, {}});
         return LexResult{std::move(tokens_), std::move(diagnostics_)};
     }
 
@@ -134,7 +135,12 @@ private:
     }
 
     ast::Span span_from(std::size_t start) const {
-        return ast::Span{static_cast<std::uint32_t>(start), position()};
+        return ast::Span{static_cast<std::uint32_t>(start), position(), source_.id()};
+    }
+
+    /// A one-column span, stamped with this file.
+    ast::Span span_at(std::size_t offset) const {
+        return ast::Span::at(static_cast<std::uint32_t>(offset), 1, source_.id());
     }
 
     std::string_view text_from(std::size_t start) const {
@@ -238,7 +244,7 @@ private:
                 ++pos_;
             }
             error("invalid suffix on numeric literal",
-                  ast::Span{static_cast<std::uint32_t>(suffix_start), position()},
+                  ast::Span{static_cast<std::uint32_t>(suffix_start), position(), source_.id()},
                   "`" + std::string{text_.substr(suffix_start, pos_ - suffix_start)} +
                       "` is not a valid literal suffix");
             return;
@@ -307,7 +313,7 @@ private:
 
         while (true) {
             if (at_end() || peek() == '\n') {
-                error("unterminated string literal", ast::Span::at(static_cast<std::uint32_t>(start)),
+                error("unterminated string literal", span_at(start),
                       "this string literal is never closed");
                 push(TokenKind::StringLit, start, std::move(value));
                 return;
@@ -346,7 +352,8 @@ private:
                     break;
                 default:
                     error("unknown escape sequence",
-                          ast::Span{static_cast<std::uint32_t>(escape_start), position()},
+                          ast::Span{static_cast<std::uint32_t>(escape_start), position(),
+                                    source_.id()},
                           "`\\" + describe_char(escaped) +
                               "` is not a recognized escape sequence");
                     value.push_back(escaped);
@@ -377,7 +384,7 @@ private:
             case ';':
                 return push(TokenKind::Semicolon, start);
             case ':':
-                return push(TokenKind::Colon, start);
+                return push(match(':') ? TokenKind::ColonColon : TokenKind::Colon, start);
             case '.':
                 return push(TokenKind::Dot, start);
             case '+':

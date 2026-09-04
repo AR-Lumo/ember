@@ -9,6 +9,7 @@ add_executable(ember_snapshot_tests
     parser_tests.cpp
     typeck_tests.cpp
     generics_tests.cpp
+    module_tests.cpp
 )
 
 target_include_directories(ember_snapshot_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
@@ -46,3 +47,9 @@ add_test(NAME cli_check_accepts_a_valid_program
 add_test(NAME cli_check_rejects_a_broken_program
          COMMAND ember check "${CMAKE_CURRENT_SOURCE_DIR}/golden/type_errors.em")
 set_tests_properties(cli_check_rejects_a_broken_program PROPERTIES WILL_FAIL TRUE)
+
+# A multi-file program must build and run from the entry file alone.
+add_test(NAME cli_runs_a_multi_module_program
+         COMMAND ember run "${CMAKE_SOURCE_DIR}/examples/modules/main.em")
+set_tests_properties(cli_runs_a_multi_module_program
+                     PROPERTIES PASS_REGULAR_EXPRESSION "distance_sq: 25")

@@ -118,20 +118,54 @@ std::optional<std::string> closest_name(std::string_view name,
 
 class Checker {
 public:
-    explicit Checker(const ast::SourceFile& source) : source_(source) {
+    explicit Checker(const ast::SourceMap& sources) : sources_(sources) {
         result_.types = std::make_unique<TypeContext>();
     }
 
-    CheckResult run(const ast::Program& program) {
-        collect_types(program);
-        collect_signatures(program);
-        check_constants(program);
-        check_bodies(program);
+    /// Every module is walked at each stage before the next stage
+    /// begins, so a name declared in one module is visible to another
+    /// regardless of load order - which is what makes an `import` cycle
+    /// resolve instead of depending on who came first.
+    CheckResult run(const std::vector<ModuleInput>& modules) {
+        for (const ModuleInput& module : modules) {
+            imports_.emplace(module.name, module.imports);
+            declared_modules_.push_back(module.name);
+        }
+
+        for (const ModuleInput& module : modules) {
+            current_module_ = module.name;
+            collect_types(*module.program);
+        }
+        for (const ModuleInput& module : modules) {
+            current_module_ = module.name;
+            collect_signatures(*module.program);
+        }
+        for (const ModuleInput& module : modules) {
+            current_module_ = module.name;
+            check_constants(*module.program);
+        }
+        for (const ModuleInput& module : modules) {
+            current_module_ = module.name;
+            check_concrete_bodies(*module.program);
+        }
+
+        // Instantiations are checked last, each restoring the module it
+        // was declared in so its body resolves names as that module.
+        check_pending_instances();
+
+        current_module_.clear();
         return std::move(result_);
     }
 
 private:
-    const ast::SourceFile& source_;
+    const ast::SourceMap& sources_;
+
+    /// The module whose items are being declared or whose body is being
+    /// checked. Empty means the entry module.
+    std::string current_module_;
+    /// What each module imported, keyed by module name.
+    std::map<std::string, std::vector<std::string>> imports_;
+    std::vector<std::string> declared_modules_;
     CheckResult result_;
     Scopes scopes_;
 
@@ -190,10 +224,13 @@ private:
                "expected `" + to_string(expected) + "`, found `" + to_string(found) + "`");
     }
 
-    /// `file.em:3:5`, for notes that point at another location.
+    /// `file.em:3:5`, for notes that point at another location. With
+    /// modules the location may be in a different file from the error
+    /// itself, so it is resolved through the span's own file id.
     std::string location_of(Span span) const {
-        const ast::Position position = source_.position_of(span.start);
-        return source_.path() + ":" + std::to_string(position.line) + ":" +
+        const ast::SourceFile& file = sources_.file(span.file);
+        const ast::Position position = file.position_of(span.start);
+        return file.path() + ":" + std::to_string(position.line) + ":" +
                std::to_string(position.column);
     }
 
@@ -228,7 +265,8 @@ private:
                 register_struct_template(*declaration);
                 continue;
             }
-            const auto existing = result_.structs.find(declaration->name);
+            const std::string qualified = qualify(declaration->name);
+            const auto existing = result_.structs.find(qualified);
             if (existing != result_.structs.end()) {
                 Diagnostic& diagnostic =
                     report("duplicate definition of type `" + declaration->name + "`",
@@ -238,9 +276,11 @@ private:
                 continue;
             }
             StructInfo info;
-            info.name = declaration->name;
+            info.name = qualified;
+            info.module = current_module_;
+            info.is_public = declaration->is_public;
             info.span = declaration->name_span;
-            result_.structs.emplace(declaration->name, std::move(info));
+            result_.structs.emplace(qualified, std::move(info));
         }
 
         for (const ast::ItemPtr& item : program.items) {
@@ -251,7 +291,7 @@ private:
             if (declaration->is_generic()) {
                 continue;  // laid out per instantiation
             }
-            const auto entry = result_.structs.find(declaration->name);
+            const auto entry = result_.structs.find(qualify(declaration->name));
             if (entry == result_.structs.end() || !entry->second.fields.empty()) {
                 continue;
             }
@@ -262,22 +302,25 @@ private:
     }
 
     void register_struct_template(const ast::StructDecl& declaration) {
-        if (result_.struct_templates.count(declaration.name) != 0 ||
-            result_.structs.count(declaration.name) != 0) {
+        const std::string qualified = qualify(declaration.name);
+        if (result_.struct_templates.count(qualified) != 0 ||
+            result_.structs.count(qualified) != 0) {
             report("duplicate definition of type `" + declaration.name + "`",
                    declaration.name_span, "`" + declaration.name + "` is already defined");
             return;
         }
 
         StructTemplate tmpl;
-        tmpl.name = declaration.name;
+        tmpl.name = qualified;
+        tmpl.module = current_module_;
+        tmpl.is_public = declaration.is_public;
         tmpl.span = declaration.name_span;
         tmpl.decl = &declaration;
         for (const ast::GenericParam& parameter : declaration.generic_params) {
             tmpl.generic_params.push_back(parameter.name);
         }
         check_generic_params(declaration.generic_params);
-        result_.struct_templates.emplace(declaration.name, std::move(tmpl));
+        result_.struct_templates.emplace(qualified, std::move(tmpl));
     }
 
     /// Type parameters share a namespace with types, so a parameter that
@@ -417,6 +460,7 @@ private:
             }
             FieldInfo resolved;
             resolved.name = field.name;
+            resolved.is_public = field.is_public;
             resolved.span = field.name_span;
             resolved.type = resolve_type(*field.type);
             resolved.index = info.fields.size();
@@ -453,7 +497,8 @@ private:
                    "`" + function.name + "` is provided by the compiler (§5)");
             return;
         }
-        const auto existing = result_.functions.find(function.name);
+        const std::string qualified = qualify(function.name);
+        const auto existing = result_.functions.find(qualified);
         if (existing != result_.functions.end()) {
             Diagnostic& diagnostic =
                 report("duplicate definition of function `" + function.name + "`",
@@ -463,11 +508,13 @@ private:
         }
 
         FunctionInfo info = signature_of(function, {});
+        info.module = current_module_;
+        info.is_public = function.is_public;
         if (const ast::Param* self = function.self_param()) {
             report("`self` is only valid inside an `impl` block", self->span,
                    "free functions have no receiver");
         }
-        result_.functions.emplace(function.name, std::move(info));
+        result_.functions.emplace(qualified, std::move(info));
     }
 
     /// Registers a generic function and resolves its signature once,
@@ -481,12 +528,13 @@ private:
                    "`" + function.name + "` is provided by the compiler (§5)");
             return;
         }
-        if (result_.function_templates.count(function.name) != 0 ||
-            result_.functions.count(function.name) != 0) {
+        const std::string qualified = qualify(function.name);
+        if (result_.function_templates.count(qualified) != 0 ||
+            result_.functions.count(qualified) != 0) {
             Diagnostic& diagnostic =
                 report("duplicate definition of function `" + function.name + "`",
                        function.name_span, "`" + function.name + "` is already defined");
-            const auto existing = result_.function_templates.find(function.name);
+            const auto existing = result_.function_templates.find(qualified);
             if (existing != result_.function_templates.end()) {
                 note_previous(diagnostic, existing->second.span);
             }
@@ -496,7 +544,10 @@ private:
         check_generic_params(function.generic_params);
 
         FunctionTemplate tmpl;
-        tmpl.name = function.name;
+        tmpl.name = qualified;
+        tmpl.simple_name = function.name;
+        tmpl.module = current_module_;
+        tmpl.is_public = function.is_public;
         tmpl.owner_type = owner;
         tmpl.span = function.name_span;
         tmpl.decl = &function;
@@ -525,8 +576,8 @@ private:
             }
         }
 
-        template_signatures_.emplace(function.name, std::move(signature));
-        result_.function_templates.emplace(function.name, std::move(tmpl));
+        template_signatures_.emplace(qualified, std::move(signature));
+        result_.function_templates.emplace(qualified, std::move(tmpl));
     }
 
     static bool mentions_parameter(TypePtr type, const std::string& name) {
@@ -550,13 +601,14 @@ private:
     }
 
     void declare_impl(const ast::ImplBlock& block) {
+        const std::string owner = qualify(block.type_name);
         if (block.is_generic()) {
             report("generic `impl` blocks are not supported yet", block.type_name_span,
                    "`impl<T>` needs generic methods, which are not implemented")
                 .with_note("generic free functions do work: `fn first<T>(pair: Pair<T>) -> T`");
             return;
         }
-        if (result_.structs.find(block.type_name) == result_.structs.end()) {
+        if (result_.structs.find(owner) == result_.structs.end()) {
             Diagnostic& diagnostic = report("cannot find type `" + block.type_name + "`",
                                             block.type_name_span, "not found in this scope");
             suggest(diagnostic, block.type_name, struct_names());
@@ -573,7 +625,7 @@ private:
                                "free function");
                 continue;
             }
-            const auto key = std::make_pair(block.type_name, method->name);
+            const auto key = std::make_pair(owner, method->name);
             const auto existing = result_.methods.find(key);
             if (existing != result_.methods.end()) {
                 Diagnostic& diagnostic =
@@ -584,8 +636,23 @@ private:
                 note_previous(diagnostic, existing->second.span);
                 continue;
             }
-            result_.methods.emplace(key, signature_of(*method, block.type_name));
+            FunctionInfo method_info = signature_of(*method, owner);
+            method_info.module = current_module_;
+            method_info.is_public = method->is_public;
+            result_.methods.emplace(key, std::move(method_info));
         }
+    }
+
+    /// The symbol a function links as.
+    ///
+    /// `main` is left alone: the linker has to find it under that exact
+    /// name, and only the entry module may define one.
+    std::string mangle_symbol(const std::string& name, const std::string& owner) const {
+        std::string base = owner.empty() ? name : owner + "_" + name;
+        if (current_module_.empty()) {
+            return base;
+        }
+        return current_module_ + "__" + base;
     }
 
     /// Builds the signature. The mangled name is where §4's "methods are
@@ -594,7 +661,7 @@ private:
         FunctionInfo info;
         info.name = function.name;
         info.owner_type = owner;
-        info.mangled_name = owner.empty() ? function.name : owner + "_" + function.name;
+        info.mangled_name = mangle_symbol(function.name, owner);
         info.span = function.name_span;
         info.decl = &function;
         info.return_type =
@@ -618,13 +685,90 @@ private:
     }
 
     void declare_constant(const ast::ConstDecl& constant) {
-        const auto existing = result_.constants.find(constant.name);
+        const std::string qualified = qualify(constant.name);
+        const auto existing = result_.constants.find(qualified);
         if (existing != result_.constants.end()) {
             report("duplicate definition of constant `" + constant.name + "`",
                    constant.name_span, "`" + constant.name + "` is already defined");
             return;
         }
-        result_.constants.emplace(constant.name, resolve_type(*constant.type));
+        result_.constants.emplace(
+            qualified, ConstantInfo{resolve_type(*constant.type), current_module_,
+                                    constant.is_public, constant.name_span});
+    }
+
+    // -----------------------------------------------------------------
+    // Modules
+    //
+    // Every item is stored under a fully qualified name: `Point` in the
+    // entry module, `geometry::Point` in a module called `geometry`.
+    // Unqualified names resolve within the current module only - there
+    // are no implicit imports - and a qualified name has to name a
+    // module this one imported, and reach an item marked `pub`.
+    //
+    // This is where the `pub` that has been parsed and carried since
+    // Phase 2 finally does something.
+    // -----------------------------------------------------------------
+
+    /// The fully qualified form of a name declared in the current module.
+    std::string qualify(const std::string& name) const {
+        return current_module_.empty() ? name : current_module_ + "::" + name;
+    }
+
+    /// The qualified name to look up for a written path, or nullopt when
+    /// the module part is itself wrong (already reported).
+    ///
+    /// `module` empty means the path was unqualified, which resolves
+    /// against whichever module is being checked.
+    std::optional<std::string> lookup_name(const std::string& module, const std::string& name,
+                                           Span span) {
+        if (module.empty()) {
+            return qualify(name);
+        }
+        if (module == current_module_) {
+            // `geometry::area` written inside `geometry` itself: legal,
+            // and reaches private items because it is the same module.
+            return qualify(name);
+        }
+
+        if (std::find(declared_modules_.begin(), declared_modules_.end(), module) ==
+            declared_modules_.end()) {
+            Diagnostic& diagnostic = report("cannot find module `" + module + "`", span,
+                                            "no module with this name was loaded");
+            suggest(diagnostic, module, declared_modules_);
+            return std::nullopt;
+        }
+
+        const auto imported = imports_.find(current_module_);
+        if (imported == imports_.end() ||
+            std::find(imported->second.begin(), imported->second.end(), module) ==
+                imported->second.end()) {
+            report("module `" + module + "` is not imported here", span,
+                   "add `import " + module + ";` at the top of this file")
+                .with_note("a module is only in scope for the file that imports it");
+            return std::nullopt;
+        }
+
+        return module + "::" + name;
+    }
+
+    /// Reports when an item exists but the current module may not see it.
+    /// Returns true when access is allowed.
+    bool check_visible(const std::string& owner, bool is_public, const std::string& display,
+                       Span span, std::string_view what, Span declared) {
+        if (is_public || owner == current_module_) {
+            return true;
+        }
+        Diagnostic& diagnostic =
+            report(std::string{what} + " `" + display + "` is private", span,
+                   "`" + display + "` is not declared `pub`");
+        diagnostic.with_note("declared at " + location_of(declared));
+        return false;
+    }
+
+    /// How a path reads back in a diagnostic.
+    static std::string path_string(const std::string& module, const std::string& name) {
+        return module.empty() ? name : module + "::" + name;
     }
 
     // -----------------------------------------------------------------
@@ -793,16 +937,26 @@ private:
         // Build the concrete signature by substituting into the
         // template's, which was resolved once with Generic placeholders.
         FunctionInfo& info = instance.info;
-        info.name = tmpl.name;
+        info.name = tmpl.simple_name;
         info.owner_type = tmpl.owner_type;
         info.display_name = display;
         info.type_args = args;
-        info.mangled_name = mangle_instance(
-            tmpl.owner_type.empty() ? tmpl.name : tmpl.owner_type + "_" + tmpl.name, args);
+        // `tmpl.name` is already qualified; turn the `::` into a
+        // linker-safe prefix rather than mangling it as punctuation.
+        std::string base = tmpl.simple_name;
+        if (!tmpl.owner_type.empty()) {
+            base = tmpl.owner_type + "_" + base;
+        }
+        if (!tmpl.module.empty()) {
+            base = tmpl.module + "__" + base;
+        }
+        info.mangled_name = mangle_instance(base, args);
         info.span = tmpl.span;
         info.decl = tmpl.decl;
 
         const FunctionInfo& generic_signature = template_signatures_.at(tmpl.name);
+        info.module = tmpl.module;
+        info.is_public = tmpl.is_public;
         info.param_names = generic_signature.param_names;
         info.self_kind = generic_signature.self_kind;
         for (const TypePtr parameter : generic_signature.param_types) {
@@ -825,12 +979,17 @@ private:
             Instantiation& instance = result_.instantiations[index];
             const InstanceId previous_instance = current_instance_;
             const std::map<std::string, TypePtr>* previous_bindings = current_bindings_;
+            const std::string previous_module = current_module_;
 
             current_instance_ = instance.id;
             current_bindings_ = &instance.bindings;
+            // A template's body resolves names as the module that wrote
+            // it, not the one that happened to instantiate it.
+            current_module_ = instance.info.module;
             check_function(*instance.decl, instance.info);
             current_instance_ = previous_instance;
             current_bindings_ = previous_bindings;
+            current_module_ = previous_module;
         }
     }
 
@@ -865,44 +1024,62 @@ private:
     /// in-scope parameter of the template being declared, a generic
     /// struct applied to arguments, or a plain struct.
     TypePtr resolve_named_type(const ast::TypeRef& type) {
-        // Inside an instantiation, `T` is whatever it was bound to.
-        if (current_bindings_ != nullptr) {
-            const auto bound = current_bindings_->find(type.name);
-            if (bound != current_bindings_->end()) {
-                if (!type.type_args.empty()) {
-                    report("type parameter `" + type.name + "` cannot take type arguments",
-                           type.span, "`" + type.name + "` is not a generic type");
+        // A type parameter is never module-qualified, so those two
+        // lookups only apply to a bare name.
+        if (type.module.empty()) {
+            if (current_bindings_ != nullptr) {
+                const auto bound = current_bindings_->find(type.name);
+                if (bound != current_bindings_->end()) {
+                    if (!type.type_args.empty()) {
+                        report("type parameter `" + type.name +
+                                   "` cannot take type arguments",
+                               type.span, "`" + type.name + "` is not a generic type");
+                    }
+                    return bound->second;
                 }
-                return bound->second;
+            }
+            if (std::find(generic_scope_.begin(), generic_scope_.end(), type.name) !=
+                generic_scope_.end()) {
+                return types().generic_type(type.name);
             }
         }
 
-        // While resolving a template's own signature, its parameters
-        // stand for themselves.
-        if (std::find(generic_scope_.begin(), generic_scope_.end(), type.name) !=
-            generic_scope_.end()) {
-            return types().generic_type(type.name);
+        const std::optional<std::string> qualified =
+            lookup_name(type.module, type.name, type.span);
+        if (!qualified.has_value()) {
+            return types().error_type();
         }
 
-        const auto tmpl = result_.struct_templates.find(type.name);
+        const auto tmpl = result_.struct_templates.find(*qualified);
         if (tmpl != result_.struct_templates.end()) {
+            if (!check_visible(tmpl->second.module, tmpl->second.is_public,
+                               path_string(type.module, type.name), type.span, "type",
+                               tmpl->second.span)) {
+                return types().error_type();
+            }
             return instantiate_struct(tmpl->second, type);
         }
 
         if (!type.type_args.empty()) {
-            report("`" + type.name + "` is not a generic type", type.span,
-                   "it takes no type arguments");
+            report("`" + path_string(type.module, type.name) + "` is not a generic type",
+                   type.span, "it takes no type arguments");
             return types().error_type();
         }
 
-        if (result_.structs.find(type.name) == result_.structs.end()) {
+        const auto found = result_.structs.find(*qualified);
+        if (found == result_.structs.end()) {
             Diagnostic& diagnostic =
-                report("cannot find type `" + type.name + "`", type.span,
-                       "not found in this scope");
+                report("cannot find type `" + path_string(type.module, type.name) + "`",
+                       type.span, "not found in this scope");
             suggest(diagnostic, type.name, struct_names());
             return types().error_type();
         }
-        return types().struct_type(type.name);
+        if (!check_visible(found->second.module, found->second.is_public,
+                           path_string(type.module, type.name), type.span, "type",
+                           found->second.span)) {
+            return types().error_type();
+        }
+        return types().struct_type(*qualified);
     }
 
     /// `Pair<int>`: resolve the arguments and build the structural
@@ -977,18 +1154,36 @@ private:
         result_.structs[display] = std::move(resolved);
     }
 
+    /// Candidates for a "did you mean" suggestion: only what the
+    /// current module can actually name without a qualifier.
     std::vector<std::string> struct_names() const {
         std::vector<std::string> names;
+        const std::string prefix = current_module_.empty() ? "" : current_module_ + "::";
         for (const auto& [name, info] : result_.structs) {
-            names.push_back(name);
+            if (info.module == current_module_) {
+                names.push_back(name.substr(prefix.size()));
+            }
+        }
+        for (const auto& [name, tmpl] : result_.struct_templates) {
+            if (tmpl.module == current_module_) {
+                names.push_back(name.substr(prefix.size()));
+            }
         }
         return names;
     }
 
     std::vector<std::string> function_names() const {
         std::vector<std::string> names;
+        const std::string prefix = current_module_.empty() ? "" : current_module_ + "::";
         for (const auto& [name, info] : result_.functions) {
-            names.push_back(name);
+            if (info.module == current_module_) {
+                names.push_back(name.substr(prefix.size()));
+            }
+        }
+        for (const auto& [name, tmpl] : result_.function_templates) {
+            if (tmpl.module == current_module_) {
+                names.push_back(name.substr(prefix.size()));
+            }
         }
         for (const std::string_view intrinsic : kIntrinsics) {
             names.emplace_back(intrinsic);
@@ -1010,9 +1205,10 @@ private:
             // The annotation was already resolved when the constant was
             // declared; resolving it again would report an unknown type
             // twice.
-            const auto declared = result_.constants.find(constant->name);
-            const TypePtr expected =
-                declared != result_.constants.end() ? declared->second : types().error_type();
+            const auto declared = result_.constants.find(qualify(constant->name));
+            const TypePtr expected = declared != result_.constants.end()
+                                         ? declared->second.type
+                                         : types().error_type();
             const TypePtr actual = check_expr(*constant->value);
             if (!assignable(expected, actual)) {
                 report_mismatch(constant->value->span, expected, actual);
@@ -1035,14 +1231,15 @@ private:
     void check_concrete_bodies(const ast::Program& program) {
         for (const ast::ItemPtr& item : program.items) {
             if (const auto* function = ast::node_cast<ast::FunctionDecl>(item.get())) {
-                const auto entry = result_.functions.find(function->name);
+                const auto entry = result_.functions.find(qualify(function->name));
                 if (entry != result_.functions.end() && entry->second.decl == function) {
                     check_function(*function, entry->second);
                 }
             } else if (const auto* block = ast::node_cast<ast::ImplBlock>(item.get())) {
                 for (const std::unique_ptr<ast::FunctionDecl>& method : block->methods) {
                     const auto entry =
-                        result_.methods.find(std::make_pair(block->type_name, method->name));
+                        result_.methods.find(std::make_pair(qualify(block->type_name),
+                                                            method->name));
                     if (entry != result_.methods.end() && entry->second.decl == method.get()) {
                         check_function(*method, entry->second);
                     }
@@ -1281,7 +1478,8 @@ private:
         if (name == nullptr) {
             return;
         }
-        if (result_.constants.count(name->name) != 0 && scopes_.lookup(name->name) == nullptr) {
+        if (result_.constants.count(qualify(name->name)) != 0 &&
+            scopes_.lookup(name->name) == nullptr) {
             report("cannot assign to constant `" + name->name + "`", expr.span,
                    "constants are immutable");
             return;
@@ -1356,12 +1554,27 @@ private:
     }
 
     TypePtr check_name(const ast::NameExpr& expr) {
-        if (const Binding* binding = scopes_.lookup(expr.name)) {
-            return record(expr, binding->type);
+        // A local always wins, and can never be module-qualified.
+        if (expr.module.empty()) {
+            if (const Binding* binding = scopes_.lookup(expr.name)) {
+                return record(expr, binding->type);
+            }
         }
-        const auto constant = result_.constants.find(expr.name);
+
+        const std::optional<std::string> qualified =
+            lookup_name(expr.module, expr.name, expr.span);
+        if (!qualified.has_value()) {
+            return record(expr, types().error_type());
+        }
+
+        const auto constant = result_.constants.find(*qualified);
         if (constant != result_.constants.end()) {
-            return record(expr, constant->second);
+            if (!check_visible(constant->second.module, constant->second.is_public,
+                               path_string(expr.module, expr.name), expr.span, "constant",
+                               constant->second.span)) {
+                return record(expr, types().error_type());
+            }
+            return record(expr, constant->second.type);
         }
 
         if (expr.name == "self") {
@@ -1370,11 +1583,16 @@ private:
             return record(expr, types().error_type());
         }
 
-        Diagnostic& diagnostic = report("cannot find value `" + expr.name + "`", expr.span,
-                                        "not found in this scope");
+        Diagnostic& diagnostic =
+            report("cannot find value `" + path_string(expr.module, expr.name) + "`", expr.span,
+                   "not found in this scope");
         std::vector<std::string> candidates = scopes_.names();
-        for (const auto& [name, type] : result_.constants) {
-            candidates.push_back(name);
+        const std::string constant_prefix =
+            current_module_.empty() ? "" : current_module_ + "::";
+        for (const auto& [name, info] : result_.constants) {
+            if (info.module == current_module_) {
+                candidates.push_back(name.substr(constant_prefix.size()));
+            }
         }
         suggest(diagnostic, expr.name, candidates);
         return record(expr, types().error_type());
@@ -1498,22 +1716,41 @@ private:
     }
 
     TypePtr check_call(const ast::CallExpr& expr) {
-        if (is_intrinsic(expr.callee)) {
+        // Intrinsics belong to no module and are never qualified.
+        if (expr.module.empty() && is_intrinsic(expr.callee)) {
             return check_intrinsic(expr);
         }
 
-        const auto tmpl = result_.function_templates.find(expr.callee);
+        const std::optional<std::string> qualified =
+            lookup_name(expr.module, expr.callee, expr.callee_span);
+        if (!qualified.has_value()) {
+            for (const ast::ExprPtr& arg : expr.args) {
+                check_expr(*arg);
+            }
+            return record(expr, types().error_type());
+        }
+
+        const auto tmpl = result_.function_templates.find(*qualified);
         if (tmpl != result_.function_templates.end()) {
+            if (!check_visible(tmpl->second.module, tmpl->second.is_public,
+                               path_string(expr.module, expr.callee), expr.callee_span,
+                               "function", tmpl->second.span)) {
+                for (const ast::ExprPtr& arg : expr.args) {
+                    check_expr(*arg);
+                }
+                return record(expr, types().error_type());
+            }
             return check_generic_call(expr, tmpl->second);
         }
 
-        const auto entry = result_.functions.find(expr.callee);
+        const auto entry = result_.functions.find(*qualified);
         if (entry == result_.functions.end()) {
             for (const auto& [key, method] : result_.methods) {
                 if (key.second == expr.callee) {
                     Diagnostic& diagnostic =
-                        report("cannot find function `" + expr.callee + "`", expr.callee_span,
-                               "not found in this scope");
+                        report("cannot find function `" +
+                                   path_string(expr.module, expr.callee) + "`",
+                               expr.callee_span, "not found in this scope");
                     diagnostic.with_note("`" + expr.callee + "` is a method on `" + key.first +
                                          "`; call it as `value." + expr.callee + "(...)`");
                     for (const ast::ExprPtr& arg : expr.args) {
@@ -1522,8 +1759,9 @@ private:
                     return record(expr, types().error_type());
                 }
             }
-            Diagnostic& diagnostic = report("cannot find function `" + expr.callee + "`",
-                                            expr.callee_span, "not found in this scope");
+            Diagnostic& diagnostic =
+                report("cannot find function `" + path_string(expr.module, expr.callee) + "`",
+                       expr.callee_span, "not found in this scope");
             suggest(diagnostic, expr.callee, function_names());
             for (const ast::ExprPtr& arg : expr.args) {
                 check_expr(*arg);
@@ -1532,6 +1770,13 @@ private:
         }
 
         const FunctionInfo& info = entry->second;
+        if (!check_visible(info.module, info.is_public, path_string(expr.module, expr.callee),
+                           expr.callee_span, "function", info.span)) {
+            for (const ast::ExprPtr& arg : expr.args) {
+                check_expr(*arg);
+            }
+            return record(expr, types().error_type());
+        }
         result_.call_targets[{current_instance_, &expr}] = &info;
         check_arguments(expr.span, expr.args, info, 0);
         return record(expr, info.return_type);
@@ -1630,6 +1875,10 @@ private:
         }
 
         const FunctionInfo& info = entry->second;
+        if (!check_visible(info.module, info.is_public, expr.method, expr.method_span, "method",
+                           info.span)) {
+            return record(expr, types().error_type());
+        }
         result_.call_targets[{current_instance_, &expr}] = &info;
 
         if (info.self_kind == ast::SelfKind::None) {
@@ -1765,6 +2014,12 @@ private:
         }
 
         const FieldInfo* field = info->second.field(expr.field);
+        if (field != nullptr && info->second.module != current_module_ && !field->is_public) {
+            report("field `" + expr.field + "` of `" + to_string(base) + "` is private",
+                   expr.field_span, "`" + expr.field + "` is not declared `pub`")
+                .with_note("declared at " + location_of(field->span));
+            return record(expr, types().error_type());
+        }
         if (field == nullptr) {
             Diagnostic& diagnostic =
                 report("no field `" + expr.field + "` on type `" + to_string(base) + "`",
@@ -1833,15 +2088,33 @@ private:
     }
 
     TypePtr check_struct_literal(const ast::StructLitExpr& expr) {
-        const auto tmpl = result_.struct_templates.find(expr.type_name);
+        const std::optional<std::string> qualified =
+            lookup_name(expr.module, expr.type_name, expr.type_name_span);
+        if (!qualified.has_value()) {
+            for (const ast::FieldInit& field : expr.fields) {
+                check_expr(*field.value);
+            }
+            return record(expr, types().error_type());
+        }
+
+        const auto tmpl = result_.struct_templates.find(*qualified);
         if (tmpl != result_.struct_templates.end()) {
+            if (!check_visible(tmpl->second.module, tmpl->second.is_public,
+                               path_string(expr.module, expr.type_name), expr.type_name_span,
+                               "type", tmpl->second.span)) {
+                for (const ast::FieldInit& field : expr.fields) {
+                    check_expr(*field.value);
+                }
+                return record(expr, types().error_type());
+            }
             return check_generic_struct_literal(expr, tmpl->second);
         }
 
-        const auto info = result_.structs.find(expr.type_name);
+        const auto info = result_.structs.find(*qualified);
         if (info == result_.structs.end()) {
-            Diagnostic& diagnostic = report("cannot find type `" + expr.type_name + "`",
-                                            expr.type_name_span, "not found in this scope");
+            Diagnostic& diagnostic =
+                report("cannot find type `" + path_string(expr.module, expr.type_name) + "`",
+                       expr.type_name_span, "not found in this scope");
             suggest(diagnostic, expr.type_name, struct_names());
             for (const ast::FieldInit& field : expr.fields) {
                 check_expr(*field.value);
@@ -1849,6 +2122,14 @@ private:
             return record(expr, types().error_type());
         }
 
+        if (!check_visible(info->second.module, info->second.is_public,
+                           path_string(expr.module, expr.type_name), expr.type_name_span,
+                           "type", info->second.span)) {
+            for (const ast::FieldInit& field : expr.fields) {
+                check_expr(*field.value);
+            }
+            return record(expr, types().error_type());
+        }
         check_literal_fields(expr, info->second);
         return record(expr, types().struct_type(info->second.name));
     }
@@ -1883,6 +2164,16 @@ private:
             }
             initialized[target->index] = true;
 
+            // Reading a private field is rejected in check_field_access;
+            // writing one in a literal has to be rejected here, or a
+            // module could construct another module's invariants away.
+            if (declared.module != current_module_ && !target->is_public) {
+                report("field `" + field.name + "` of `" + declared.name + "` is private",
+                       field.name_span, "`" + field.name + "` is not declared `pub`")
+                    .with_note("declared at " + location_of(target->span));
+                continue;
+            }
+
             if (!assignable(target->type, value)) {
                 report_mismatch(field.value->span, target->type, value);
             }
@@ -1893,6 +2184,16 @@ private:
             if (!initialized[field.index]) {
                 missing.push_back(field.name);
             }
+        }
+        if (!missing.empty() && declared.module != current_module_) {
+            // Every field must be given a value, but a private one
+            // cannot be - so the type simply is not constructible here,
+            // and saying that is more useful than listing the fields.
+            report("`" + declared.name + "` cannot be constructed from outside its module",
+                   expr.span, "it has fields that are not `pub`")
+                .with_note("add a `pub fn` to `" + declared.module +
+                           "` that builds one instead");
+            return;
         }
         if (!missing.empty()) {
             std::string list;
@@ -2058,8 +2359,19 @@ bool is_intrinsic(std::string_view name) noexcept {
     return std::find(kIntrinsics.begin(), kIntrinsics.end(), name) != kIntrinsics.end();
 }
 
+CheckResult check(const std::vector<ModuleInput>& modules, const ast::SourceMap& sources) {
+    return Checker{sources}.run(modules);
+}
+
 CheckResult check(const ast::Program& program, const ast::SourceFile& source) {
-    return Checker{source}.run(program);
+    // A single-module program is the one-element case of the general
+    // one. The map is built here so the single-file callers - the tests,
+    // and anything that has only ever seen one file - keep working.
+    ast::SourceMap sources;
+    sources.add(source.path(), source.contents());
+
+    const std::vector<ModuleInput> modules{ModuleInput{{}, &program, {}}};
+    return Checker{sources}.run(modules);
 }
 
 }  // namespace ember::typeck

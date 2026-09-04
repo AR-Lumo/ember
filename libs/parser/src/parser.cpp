@@ -1,6 +1,13 @@
 #include "ember/parser/parser.hpp"
 
+#include "ember/ast/ast.hpp"
 #include "ember/lexer/lexer.hpp"
+
+#include <algorithm>
+#include <deque>
+#include <optional>
+#include <fstream>
+#include <sstream>
 
 
 #include <string>
@@ -174,6 +181,7 @@ private:
                 case TokenKind::KwStruct:
                 case TokenKind::KwImpl:
                 case TokenKind::KwConst:
+                case TokenKind::KwImport:
                     return;
                 default:
                     advance();
@@ -220,6 +228,15 @@ private:
         }
         if (check(TokenKind::KwConst)) {
             return parse_const(start, is_public);
+        }
+        if (check(TokenKind::KwImport)) {
+            if (is_public) {
+                // An import is not a declaration others can reach; it
+                // names what *this* file uses.
+                throw error_at(start, "`import` cannot be `pub`",
+                               "an import is private to the file that writes it");
+            }
+            return parse_import(start);
         }
         if (check(TokenKind::KwImpl)) {
             if (is_public) {
@@ -401,6 +418,15 @@ private:
         return block;
     }
 
+    /// `import geometry;`
+    ast::ItemPtr parse_import(Span start) {
+        expect(TokenKind::KwImport);
+        const Token& name = expect(TokenKind::Identifier);
+        const Token& semi = expect(TokenKind::Semicolon);
+        return std::make_unique<ast::ImportDecl>(start.merge(semi.span),
+                                                 std::string{name.text}, name.span);
+    }
+
     ast::ItemPtr parse_const(Span start, bool is_public) {
         expect(TokenKind::KwConst);
         const Token& name = expect(TokenKind::Identifier);
@@ -445,9 +471,15 @@ private:
                 return type;
 
             case TokenKind::Identifier: {
-                const Token& name = advance();
+                const Token* name = &advance();
                 type->kind = ast::TypeKind::Named;
-                type->name = std::string{name.text};
+
+                // `geometry::Point`: the first identifier is the module.
+                if (match(TokenKind::ColonColon)) {
+                    type->module = std::string{name->text};
+                    name = &expect(TokenKind::Identifier);
+                }
+                type->name = std::string{name->text};
 
                 // `Pair<int, float>`. Type arguments only appear in type
                 // position; in an expression a struct literal infers
@@ -458,6 +490,8 @@ private:
                     } while (match(TokenKind::Comma));
                     const Token& close = expect(TokenKind::Gt);
                     type->span = start.merge(close.span);
+                } else {
+                    type->span = start.merge(name->span);
                 }
                 return type;
             }
@@ -727,8 +761,10 @@ private:
         return expect(TokenKind::RParen).span;
     }
 
-    ast::ExprPtr parse_struct_literal(const std::string& type_name, Span name_span) {
+    ast::ExprPtr parse_struct_literal(const std::string& type_name, Span name_span,
+                                      std::string module = {}) {
         auto literal = std::make_unique<ast::StructLitExpr>(name_span, type_name, name_span);
+        literal->module = std::move(module);
         expect(TokenKind::LBrace);
 
         if (!check(TokenKind::RBrace)) {
@@ -779,17 +815,38 @@ private:
 
             case TokenKind::Identifier: {
                 advance();
+
+                // `module::item`. Only one level deep: there are no
+                // nested modules in v2, so a second `::` is an error
+                // rather than a path to somewhere.
+                std::string module;
+                const Token* name = &token;
+                if (match(TokenKind::ColonColon)) {
+                    module = std::string{token.text};
+                    name = &expect(TokenKind::Identifier);
+                    if (check(TokenKind::ColonColon)) {
+                        throw error_at(peek().span, "nested module paths are not supported",
+                                       "a path is `module::item`, one level deep");
+                    }
+                }
+
+                const Span name_span = name->span;
+                const Span whole = token.span.merge(name_span);
+
                 if (check(TokenKind::LParen)) {
                     auto call = std::make_unique<ast::CallExpr>(
-                        token.span, std::string{token.text}, token.span);
+                        whole, std::string{name->text}, name_span);
+                    call->module = std::move(module);
                     const Span end = parse_arguments(call->args);
-                    call->span = token.span.merge(end);
+                    call->span = whole.merge(end);
                     return call;
                 }
                 if (allow_struct_literal && check(TokenKind::LBrace)) {
-                    return parse_struct_literal(std::string{token.text}, token.span);
+                    return parse_struct_literal(std::string{name->text}, whole,
+                                                std::move(module));
                 }
-                return std::make_unique<ast::NameExpr>(token.span, std::string{token.text});
+                return std::make_unique<ast::NameExpr>(whole, std::string{name->text},
+                                                       std::move(module));
             }
 
             case TokenKind::LParen: {
@@ -843,6 +900,105 @@ ParseResult parse_source(const ast::SourceFile& source) {
         return ParseResult{std::make_unique<ast::Program>(), std::move(lexed.diagnostics)};
     }
     return parse(lexed.tokens, source);
+}
+
+
+namespace {
+
+/// The imports a parsed file declares, in source order.
+std::vector<std::pair<std::string, ast::Span>> imports_of(const ast::Program& program) {
+    std::vector<std::pair<std::string, ast::Span>> imports;
+    for (const ast::ItemPtr& item : program.items) {
+        if (const auto* declaration = ast::node_cast<ast::ImportDecl>(item.get())) {
+            imports.emplace_back(declaration->module, declaration->module_span);
+        }
+    }
+    return imports;
+}
+
+std::optional<std::string> read_file(const std::filesystem::path& path) {
+    std::ifstream stream(path, std::ios::binary);
+    if (!stream) {
+        return std::nullopt;
+    }
+    std::ostringstream buffer;
+    buffer << stream.rdbuf();
+    return buffer.str();
+}
+
+}  // namespace
+
+LoadResult load_program(const std::filesystem::path& entry, ast::SourceMap& sources) {
+    LoadResult result;
+
+    // Breadth-first from the entry file. Each module is loaded once, so
+    // a cycle terminates: `a` imports `b` imports `a` leaves `a` already
+    // in `loaded` the second time round.
+    struct Pending {
+        std::string name;
+        std::filesystem::path path;
+        /// Where the `import` was written, so a missing file can be
+        /// reported against it rather than against nothing.
+        std::optional<ast::Span> requested_at;
+    };
+
+    std::deque<Pending> queue;
+    queue.push_back(Pending{{}, entry, std::nullopt});
+    std::vector<std::string> loaded;
+
+    while (!queue.empty()) {
+        const Pending pending = std::move(queue.front());
+        queue.pop_front();
+
+        if (std::find(loaded.begin(), loaded.end(), pending.name) != loaded.end()) {
+            continue;
+        }
+
+        const std::optional<std::string> contents = read_file(pending.path);
+        if (!contents.has_value()) {
+            if (pending.requested_at.has_value()) {
+                result.diagnostics.push_back(ast::Diagnostic::error(
+                    "cannot find module `" + pending.name + "`", *pending.requested_at,
+                    "no file at `" + pending.path.string() + "`"));
+            } else {
+                result.diagnostics.push_back(ast::Diagnostic::error(
+                    "cannot read `" + pending.path.string() + "`", ast::Span::at(0),
+                    "the file could not be opened"));
+            }
+            continue;
+        }
+
+        const ast::FileId file = sources.add(pending.path.string(), *contents);
+        ParseResult parsed = parse_source(sources.file(file));
+
+        for (ast::Diagnostic& diagnostic : parsed.diagnostics) {
+            result.diagnostics.push_back(std::move(diagnostic));
+        }
+
+        Module module;
+        module.name = pending.name;
+        module.path = pending.path;
+        module.file = file;
+        module.program = std::move(parsed.program);
+        module.program->module = pending.name;
+
+        const std::filesystem::path directory = pending.path.parent_path();
+        for (const auto& [name, span] : imports_of(*module.program)) {
+            if (name == pending.name) {
+                result.diagnostics.push_back(ast::Diagnostic::error(
+                    "a module cannot import itself", span, "`" + name + "` is this module"));
+                continue;
+            }
+            module.imports.push_back(name);
+            queue.push_back(Pending{
+                name, directory / (name + "." + std::string{ast::kFileExtension}), span});
+        }
+
+        loaded.push_back(pending.name);
+        result.modules.push_back(std::move(module));
+    }
+
+    return result;
 }
 
 }  // namespace ember::parser

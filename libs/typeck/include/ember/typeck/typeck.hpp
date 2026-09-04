@@ -42,6 +42,8 @@ std::string_view stage_name() noexcept;
 /// One field of a struct, in declaration order.
 struct FieldInfo {
     std::string name;
+    /// Whether another module may read it.
+    bool is_public = false;
     TypePtr type = nullptr;
     ast::Span span;
     /// Position in the struct, which is also its LLVM struct index.
@@ -49,11 +51,26 @@ struct FieldInfo {
 };
 
 struct StructInfo {
+    /// Fully qualified: `Point` in the entry module, `geometry::Point`
+    /// in a module named `geometry`.
     std::string name;
+    /// The module that declared it. Empty for the entry module.
+    std::string module;
+    /// Whether another module may name it (§4's `pub`, which starts
+    /// meaning something now that there is more than one module).
+    bool is_public = false;
     ast::Span span;
     std::vector<FieldInfo> fields;
 
     const FieldInfo* field(std::string_view name) const;
+};
+
+/// A module-level constant.
+struct ConstantInfo {
+    TypePtr type = nullptr;
+    std::string module;
+    bool is_public = false;
+    ast::Span span;
 };
 
 /// A free function or a method. Methods are stored with the mangled name
@@ -71,6 +88,10 @@ struct FunctionInfo {
     std::vector<TypePtr> type_args;
     /// Empty for a free function, the struct name for a method.
     std::string owner_type;
+    /// The module that declared it. Empty for the entry module.
+    std::string module;
+    /// Whether another module may call it.
+    bool is_public = false;
     ast::Span span;
     std::vector<std::string> param_names;
     std::vector<TypePtr> param_types;
@@ -96,7 +117,12 @@ inline constexpr InstanceId kRootInstance = 0;
 
 /// A generic function as written, before substitution.
 struct FunctionTemplate {
+    /// Fully qualified, as FunctionInfo::name is.
     std::string name;
+    /// The name as written, without the module prefix.
+    std::string simple_name;
+    std::string module;
+    bool is_public = false;
     /// Empty for a free function; the struct name for a method.
     std::string owner_type;
     std::vector<std::string> generic_params;
@@ -106,7 +132,10 @@ struct FunctionTemplate {
 
 /// A generic struct as written, before substitution.
 struct StructTemplate {
+    /// Fully qualified, as StructInfo::name is.
     std::string name;
+    std::string module;
+    bool is_public = false;
     std::vector<std::string> generic_params;
     ast::Span span;
     const ast::StructDecl* decl = nullptr;
@@ -135,8 +164,8 @@ struct CheckResult {
     /// Methods, keyed by (owning type, method name) - §8 is explicit
     /// that these are scoped to their type rather than global.
     std::map<std::pair<std::string, std::string>, FunctionInfo> methods;
-    /// Module-level constants, by name.
-    std::map<std::string, TypePtr> constants;
+    /// Module-level constants, by qualified name.
+    std::map<std::string, ConstantInfo> constants;
 
     /// Generic declarations, keyed by name. These are never checked or
     /// emitted directly - only their instantiations are.
@@ -172,7 +201,22 @@ struct CheckResult {
     TypePtr binding_type(InstanceId instance, const ast::Stmt& statement) const;
 };
 
-/// Check a parsed program.
+/// One module handed to the checker: its name, its tree, and what it
+/// imported. Mirrors parser::Module without depending on it, so the
+/// checker stays independent of how the files were found.
+struct ModuleInput {
+    std::string name;
+    const ast::Program* program = nullptr;
+    std::vector<std::string> imports;
+};
+
+/// Check a whole program: every module together, in one pass.
+///
+/// Modules are checked as a unit rather than one at a time, so an
+/// `import` cycle resolves and neither module has to be declared first.
+CheckResult check(const std::vector<ModuleInput>& modules, const ast::SourceMap& sources);
+
+/// Check a single-module program.
 CheckResult check(const ast::Program& program, const ast::SourceFile& source);
 
 /// The names §5 reserves for compiler intrinsics.

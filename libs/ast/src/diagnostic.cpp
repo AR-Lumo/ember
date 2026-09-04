@@ -82,7 +82,20 @@ std::string render(const Diagnostic& diagnostic, const SourceFile& source) {
     return out.str();
 }
 
-std::string render_all(const std::vector<Diagnostic>& diagnostics, const SourceFile& source) {
+std::string render(const Diagnostic& diagnostic, const SourceMap& sources) {
+    if (sources.empty()) {
+        return std::string{severity_name(diagnostic.severity)} + ": " + diagnostic.message + "\n";
+    }
+    return render(diagnostic, sources.file(diagnostic.span.file));
+}
+
+namespace {
+
+/// Shared by both render_all overloads; `render_one` decides which file
+/// each diagnostic is resolved against. With modules, consecutive
+/// diagnostics can point into different files.
+template <typename RenderOne>
+std::string render_each(const std::vector<Diagnostic>& diagnostics, RenderOne render_one) {
     std::ostringstream out;
     std::size_t errors = 0;
 
@@ -90,7 +103,7 @@ std::string render_all(const std::vector<Diagnostic>& diagnostics, const SourceF
         if (i > 0) {
             out << '\n';
         }
-        out << render(diagnostics[i], source);
+        out << render_one(diagnostics[i]);
         if (diagnostics[i].severity == Severity::Error) {
             ++errors;
         }
@@ -101,6 +114,16 @@ std::string render_all(const std::vector<Diagnostic>& diagnostics, const SourceF
             << (errors == 1 ? "" : "s") << '\n';
     }
     return out.str();
+}
+
+}  // namespace
+
+std::string render_all(const std::vector<Diagnostic>& diagnostics, const SourceFile& source) {
+    return render_each(diagnostics, [&](const Diagnostic& one) { return render(one, source); });
+}
+
+std::string render_all(const std::vector<Diagnostic>& diagnostics, const SourceMap& sources) {
+    return render_each(diagnostics, [&](const Diagnostic& one) { return render(one, sources); });
 }
 
 }  // namespace ember::ast

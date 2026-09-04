@@ -99,6 +99,8 @@ void write_file(const fs::path& path, std::string_view contents) {
     stream << contents;
 }
 
+std::string source_extension() { return "." + std::string{ember::ast::kFileExtension}; }
+
 /// One golden test case: an `.em` source file and its snapshots.
 struct GoldenCase {
     std::string name;
@@ -119,8 +121,6 @@ struct GoldenCase {
         return normalize(*raw);
     }
 };
-
-std::string source_extension() { return "." + std::string{ember::ast::kFileExtension}; }
 
 /// Every `.em` file in tests/golden/, sorted by name for stable output.
 std::vector<GoldenCase> cases() {
@@ -177,6 +177,48 @@ bool check_snapshot(const GoldenCase& test_case, std::string_view stage,
                                 "\n---\nre-record with EMBER_UPDATE_GOLDEN=1");
     }
     return true;
+}
+
+/// A multi-file golden case: a subdirectory of tests/golden/ holding a
+/// `main.em` plus the modules it imports.
+///
+/// These get only an `.out` snapshot. A token stream or a syntax tree
+/// for "a program in four files" is not one artifact, and the thing
+/// worth pinning about a multi-module program is that it builds and
+/// prints what it should.
+struct ModuleCase {
+    std::string name;
+    fs::path entry;
+};
+
+std::vector<ModuleCase> module_cases() {
+    std::vector<ModuleCase> found;
+    for (const fs::directory_entry& entry : fs::directory_iterator{golden_dir()}) {
+        if (!entry.is_directory()) {
+            continue;
+        }
+        const fs::path main_file = entry.path() / ("main." + std::string{ember::ast::kFileExtension});
+        if (fs::exists(main_file)) {
+            found.push_back(ModuleCase{entry.path().filename().string(), main_file});
+        }
+    }
+    std::sort(found.begin(), found.end(),
+              [](const ModuleCase& a, const ModuleCase& b) { return a.name < b.name; });
+    return found;
+}
+
+/// Every `.em` file under tests/golden/, including the ones inside
+/// module cases. Used by the coverage guards, which care about what the
+/// lexer and parser see rather than about whole programs.
+std::vector<fs::path> all_sources() {
+    std::vector<fs::path> found;
+    for (const fs::directory_entry& entry : fs::recursive_directory_iterator{golden_dir()}) {
+        if (entry.is_regular_file() && entry.path().extension() == source_extension()) {
+            found.push_back(entry.path());
+        }
+    }
+    std::sort(found.begin(), found.end());
+    return found;
 }
 
 /// A SourceFile for a golden case, named by file name only so that
@@ -239,6 +281,9 @@ EMBER_TEST(every_snapshot_belongs_to_a_case) {
     constexpr std::array<std::string_view, 4> kStages{".tokens", ".ast", ".check", ".out"};
 
     for (const fs::directory_entry& entry : fs::directory_iterator{golden_dir()}) {
+        if (entry.is_directory()) {
+            continue;  // module cases keep their snapshots inside
+        }
         const std::string extension = entry.path().extension().string();
         if (std::find(kStages.begin(), kStages.end(), extension) == kStages.end()) {
             continue;
@@ -296,8 +341,10 @@ EMBER_TEST(phase1_golden_cases_exercise_every_token_kind) {
     // to the grammar without a case that produces it, this fails.
     std::vector<bool> seen(static_cast<std::size_t>(ember::lexer::TokenKind::Eof) + 1, false);
 
-    for (const GoldenCase& test_case : cases()) {
-        const ember::ast::SourceFile source = source_of(test_case);
+    for (const fs::path& path : all_sources()) {
+        const std::optional<std::string> contents = read_file(path);
+        EMBER_CHECK_MSG(contents.has_value(), "cannot read " + path.string());
+        const ember::ast::SourceFile source{path.filename().string(), normalize(*contents)};
         for (const ember::lexer::Token& token : ember::lexer::tokenize(source).tokens) {
             seen[static_cast<std::size_t>(token.kind)] = true;
         }
@@ -666,6 +713,51 @@ EMBER_TEST(phase4_program_output_matches_its_snapshot) {
     EMBER_CHECK_MSG(covered == expected,
                     "some runnable golden cases have no recorded `.out` snapshot; "
                     "re-record with EMBER_UPDATE_GOLDEN=1");
+}
+
+EMBER_TEST(modules_every_module_case_compiles_and_runs) {
+    if (!ember::codegen::is_available()) {
+        return;
+    }
+    for (const ModuleCase& test_case : module_cases()) {
+        const ProcessResult result =
+            run_process(quoted(fs::path{EMBER_BINARY}) + " run " + quoted(test_case.entry));
+        EMBER_CHECK_MSG(result.exit_code == 0,
+                        test_case.name + " exited with " + std::to_string(result.exit_code) +
+                            "; output was:\n" + result.output);
+    }
+}
+
+EMBER_TEST(modules_program_output_matches_its_snapshot) {
+    if (!ember::codegen::is_available()) {
+        return;
+    }
+    for (const ModuleCase& test_case : module_cases()) {
+        const ProcessResult result =
+            run_process(quoted(fs::path{EMBER_BINARY}) + " run " + quoted(test_case.entry));
+
+        // The snapshot sits beside the entry file, as `main.out`.
+        fs::path snapshot = test_case.entry;
+        snapshot.replace_extension("out");
+
+        const std::string actual = normalize(result.output);
+        if (update_requested()) {
+            write_file(snapshot, actual + "\n");
+            continue;
+        }
+        const std::optional<std::string> expected = read_file(snapshot);
+        EMBER_CHECK_MSG(expected.has_value(),
+                        "no recorded output for module case `" + test_case.name +
+                            "`; re-record with EMBER_UPDATE_GOLDEN=1");
+        if (expected.has_value()) {
+            EMBER_CHECK_EQ(actual, normalize(*expected));
+        }
+    }
+}
+
+EMBER_TEST(modules_at_least_one_multi_file_case_exists) {
+    EMBER_CHECK_MSG(!module_cases().empty(),
+                    "no multi-file golden cases; modules are untested end to end");
 }
 
 EMBER_TEST(phase4_build_produces_a_standalone_executable) {

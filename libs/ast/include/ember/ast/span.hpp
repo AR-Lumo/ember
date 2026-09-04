@@ -12,6 +12,7 @@
 #define EMBER_AST_SPAN_HPP
 
 #include <cstdint>
+#include <deque>
 #include <filesystem>
 #include <optional>
 #include <string>
@@ -19,6 +20,18 @@
 #include <vector>
 
 namespace ember::ast {
+
+/// Which file a span points into.
+///
+/// Before modules a span was just a byte range: there was only ever one
+/// file, and it was passed alongside. With `import` a diagnostic can
+/// point at any file in the program, so the span has to carry that
+/// itself.
+using FileId = std::uint32_t;
+
+/// The file every single-file program uses, and the default for a span
+/// that was never stamped.
+inline constexpr FileId kMainFile = 0;
 
 /// A 1-based line/column pair, as a human would cite it.
 ///
@@ -36,10 +49,12 @@ struct Position {
 struct Span {
     std::uint32_t start = 0;
     std::uint32_t end = 0;
+    FileId file = kMainFile;
 
     /// A span covering `length` bytes starting at `offset`.
-    static constexpr Span at(std::uint32_t offset, std::uint32_t length = 1) {
-        return Span{offset, offset + length};
+    static constexpr Span at(std::uint32_t offset, std::uint32_t length = 1,
+                             FileId file = kMainFile) {
+        return Span{offset, offset + length, file};
     }
 
     constexpr std::uint32_t length() const noexcept { return end - start; }
@@ -47,9 +62,13 @@ struct Span {
 
     /// The smallest span covering both `*this` and `other`. Used to give a
     /// binary expression a span running from its left operand to its right.
+    ///
+    /// Merging across files is meaningless, so the left span's file
+    /// wins; in practice the two are always from the same file, since a
+    /// single expression cannot straddle an `import`.
     constexpr Span merge(const Span& other) const noexcept {
         return Span{start < other.start ? start : other.start,
-                    end > other.end ? end : other.end};
+                    end > other.end ? end : other.end, file};
     }
 
     friend bool operator==(const Span&, const Span&) = default;
@@ -58,10 +77,13 @@ struct Span {
 /// One source file, plus the line index needed to resolve spans.
 class SourceFile {
 public:
-    SourceFile(std::string path, std::string contents);
+    SourceFile(std::string path, std::string contents, FileId id = kMainFile);
 
     /// Read a file from disk. Returns nullopt if it cannot be opened.
     static std::optional<SourceFile> load(const std::filesystem::path& path);
+
+    /// This file's identity, as stamped onto every span it produces.
+    FileId id() const noexcept { return id_; }
 
     const std::string& path() const noexcept { return path_; }
     const std::string& contents() const noexcept { return contents_; }
@@ -86,8 +108,34 @@ public:
 private:
     std::string path_;
     std::string contents_;
+    FileId id_ = kMainFile;
     /// Byte offset where each line begins; always starts with 0.
     std::vector<std::uint32_t> line_starts_;
+};
+
+/// Every file in one compilation, so a span can be resolved back to the
+/// text it came from no matter which module produced it.
+class SourceMap {
+public:
+    /// Adds a file and returns its id. The map owns it from here.
+    FileId add(std::string path, std::string contents);
+
+    /// The file `id` refers to. Ids are only ever handed out by `add`,
+    /// so an unknown one is a bug rather than user error; it resolves to
+    /// the first file rather than crashing a diagnostic.
+    const SourceFile& file(FileId id) const;
+
+    /// The file previously added under `path`, if any. Used to keep an
+    /// import cycle from loading the same file twice.
+    const SourceFile* find(std::string_view path) const;
+
+    std::size_t size() const noexcept { return files_.size(); }
+    bool empty() const noexcept { return files_.empty(); }
+
+private:
+    /// A deque, not a vector: references handed out stay valid as more
+    /// modules are loaded during resolution.
+    std::deque<SourceFile> files_;
 };
 
 }  // namespace ember::ast
