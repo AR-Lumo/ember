@@ -408,12 +408,10 @@ private:
             case '&':
                 return push(match('&') ? TokenKind::AmpAmp : TokenKind::Amp, start);
             case '|':
-                if (match('|')) {
-                    return push(TokenKind::PipePipe, start);
-                }
-                error("unexpected character", span_from(start),
-                      "`|` is not an operator in Ember; did you mean `||`?");
-                return;
+                // A lone `|` opens a closure's parameter list; `||` is
+                // either logical or, or an empty parameter list, which
+                // the parser tells apart by where it appears.
+                return push(match('|') ? TokenKind::PipePipe : TokenKind::Pipe, start);
             default:
                 error("unexpected character", span_from(start),
                       "`" + describe_char(c) + "` is not valid in Ember source");

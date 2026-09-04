@@ -105,6 +105,11 @@ public:
         // size is known at each use site rather than carried at runtime.
         buffer_type_ = llvm::StructType::create(
             *context_, {ptr_type(), int_type(), int_type()}, "ember.buffer");
+        // A closure is a pair: the lifted function, and the heap block
+        // holding what it captured. A closure that captured nothing has
+        // a null environment, so the pair is uniform either way.
+        closure_type_ =
+            llvm::StructType::create(*context_, {ptr_type(), ptr_type()}, "ember.closure");
 
         // Set before anything is emitted: a `Vec<T>` push needs the size
         // of T, and asking a module with no layout gives nonsense.
@@ -149,6 +154,7 @@ private:
 
     llvm::StructType* string_type_ = nullptr;
     llvm::StructType* buffer_type_ = nullptr;
+    llvm::StructType* closure_type_ = nullptr;
     std::map<std::string, llvm::StructType*> struct_types_;
     std::map<std::string, llvm::Function*> functions_;
     std::map<std::string, llvm::GlobalVariable*> constants_;
@@ -213,6 +219,8 @@ private:
             case TypeKind::Vec:
             case TypeKind::StringBuf:
                 return buffer_type_;
+            case TypeKind::Function:
+                return closure_type_;
             case TypeKind::Generic:
                 // Unreachable: only instantiated bodies are emitted, and
                 // every type in one has been substituted.
@@ -436,6 +444,17 @@ private:
         }
 
         switch (type->kind) {
+            case TypeKind::Function: {
+                // Only the environment block. Captures are required to
+                // be copyable, so there is nothing inside it to drop.
+                llvm::Value* env = builder_.CreateLoad(
+                    ptr_type(), builder_.CreateStructGEP(closure_type_, address, 1), "env");
+                builder_.CreateCall(runtime("ember_free", void_type(), {ptr_type()}), {env});
+                builder_.CreateStore(llvm::ConstantPointerNull::get(ptr_type()),
+                                     builder_.CreateStructGEP(closure_type_, address, 1));
+                return;
+            }
+
             case TypeKind::Vec:
             case TypeKind::StringBuf: {
                 // The elements of a `Vec<T>` where T itself owns memory
@@ -894,6 +913,8 @@ private:
                 return emit_call(static_cast<const ast::CallExpr&>(expr));
             case ast::ExprKind::MethodCall:
                 return emit_method_call(static_cast<const ast::MethodCallExpr&>(expr));
+            case ast::ExprKind::Closure:
+                return emit_closure(static_cast<const ast::ClosureExpr&>(expr));
             case ast::ExprKind::Cast:
                 return emit_cast(static_cast<const ast::CastExpr&>(expr));
             case ast::ExprKind::StructLit:
@@ -1061,6 +1082,13 @@ private:
     llvm::Value* emit_call(const ast::CallExpr& expr) {
         if (typeck::is_intrinsic(expr.callee)) {
             return emit_intrinsic(expr);
+        }
+
+        // A local holding a closure is called through its pointer.
+        if (expr.module.empty()) {
+            if (const Slot* slot = lookup(expr.callee)) {
+                return emit_indirect_call(expr, *slot);
+            }
         }
 
         // The recorded target is authoritative: for a generic call the
@@ -1327,6 +1355,161 @@ private:
              builder_.CreateStructGEP(buffer_type_, address, 2), bytes, count});
         builder_.CreateStore(appended, buffer_field);
         return nullptr;
+    }
+
+    /// Builds a closure value: lift the body to a real function, then
+    /// pack its captures into a heap block beside a pointer to it.
+    ///
+    /// This is what makes a closure a *value* rather than a special
+    /// form: after this, calling one is an indirect call through a
+    /// pointer, and nothing else in the language needs to know.
+    llvm::Value* emit_closure(const ast::ClosureExpr& expr) {
+        const TypePtr type = type_of(expr);
+        const std::vector<TypePtr>& capture_types = capture_types_of(expr);
+
+        // The environment layout is per closure, not per type: two
+        // closures of the same `fn(int) -> int` may capture different
+        // things.
+        std::vector<llvm::Type*> fields;
+        for (const TypePtr captured : capture_types) {
+            fields.push_back(lower(captured));
+        }
+        llvm::StructType* env_type =
+            llvm::StructType::create(*context_, fields, "closure.env." + std::to_string(expr.id));
+
+        llvm::Function* lifted = emit_lifted_closure(expr, type, capture_types, env_type);
+
+        // Copy each captured value into a fresh heap block. Captures are
+        // copyable, so this is a copy rather than a move.
+        llvm::Value* env = llvm::ConstantPointerNull::get(ptr_type());
+        if (!capture_types.empty()) {
+            const std::uint64_t size =
+                module_->getDataLayout().getTypeAllocSize(env_type).getFixedValue();
+            env = builder_.CreateCall(runtime("ember_alloc", ptr_type(), {int_type()}),
+                                      {builder_.getInt64(size)}, "env");
+
+            for (std::size_t i = 0; i < expr.captures.size(); ++i) {
+                const Slot* slot = lookup(expr.captures[i].name);
+                if (slot == nullptr) {
+                    continue;
+                }
+                llvm::Value* value =
+                    builder_.CreateLoad(lower(capture_types[i]), slot->address);
+                builder_.CreateStore(
+                    value, builder_.CreateStructGEP(env_type, env, static_cast<unsigned>(i)));
+            }
+        }
+
+        llvm::Value* value = llvm::UndefValue::get(closure_type_);
+        value = builder_.CreateInsertValue(value, lifted, {0});
+        value = builder_.CreateInsertValue(value, env, {1});
+        return value;
+    }
+
+    const std::vector<TypePtr>& capture_types_of(const ast::ClosureExpr& expr) {
+        static const std::vector<TypePtr> none;
+        const auto found = checked_.closure_captures.find({current_instance_, &expr});
+        return found != checked_.closure_captures.end() ? found->second : none;
+    }
+
+    /// Emits the closure's body as an ordinary function taking the
+    /// environment as a hidden first parameter, then restores whatever
+    /// was being emitted around it.
+    llvm::Function* emit_lifted_closure(const ast::ClosureExpr& expr, TypePtr type,
+                                        const std::vector<TypePtr>& capture_types,
+                                        llvm::StructType* env_type) {
+        std::vector<llvm::Type*> params{ptr_type()};
+        for (const TypePtr param : type->args) {
+            params.push_back(lower(param));
+        }
+        llvm::FunctionType* signature = llvm::FunctionType::get(
+            lower(type->result), params, false);
+
+        const std::string name = "ember_closure_" + std::to_string(expr.id);
+        llvm::Function* function = llvm::Function::Create(
+            signature, llvm::Function::InternalLinkage, name, module_.get());
+
+        // Save everything the outer emission is in the middle of.
+        llvm::Function* saved_function = current_function_;
+        const typeck::FunctionInfo* saved_info = current_info_;
+        const bool saved_entry = current_is_entry_point_;
+        std::vector<std::map<std::string, Slot>> saved_scopes;
+        saved_scopes.swap(scopes_);
+        llvm::IRBuilder<>::InsertPoint saved_point = builder_.saveIP();
+
+        current_function_ = function;
+        current_is_entry_point_ = false;
+
+        typeck::FunctionInfo info;
+        info.name = name;
+        info.return_type = type->result;
+        current_info_ = &info;
+
+        builder_.SetInsertPoint(llvm::BasicBlock::Create(*context_, "entry", function));
+        push_scope();
+
+        // Captures come back out of the environment into ordinary
+        // locals, so the body reads them like any other variable.
+        llvm::Value* env = function->getArg(0);
+        for (std::size_t i = 0; i < expr.captures.size(); ++i) {
+            const std::string& captured = expr.captures[i].name;
+            llvm::Value* slot = create_entry_alloca(lower(capture_types[i]), captured);
+            builder_.CreateStore(
+                builder_.CreateLoad(lower(capture_types[i]),
+                                    builder_.CreateStructGEP(env_type, env,
+                                                             static_cast<unsigned>(i))),
+                slot);
+            scopes_.back()[captured] = Slot{slot, capture_types[i], nullptr};
+        }
+
+        for (std::size_t i = 0; i < expr.params.size(); ++i) {
+            const ast::Param& param = expr.params[i];
+            llvm::Value* slot = create_entry_alloca(lower(type->args[i]), param.name);
+            builder_.CreateStore(function->getArg(static_cast<unsigned>(i + 1)), slot);
+            scopes_.back()[param.name] = Slot{slot, type->args[i], nullptr};
+        }
+
+        emit_block(expr.body);
+        if (!builder_.GetInsertBlock()->getTerminator()) {
+            emit_all_drops();
+            builder_.CreateRetVoid();
+        }
+
+        scopes_.clear();
+        scopes_.swap(saved_scopes);
+        builder_.restoreIP(saved_point);
+        current_function_ = saved_function;
+        current_info_ = saved_info;
+        current_is_entry_point_ = saved_entry;
+        return function;
+    }
+
+    /// `f(args)` where `f` holds a closure: load the pair and call
+    /// through it, passing the environment first.
+    llvm::Value* emit_indirect_call(const ast::CallExpr& expr, const Slot& slot) {
+        const TypePtr type = typeck::strip_reference(slot.type);
+
+        llvm::Value* address = slot.address;
+        if (slot.type->kind == TypeKind::Reference) {
+            address = builder_.CreateLoad(ptr_type(), slot.address, "borrowed");
+        }
+
+        llvm::Value* code = builder_.CreateLoad(
+            ptr_type(), builder_.CreateStructGEP(closure_type_, address, 0), "code");
+        llvm::Value* env = builder_.CreateLoad(
+            ptr_type(), builder_.CreateStructGEP(closure_type_, address, 1), "env");
+
+        std::vector<llvm::Type*> param_types{ptr_type()};
+        std::vector<llvm::Value*> args{env};
+        for (std::size_t i = 0; i < expr.args.size(); ++i) {
+            param_types.push_back(lower(type->args[i]));
+            args.push_back(emit_as(*expr.args[i], type->args[i]));
+        }
+
+        llvm::FunctionType* signature =
+            llvm::FunctionType::get(lower(type->result), param_types, false);
+        return builder_.CreateCall(signature, code, args,
+                                   lower(type->result)->isVoidTy() ? "" : "call");
     }
 
     llvm::Value* emit_struct_literal(const ast::StructLitExpr& expr) {

@@ -191,6 +191,10 @@ struct CheckResult {
     /// or its buffer would be freed twice.
     std::set<std::pair<InstanceId, const ast::Expr*>> moved_expressions;
 
+    /// The types a closure captured, in the order its `captures` list
+    /// records them. Codegen needs these to lay out the environment.
+    std::map<std::pair<InstanceId, const ast::Expr*>, std::vector<TypePtr>> closure_captures;
+
     /// The type of every expression, per instantiation it was checked in.
     std::map<std::pair<InstanceId, const ast::Expr*>, TypePtr> expr_types;
     /// Which function each call resolved to. Absent for intrinsics.

@@ -269,12 +269,11 @@ EMBER_TEST(lexer_reads_every_delimiter_and_punctuation_mark) {
                                "semi colon dot plus minus star slash percent"});
 }
 
-EMBER_TEST(lexer_suggests_the_logical_or_for_a_lone_pipe) {
-    const SourceFile source = make_source("a | b");
-    const std::vector<ember::ast::Diagnostic> errors = lex_errors(source);
-    EMBER_CHECK_EQ(errors[0].message, std::string{"unexpected character"});
-    EMBER_CHECK_EQ(errors[0].label,
-                   std::string{"`|` is not an operator in Ember; did you mean `||`?"});
+EMBER_TEST(lexer_reads_a_lone_pipe_as_its_own_token) {
+    // A single `|` opens a closure's parameter list, so it is a token
+    // rather than the error it used to be before closures existed.
+    const SourceFile source = make_source("| || |");
+    EMBER_CHECK_EQ(names_of(kinds_of(source)), std::string{"pipe pipe_pipe pipe"});
 }
 
 EMBER_TEST(lexer_rejects_characters_outside_the_grammar) {

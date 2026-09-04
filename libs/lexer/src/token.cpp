@@ -90,6 +90,8 @@ KindNames names_for(TokenKind kind) noexcept {
 
         case TokenKind::PipePipe:
             return {"pipe_pipe", "`||`"};
+        case TokenKind::Pipe:
+            return {"pipe", "`|`"};
         case TokenKind::AmpAmp:
             return {"amp_amp", "`&&`"};
         case TokenKind::EqEq:

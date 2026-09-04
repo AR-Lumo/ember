@@ -70,6 +70,8 @@ enum class TokenKind {
 
     // Operators, low to high precedence per §3.
     PipePipe,
+    /// A single `|`, which delimits a closure's parameter list.
+    Pipe,
     AmpAmp,
     EqEq,
     BangEq,

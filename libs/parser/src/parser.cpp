@@ -504,6 +504,25 @@ private:
                 return type;
             }
 
+            case TokenKind::KwFn: {
+                advance();
+                type->kind = ast::TypeKind::Function;
+                expect(TokenKind::LParen);
+                if (!check(TokenKind::RParen)) {
+                    do {
+                        type->params.push_back(parse_type());
+                    } while (match(TokenKind::Comma));
+                }
+                const Token& close = expect(TokenKind::RParen);
+                type->span = start.merge(close.span);
+
+                if (match(TokenKind::Arrow)) {
+                    type->result = parse_type();
+                    type->span = start.merge(type->result->span);
+                }
+                return type;
+            }
+
             case TokenKind::LBracket: {
                 advance();
                 type->kind = ast::TypeKind::Array;
@@ -789,6 +808,45 @@ private:
         return literal;
     }
 
+    /// `|a: int, b: int| -> int { ... }`, or `||` for no parameters.
+    ///
+    /// Parameter and return types are written out. Ember annotates every
+    /// other binding position, and inferring these would mean pushing an
+    /// expected type in from wherever the closure is going.
+    ast::ExprPtr parse_closure() {
+        const Span start = peek().span;
+        auto closure = std::make_unique<ast::ClosureExpr>(start);
+
+        // The lexer produced `||` as one token, which here means an
+        // empty parameter list rather than a logical or.
+        if (match(TokenKind::PipePipe)) {
+            // nothing to parse
+        } else {
+            expect(TokenKind::Pipe);
+            if (!check(TokenKind::Pipe)) {
+                do {
+                    const Token& name = expect(TokenKind::Identifier);
+                    ast::Param param;
+                    param.name = std::string{name.text};
+                    param.name_span = name.span;
+                    expect(TokenKind::Colon);
+                    param.type = parse_type();
+                    param.span = name.span.merge(param.type->span);
+                    closure->params.push_back(std::move(param));
+                } while (match(TokenKind::Comma));
+            }
+            expect(TokenKind::Pipe);
+        }
+
+        if (match(TokenKind::Arrow)) {
+            closure->return_type = parse_type();
+        }
+
+        closure->body = parse_block();
+        closure->span = start.merge(closure->body.span);
+        return closure;
+    }
+
     ast::ExprPtr parse_primary(bool allow_struct_literal) {
         const Token& token = peek();
 
@@ -858,6 +916,11 @@ private:
                 ast::ExprPtr inner = parse_expr(0, true);
                 expect(TokenKind::RParen);
                 return inner;
+            }
+
+            case TokenKind::PipePipe:
+            case TokenKind::Pipe: {
+                return parse_closure();
             }
 
             case TokenKind::LBracket: {

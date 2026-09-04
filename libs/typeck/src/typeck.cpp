@@ -36,6 +36,7 @@ struct Binding {
 class Scopes {
 public:
     void push() { scopes_.emplace_back(); }
+    std::size_t size() const noexcept { return scopes_.size(); }
     void pop() { scopes_.pop_back(); }
 
     /// Declare a binding. Returns the previous one if this name is
@@ -58,6 +59,18 @@ public:
             }
         }
         return nullptr;
+    }
+
+    /// The scope index a name was found at, or nullopt. A closure uses
+    /// this to decide whether a name belongs to it or to the function
+    /// around it.
+    std::optional<std::size_t> depth_of(const std::string& name) const {
+        for (std::size_t i = scopes_.size(); i > 0; --i) {
+            if (scopes_[i - 1].count(name) != 0) {
+                return i - 1;
+            }
+        }
+        return std::nullopt;
     }
 
     Binding* lookup_mutable(const std::string& name) {
@@ -198,6 +211,19 @@ private:
     /// Type parameters that are merely in scope, while a template's own
     /// signature is being resolved. Their names become Generic types.
     std::vector<std::string> generic_scope_;
+
+    /// One closure being checked: where its own scopes start, and what
+    /// it has captured so far.
+    struct ClosureContext {
+        std::size_t scope_base = 0;
+        ast::ClosureExpr* closure = nullptr;
+        /// Names already captured, so each is recorded once.
+        std::vector<std::string> captured;
+    };
+    /// Nested, so a closure inside a closure captures through both.
+    std::vector<ClosureContext> closures_;
+    /// Numbers the closures in this program, for codegen's lifted names.
+    std::size_t next_closure_id_ = 1;
 
     /// The bare name currently on the left of an `=`. Writing to a
     /// variable is not a use of what it held, so assigning into a moved
@@ -739,6 +765,38 @@ private:
     // automatically, with no runtime bookkeeping.
     // -----------------------------------------------------------------
 
+    /// Records a capture when a name comes from outside the closure
+    /// currently being checked.
+    ///
+    /// Captures are by value: a copyable type is copied, an owned one is
+    /// moved into the closure, which then owns it. That is the only rule
+    /// consistent with the memory model - capturing a reference would
+    /// hand out a pointer with no way to check it outlives the closure.
+    void note_capture(const std::string& name, Span span, const Binding& binding) {
+        if (closures_.empty()) {
+            return;
+        }
+        const std::optional<std::size_t> depth = scopes_.depth_of(name);
+        if (!depth.has_value()) {
+            return;
+        }
+
+        // Walk outwards: a name from outside an enclosing closure is
+        // captured by that one too, so a nested closure sees it.
+        for (ClosureContext& context : closures_) {
+            if (*depth >= context.scope_base) {
+                continue;  // local to this closure
+            }
+            if (std::find(context.captured.begin(), context.captured.end(), name) !=
+                context.captured.end()) {
+                continue;
+            }
+            context.captured.push_back(name);
+            context.closure->captures.push_back(ast::Capture{name, span});
+        }
+        (void)binding;
+    }
+
     /// Records that `expr` gives up ownership of whatever it names.
     ///
     /// Only a bare local can be moved *from*: moving out of a field or
@@ -1121,6 +1179,15 @@ private:
 
             case ast::TypeKind::Array:
                 return types().array_of(resolve_type(*type.element), type.length);
+
+            case ast::TypeKind::Function: {
+                std::vector<TypePtr> params;
+                for (const ast::TypeRefPtr& param : type.params) {
+                    params.push_back(resolve_type(*param));
+                }
+                return types().function_of(
+                    params, type.result ? resolve_type(*type.result) : types().void_type());
+            }
         }
         return types().error_type();
     }
@@ -1714,6 +1781,8 @@ private:
                 return check_field_access(static_cast<const ast::FieldAccessExpr&>(expr));
             case ast::ExprKind::Index:
                 return check_index(static_cast<const ast::IndexExpr&>(expr));
+            case ast::ExprKind::Closure:
+                return check_closure(static_cast<const ast::ClosureExpr&>(expr));
             case ast::ExprKind::Cast:
                 return check_cast(static_cast<const ast::CastExpr&>(expr));
             case ast::ExprKind::StructLit:
@@ -1732,6 +1801,7 @@ private:
                 if (&expr != assignment_target_ && !check_not_moved(expr, *binding)) {
                     return record(expr, types().error_type());
                 }
+                note_capture(expr.name, expr.span, *binding);
                 return binding->type;
             }
         }
@@ -1891,6 +1961,14 @@ private:
     }
 
     TypePtr check_call(const ast::CallExpr& expr, TypePtr hint = nullptr) {
+        // A local holding a function value shadows everything else: this
+        // is what makes `f(1)` work when `f` is a closure.
+        if (expr.module.empty()) {
+            if (const Binding* binding = scopes_.lookup(expr.callee)) {
+                return check_indirect_call(expr, *binding);
+            }
+        }
+
         // Intrinsics belong to no module and are never qualified.
         if (expr.module.empty() && is_intrinsic(expr.callee)) {
             return check_intrinsic(expr, hint);
@@ -1955,6 +2033,60 @@ private:
         result_.call_targets[{current_instance_, &expr}] = &info;
         check_arguments(expr.span, expr.args, info, 0);
         return record(expr, info.return_type);
+    }
+
+    /// `f(args)` where `f` is a variable holding a function value.
+    ///
+    /// Calling reads the closure rather than consuming it, so `f` is
+    /// still usable afterwards - only assigning or passing it moves it.
+    TypePtr check_indirect_call(const ast::CallExpr& expr, const Binding& binding) {
+        for (const ast::ExprPtr& arg : expr.args) {
+            check_expr(*arg);
+        }
+
+        const TypePtr callee = strip_reference(binding.type);
+        if (is_error(callee)) {
+            return record(expr, types().error_type());
+        }
+        if (callee->kind != TypeKind::Function) {
+            report("`" + expr.callee + "` is not callable", expr.callee_span,
+                   "it holds a `" + to_string(callee) + "`, which is not a function");
+            return record(expr, types().error_type());
+        }
+
+        if (binding.moved) {
+            Diagnostic& diagnostic =
+                report("use of moved value `" + expr.callee + "`", expr.callee_span,
+                       "`" + expr.callee + "` was moved and no longer holds a value");
+            diagnostic.with_note("moved at " + location_of(binding.moved_at));
+            return record(expr, types().error_type());
+        }
+
+        // Capturing the closure name here keeps it alive for codegen and
+        // records the capture if this call is inside another closure.
+        note_capture(expr.callee, expr.callee_span, binding);
+
+        if (expr.args.size() != callee->args.size()) {
+            report("this function takes " + std::to_string(callee->args.size()) +
+                       " argument" + (callee->args.size() == 1 ? "" : "s") + " but " +
+                       std::to_string(expr.args.size()) + " " +
+                       (expr.args.size() == 1 ? "was" : "were") + " supplied",
+                   expr.span,
+                   "expected " + std::to_string(callee->args.size()) + ", found " +
+                       std::to_string(expr.args.size()));
+            return record(expr, callee->result);
+        }
+
+        for (std::size_t i = 0; i < expr.args.size(); ++i) {
+            const TypePtr argument = recorded_type(*expr.args[i]);
+            if (!assignable(callee->args[i], argument)) {
+                report_mismatch(expr.args[i]->span, callee->args[i], argument);
+            }
+            if (callee->args[i] != nullptr && callee->args[i]->kind != TypeKind::Reference) {
+                move_out_of(*expr.args[i]);
+            }
+        }
+        return record(expr, callee->result);
     }
 
     /// A call to a generic function: infer the type arguments from the
@@ -2399,6 +2531,79 @@ private:
                    expr.span, "no conversion exists between these types");
         diagnostic.with_note("`as` converts between `int` and `float` only");
         return record(expr, target);
+    }
+
+    /// `|a: int| -> int { ... }`
+    ///
+    /// The body is checked in its own scope with the parameters bound.
+    /// Anything it mentions from further out becomes a capture, which is
+    /// what turns a plain function into a closure.
+    TypePtr check_closure(const ast::ClosureExpr& expr) {
+        // The node is mutated to record what was captured, which is only
+        // knowable once the body has been resolved.
+        auto& closure = const_cast<ast::ClosureExpr&>(expr);
+        closure.id = next_closure_id_++;
+
+        std::vector<TypePtr> params;
+        for (const ast::Param& param : closure.params) {
+            params.push_back(param.type ? resolve_type(*param.type) : types().error_type());
+        }
+        const TypePtr result =
+            closure.return_type ? resolve_type(*closure.return_type) : types().void_type();
+
+        scopes_.push();
+        closures_.push_back(ClosureContext{scopes_.size() - 1, &closure, {}});
+
+        for (std::size_t i = 0; i < closure.params.size(); ++i) {
+            const ast::Param& param = closure.params[i];
+            const Binding* existing = scopes_.declare(
+                param.name, Binding{params[i], false, true, param.span, false, {}});
+            if (existing != nullptr) {
+                report("duplicate definition of parameter `" + param.name + "`",
+                       param.name_span, "`" + param.name + "` is already a parameter here");
+            }
+        }
+
+        // `return` inside the body answers to the closure, not to the
+        // function containing it.
+        const FunctionInfo* enclosing = current_function_;
+        FunctionInfo signature;
+        signature.name = "closure";
+        signature.return_type = result;
+        current_function_ = &signature;
+
+        check_block(closure.body);
+
+        if (result != nullptr && result->kind != TypeKind::Void && !is_error(result) &&
+            !always_returns(closure.body)) {
+            report("missing return", expr.span,
+                   "this closure must return `" + to_string(result) + "` on every path");
+        }
+
+        current_function_ = enclosing;
+        closures_.pop_back();
+        scopes_.pop();
+
+        // A closure frees its environment when it is dropped, but has
+        // no per-closure code to drop what is *inside* it, so a capture
+        // that owns memory would be leaked. Refused rather than lost.
+        std::vector<TypePtr> capture_types;
+        for (const ast::Capture& capture : closure.captures) {
+            const Binding* binding = scopes_.lookup(capture.name);
+            const TypePtr captured = binding != nullptr ? binding->type : types().error_type();
+            capture_types.push_back(captured);
+
+            if (is_owned(captured)) {
+                report("cannot capture `" + capture.name + "` in a closure", capture.span,
+                       "`" + to_string(captured) + "` owns heap memory")
+                    .with_note("a closure frees its captures as one block and cannot drop "
+                               "them individually; pass it as an argument instead");
+            }
+        }
+
+        const TypePtr type = types().function_of(params, result);
+        result_.closure_captures[{current_instance_, &expr}] = std::move(capture_types);
+        return record(expr, type);
     }
 
     TypePtr check_struct_literal(const ast::StructLitExpr& expr) {

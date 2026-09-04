@@ -27,6 +27,17 @@ std::string type_to_string(const TypeRef& type) {
         case TypeKind::Array:
             return "[" + (type.element ? type_to_string(*type.element) : std::string{"?"}) +
                    "; " + std::to_string(type.length) + "]";
+        case TypeKind::Function: {
+            std::string out = "fn(";
+            for (std::size_t i = 0; i < type.params.size(); ++i) {
+                out += (i > 0 ? ", " : "") + type_to_string(*type.params[i]);
+            }
+            out += ")";
+            if (type.result) {
+                out += " -> " + type_to_string(*type.result);
+            }
+            return out;
+        }
     }
     return "?";
 }

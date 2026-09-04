@@ -43,6 +43,13 @@ enum class TypeKind {
     /// `Vec<T>`: a growable array. Owns a heap buffer, so it moves on
     /// assignment and is dropped when its owner goes out of scope.
     Vec,
+    /// `fn(A, B) -> R`: a callable value.
+    ///
+    /// Owned, because a closure that captured anything holds a heap
+    /// environment it must free. One that captured nothing has a null
+    /// environment and drops for free, but shares the type so that
+    /// `fn(int) -> int` means one thing wherever it appears.
+    Function,
     /// `String`: a growable, owned string buffer. Distinct from
     /// `string`, which is a borrowed fixed-length view - the same split
     /// Rust makes between `String` and `&str`.
@@ -63,8 +70,11 @@ struct Type {
     const Type* element = nullptr;
     /// Element count for Array.
     std::int64_t length = 0;
-    /// Type arguments, for a generic struct. Empty otherwise.
+    /// Type arguments for a generic struct; for a Function, its
+    /// parameter types.
     std::vector<const Type*> args;
+    /// Return type, for a Function.
+    const Type* result = nullptr;
     /// Set for a Struct whose fields transitively own heap memory, so
     /// that the struct moves and drops like the values inside it.
     /// Filled in when the struct is laid out, since a Type alone does
@@ -96,6 +106,7 @@ public:
     TypePtr reference_to(TypePtr element);
     TypePtr array_of(TypePtr element, std::int64_t length);
     TypePtr vec_of(TypePtr element);
+    TypePtr function_of(const std::vector<TypePtr>& params, TypePtr result);
     /// Record that a struct type owns heap memory through its fields.
     void mark_owning(TypePtr type);
     TypePtr string_buf_type() const noexcept { return string_buf_; }
@@ -108,6 +119,7 @@ private:
     std::map<std::string, TypePtr> generics_;
     std::map<TypePtr, TypePtr> references_;
     std::map<TypePtr, TypePtr> vecs_;
+    std::map<std::pair<std::vector<TypePtr>, TypePtr>, TypePtr> functions_;
     std::map<std::pair<TypePtr, std::int64_t>, TypePtr> arrays_;
 
     TypePtr int_ = nullptr;

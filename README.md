@@ -177,6 +177,7 @@ A tour by way of the pieces. The full grammar is in
 | `[T; N]` | Fixed-size array of `N` elements |
 | `Vec<T>` | Growable array. Owns a heap buffer |
 | `String` | Growable string buffer. Owns a heap buffer |
+| `fn(A) -> R` | A callable value: a closure or a function |
 | `&T` | Non-owning reference |
 | `struct` | Nominal record type, no inheritance |
 
@@ -448,6 +449,46 @@ Types with no heap behind them — `int`, `bool`, `string`, `[T; N]`,
 `&T`, and structs built only from those — are unaffected and still copy
 freely.
 
+### Closures
+
+Functions are values. A closure is written `|params| -> Result { ... }`
+and has the type `fn(Params) -> Result`:
+
+```ember
+let double = |x: int| -> int { return x * 2; };
+println(double(21));                 // 42
+
+let offset = 100;
+let shift = |x: int| -> int { return x + offset; };
+println(shift(5));                   // 105
+```
+
+Parameter and return types are written out, as they are everywhere else
+in Ember. `||` with nothing between the bars is an empty parameter list.
+
+**Captures are by value.** A closure copies what it mentions from the
+surrounding scope into its own storage, which is why one can be returned
+and still work:
+
+```ember
+pub fn scaler(factor: int) -> fn(int) -> int {
+    return |x: int| -> int { return x * factor; };
+}
+```
+
+A closure is an owned value, like a `Vec`, because a capturing one holds
+a heap block. Calling it is a *use* rather than a move, so it can be
+called as often as you like; passing it by value moves it, and
+`&fn(...)` borrows it — which is what a higher-order function usually
+wants:
+
+```ember
+pub fn map_in_place(values: &Vec<int>, f: &fn(int) -> int) { ... }
+```
+
+A closure that captures nothing has a null environment and allocates
+nothing at all.
+
 ### Standard library
 
 The whole of it, recognized directly by the compiler:
@@ -475,6 +516,7 @@ also a regression test in the suite.
 | [`generics.em`](examples/generics.em) | Generic functions and structs, monomorphized |
 | [`modules/`](examples/modules) | A program in three files, with `import` and `pub` |
 | [`ownership.em`](examples/ownership.em) | `Vec`, `String`, moves and automatic drops |
+| [`closures.em`](examples/closures.em) | Function values, captures, higher-order functions |
 
 ```console
 $ ember run examples/bubble_sort.em
@@ -559,7 +601,12 @@ v1 is deliberately small. These are the sharp edges worth knowing about.
   free functions and generic structs work; a method with its own type
   parameters, or an `impl` block over a generic type, is reported as
   unsupported rather than mis-compiled.
-- **No closures or function values.**
+- **A closure cannot capture an owned value.** It frees its captures as
+  one block and has no per-closure code to drop them individually, so
+  capturing a `Vec` or a `String` is refused rather than leaked. Pass it
+  as an argument instead.
+- **Closure parameter types are never inferred.** `|x| x + 1` is not
+  valid; write `|x: int| -> int { return x + 1; }`.
 - **No separate compilation.** A program's modules are compiled
   together into one object file, so a call across an `import` is direct
   and the whole program optimizes as a unit — but changing one module

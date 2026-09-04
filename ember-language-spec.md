@@ -112,6 +112,8 @@ field          = visibility identifier ":" type "," ;
 impl_block     = "impl" identifier "{" { function_decl } "}" ;
 
 type           = "int" | "float" | "bool" | "string"
+               | "fn" "(" [ type { "," type } ] ")" [ "->" type ]
+                                           (* function value, v2 *)
                | "Vec" "<" type ">"        (* growable array, v2 *)
                | "String"                  (* growable string, v2 *)
                | [ identifier "::" ] identifier [ type_args ]
@@ -136,10 +138,11 @@ expr_stmt      = expression ";" ;
 
 expression     = literal | identifier | unary_expr | binary_expr
                | call_expr | method_call | field_access | index_expr
-               | struct_literal | array_literal | cast_expr
+               | struct_literal | array_literal | cast_expr | closure
                | "(" expression ")" ;
 
 cast_expr      = expression "as" type ;      (* explicit conversion, see 4 *)
+closure        = "|" [ param { "," param } ] "|" [ "->" type ] block ;   (* v2 *)
 array_literal  = "[" [ expression { "," expression } ] "]" ;
 
 call_expr      = [ identifier "::" ] identifier "(" [ arg_list ] ")" ;

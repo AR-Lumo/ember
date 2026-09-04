@@ -5,13 +5,13 @@
 namespace ember::typeck {
 
 TypeContext::TypeContext() {
-    int_ = intern(Type{TypeKind::Int, {}, nullptr, 0, {}, false});
-    float_ = intern(Type{TypeKind::Float, {}, nullptr, 0, {}, false});
-    bool_ = intern(Type{TypeKind::Bool, {}, nullptr, 0, {}, false});
-    string_ = intern(Type{TypeKind::String, {}, nullptr, 0, {}, false});
-    string_buf_ = intern(Type{TypeKind::StringBuf, {}, nullptr, 0, {}, false});
-    void_ = intern(Type{TypeKind::Void, {}, nullptr, 0, {}, false});
-    error_ = intern(Type{TypeKind::Error, {}, nullptr, 0, {}, false});
+    int_ = intern(Type{TypeKind::Int, {}, nullptr, 0, {}, nullptr, false});
+    float_ = intern(Type{TypeKind::Float, {}, nullptr, 0, {}, nullptr, false});
+    bool_ = intern(Type{TypeKind::Bool, {}, nullptr, 0, {}, nullptr, false});
+    string_ = intern(Type{TypeKind::String, {}, nullptr, 0, {}, nullptr, false});
+    string_buf_ = intern(Type{TypeKind::StringBuf, {}, nullptr, 0, {}, nullptr, false});
+    void_ = intern(Type{TypeKind::Void, {}, nullptr, 0, {}, nullptr, false});
+    error_ = intern(Type{TypeKind::Error, {}, nullptr, 0, {}, nullptr, false});
 }
 
 TypePtr TypeContext::intern(Type type) {
@@ -25,7 +25,7 @@ TypePtr TypeContext::struct_type(const std::string& name, const std::vector<Type
     if (found != structs_.end()) {
         return found->second;
     }
-    const TypePtr type = intern(Type{TypeKind::Struct, name, nullptr, 0, args, false});
+    const TypePtr type = intern(Type{TypeKind::Struct, name, nullptr, 0, args, nullptr, false});
     structs_.emplace(key, type);
     return type;
 }
@@ -35,7 +35,7 @@ TypePtr TypeContext::generic_type(const std::string& name) {
     if (found != generics_.end()) {
         return found->second;
     }
-    const TypePtr type = intern(Type{TypeKind::Generic, name, nullptr, 0, {}, false});
+    const TypePtr type = intern(Type{TypeKind::Generic, name, nullptr, 0, {}, nullptr, false});
     generics_.emplace(name, type);
     return type;
 }
@@ -45,7 +45,7 @@ TypePtr TypeContext::reference_to(TypePtr element) {
     if (found != references_.end()) {
         return found->second;
     }
-    const TypePtr type = intern(Type{TypeKind::Reference, {}, element, 0, {}, false});
+    const TypePtr type = intern(Type{TypeKind::Reference, {}, element, 0, {}, nullptr, false});
     references_.emplace(element, type);
     return type;
 }
@@ -56,7 +56,7 @@ TypePtr TypeContext::array_of(TypePtr element, std::int64_t length) {
     if (found != arrays_.end()) {
         return found->second;
     }
-    const TypePtr type = intern(Type{TypeKind::Array, {}, element, length, {}, false});
+    const TypePtr type = intern(Type{TypeKind::Array, {}, element, length, {}, nullptr, false});
     arrays_.emplace(key, type);
     return type;
 }
@@ -66,7 +66,7 @@ TypePtr TypeContext::vec_of(TypePtr element) {
     if (found != vecs_.end()) {
         return found->second;
     }
-    const TypePtr type = intern(Type{TypeKind::Vec, {}, element, 0, {}, false});
+    const TypePtr type = intern(Type{TypeKind::Vec, {}, element, 0, {}, nullptr, false});
     vecs_.emplace(element, type);
     return type;
 }
@@ -79,6 +79,21 @@ void TypeContext::mark_owning(TypePtr type) {
     }
 }
 
+TypePtr TypeContext::function_of(const std::vector<TypePtr>& params, TypePtr result) {
+    const auto key = std::make_pair(params, result);
+    const auto found = functions_.find(key);
+    if (found != functions_.end()) {
+        return found->second;
+    }
+    Type type;
+    type.kind = TypeKind::Function;
+    type.args = params;
+    type.result = result;
+    const TypePtr interned = intern(std::move(type));
+    functions_.emplace(key, interned);
+    return interned;
+}
+
 bool is_owned(TypePtr type) noexcept {
     if (type == nullptr) {
         return false;
@@ -86,6 +101,7 @@ bool is_owned(TypePtr type) noexcept {
     switch (type->kind) {
         case TypeKind::Vec:
         case TypeKind::StringBuf:
+        case TypeKind::Function:
             return true;
         case TypeKind::Array:
             // An array of owned elements owns them all.
@@ -111,12 +127,13 @@ bool is_generic(TypePtr type) noexcept {
         case TypeKind::Array:
             return is_generic(type->element);
         case TypeKind::Struct:
+        case TypeKind::Function:
             for (const Type* arg : type->args) {
                 if (is_generic(arg)) {
                     return true;
                 }
             }
-            return false;
+            return type->kind == TypeKind::Function && is_generic(type->result);
         default:
             return false;
     }
@@ -155,6 +172,17 @@ std::string to_string(TypePtr type) {
             return "Vec<" + to_string(type->element) + ">";
         case TypeKind::StringBuf:
             return "String";
+        case TypeKind::Function: {
+            std::string out = "fn(";
+            for (std::size_t i = 0; i < type->args.size(); ++i) {
+                out += (i > 0 ? ", " : "") + to_string(type->args[i]);
+            }
+            out += ")";
+            if (type->result != nullptr && type->result->kind != TypeKind::Void) {
+                out += " -> " + to_string(type->result);
+            }
+            return out;
+        }
         case TypeKind::Void:
             return "()";
         case TypeKind::Error:

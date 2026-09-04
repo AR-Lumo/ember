@@ -41,6 +41,8 @@ enum class TypeKind {
     Reference,
     /// `[T; N]`
     Array,
+    /// `fn(A, B) -> R`
+    Function,
 };
 
 struct TypeRef;
@@ -61,6 +63,10 @@ struct TypeRef {
     /// The module a Named type was qualified with: the `geometry` of
     /// `geometry::Point`. Empty when unqualified.
     std::string module;
+    /// Parameter types, for a Function type.
+    std::vector<TypeRefPtr> params;
+    /// Return type, for a Function type. Null when it returns nothing.
+    TypeRefPtr result;
 };
 
 /// One declared type parameter: the `T` of `fn max<T>(...)`.
@@ -125,6 +131,7 @@ enum class ExprKind {
     Index,
     StructLit,
     Cast,
+    Closure,
 };
 
 struct Expr {
@@ -454,6 +461,37 @@ struct Param {
 
     bool is_self() const noexcept { return self_kind != SelfKind::None; }
 };
+
+/// One variable a closure captured from the scope around it.
+///
+/// Filled in by the type checker rather than the parser: what a closure
+/// captures is whatever its body turned out to mention, which is not
+/// knowable until names have been resolved.
+struct Capture {
+    std::string name;
+    Span span;
+};
+
+/// `|a: int, b: int| -> int { return a + b; }`
+///
+/// Parameter and return types are written out rather than inferred.
+/// Ember annotates every other binding position, and inferring them
+/// would need the expected type pushed in from the call site.
+struct ClosureExpr : Expr {
+    static constexpr ExprKind kKind = ExprKind::Closure;
+    std::vector<Param> params;
+    /// Null when the closure returns nothing.
+    TypeRefPtr return_type;
+    Block body;
+    /// Variables taken from the enclosing scope, in a stable order.
+    std::vector<Capture> captures;
+    /// Index assigned by the checker, so codegen can name the lifted
+    /// function and its environment struct.
+    std::size_t id = 0;
+
+    explicit ClosureExpr(Span span) : Expr(kKind, span) {}
+};
+
 
 struct FunctionDecl : Item {
     static constexpr ItemKind kKind = ItemKind::Function;

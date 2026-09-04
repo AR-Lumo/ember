@@ -158,6 +158,30 @@ public:
                 return;
             }
 
+            case ExprKind::Closure: {
+                const auto& closure = static_cast<const ClosureExpr&>(node);
+                open("closure", node.span);
+                if (closure.params.empty()) {
+                    empty_group("params");
+                } else {
+                    open("params", std::nullopt);
+                    for (const Param& param : closure.params) {
+                        open("param", param.span, param.name);
+                        print_type(*param.type);
+                        close();
+                    }
+                    close();
+                }
+                if (closure.return_type) {
+                    open("returns", std::nullopt);
+                    print_type(*closure.return_type);
+                    close();
+                }
+                print_block(closure.body);
+                close();
+                return;
+            }
+
             case ExprKind::Cast: {
                 const auto& cast = static_cast<const CastExpr&>(node);
                 open("cast", node.span);
@@ -261,6 +285,18 @@ private:
             case TypeKind::Array:
                 open("array", type.span, std::to_string(type.length));
                 print_type(*type.element);
+                close();
+                return;
+            case TypeKind::Function:
+                open("fn-type", type.span);
+                for (const TypeRefPtr& param : type.params) {
+                    print_type(*param);
+                }
+                if (type.result) {
+                    open("returns", std::nullopt);
+                    print_type(*type.result);
+                    close();
+                }
                 close();
                 return;
         }
@@ -420,6 +456,12 @@ private:
                     print_function(*method);
                 }
                 close();
+                return;
+            }
+
+            case ItemKind::Import: {
+                const auto& declaration = static_cast<const ImportDecl&>(node);
+                leaf("import", node.span, declaration.module);
                 return;
             }
 

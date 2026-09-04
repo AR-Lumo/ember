@@ -393,11 +393,13 @@ EMBER_TEST(phase2_syntax_trees_match_their_snapshots) {
 EMBER_TEST(phase2_golden_cases_exercise_every_node_kind) {
     // The mirror of the Phase 1 token-coverage test: a grammar
     // production with no golden case producing it is a blind spot.
-    std::vector<bool> items(static_cast<std::size_t>(ember::ast::ItemKind::Const) + 1, false);
+    // Sized by the last enumerator of each enum. Adding a kind after it
+    // without updating these indexes out of range, which is a loud
+    // failure on purpose: a silently-too-small array would make this
+    // guard stop guarding. Both of these have caught exactly that.
+    std::vector<bool> items(static_cast<std::size_t>(ember::ast::ItemKind::Import) + 1, false);
     std::vector<bool> stmts(static_cast<std::size_t>(ember::ast::StmtKind::Block) + 1, false);
-    // Sized by the last enumerator: adding a kind after it and forgetting
-    // this line indexes out of range, so keep them together.
-    std::vector<bool> exprs(static_cast<std::size_t>(ember::ast::ExprKind::Cast) + 1, false);
+    std::vector<bool> exprs(static_cast<std::size_t>(ember::ast::ExprKind::Closure) + 1, false);
 
     // Walk every tree, recording which kinds were produced.
     struct Walker {
@@ -435,6 +437,9 @@ EMBER_TEST(phase2_golden_cases_exercise_every_node_kind) {
                     break;
                 case ExprKind::Cast:
                     expr(*static_cast<const CastExpr&>(node).operand);
+                    break;
+                case ExprKind::Closure:
+                    block(static_cast<const ClosureExpr&>(node).body);
                     break;
                 case ExprKind::Index: {
                     const auto& index = static_cast<const IndexExpr&>(node);
@@ -509,8 +514,12 @@ EMBER_TEST(phase2_golden_cases_exercise_every_node_kind) {
 
     Walker walker{stmts, exprs};
 
-    for (const GoldenCase& test_case : cases()) {
-        const ember::ast::SourceFile source = source_of(test_case);
+    // Every source under tests/golden/, module cases included: `import`
+    // only ever appears inside one of those.
+    for (const fs::path& path : all_sources()) {
+        const std::optional<std::string> contents = read_file(path);
+        EMBER_CHECK_MSG(contents.has_value(), "cannot read " + path.string());
+        const ember::ast::SourceFile source{path.filename().string(), normalize(*contents)};
         const ember::parser::ParseResult result = ember::parser::parse_source(source);
 
         for (const ember::ast::ItemPtr& item : result.program->items) {
