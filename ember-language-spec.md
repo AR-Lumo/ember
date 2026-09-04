@@ -238,7 +238,14 @@ Everything else (file I/O, collections, string manipulation) is v2+.
 ember build file.em -o output      # compile to native executable
 ember run file.em                  # compile + run in one step
 ember check file.em                # type-check only, no codegen
+
+  -v, --verbose                    # report per-module compile/cache decisions
+      --fresh                      # ignore cached object files       (v2)
 ```
+
+Builds are incremental from v2 on: each module becomes its own object
+file, cached beside the entry source and reused when neither it nor
+anything it imports has changed.
 
 ---
 
@@ -331,7 +338,13 @@ moving to the next. Don't let phases blend together.
 - A real memory model (ownership or reference counting) instead of
   raw unchecked references.
 - Module system (`import`) for multi-file programs.
-- Package manager.
+- Separate compilation: one object file per module, so editing one
+  module does not re-lower the rest.
+- Package manager. Distributing *source*, the way Cargo does, needs
+  nothing beyond separate compilation. Distributing compiled libraries
+  additionally needs an interface file recording a module's types and
+  signatures, so a dependent can be built without the dependency's
+  source.
 
 ---
 

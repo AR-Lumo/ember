@@ -351,8 +351,10 @@ EMBER_TEST(generics_emit_native_types_with_no_boxing) {
     const std::string ir = compile_ir(std::string{kMax} +
                                       "pub fn main() { println(max(1, 2)); }\n");
     // The int instantiation works on i64 directly - the point of
-    // monomorphizing rather than boxing.
-    EMBER_CHECK_MSG(ir.find("define i64 @max__int(i64") != std::string::npos,
+    // monomorphizing rather than boxing. The linkage is `linkonce_odr`
+    // because separate compilation emits each copy into every object
+    // that demands it; see separate_tests.cpp.
+    EMBER_CHECK_MSG(ir.find("define linkonce_odr i64 @max__int(i64") != std::string::npos,
                     "expected a native i64 signature in:\n" + ir);
 }
 

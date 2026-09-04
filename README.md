@@ -152,12 +152,53 @@ stopping at the first.
 ember build <file.em> [-o <output>]   compile to a native executable
 ember run <file.em>                   compile and run in one step
 ember check <file.em>                 type-check only, no codegen
+
+  -v, --verbose    say which modules were compiled and which were cached
+      --fresh      recompile every module, ignoring cached object files
 ```
 
 Exit codes are `0` on success, `1` when the program failed to compile,
 and `2` when the command line itself was wrong. A compiled program that
 hits a runtime error — an out-of-bounds index, a division by zero —
 exits `101`.
+
+### Incremental builds
+
+Each module compiles to its own object file, kept in a `.ember`
+directory beside the entry source and reused when nothing it depends on
+has changed:
+
+```console
+$ ember build main.em --verbose
+compiling main.em
+compiling shapes.em
+compiling counter.em
+ linking  main.exe
+
+$ ember build main.em --verbose        # nothing edited
+  cached  main.em
+  cached  shapes.em
+  cached  counter.em
+ linking  main.exe
+```
+
+An object is valid as long as its module's source *and* the source of
+everything that module imports are unchanged — a struct that changes
+shape changes the code generated in every module that uses it. So
+editing `shapes.em` rebuilds `shapes` and `main`, and leaves `counter`
+alone:
+
+```console
+$ ember build main.em --verbose
+compiling main.em
+compiling shapes.em
+  cached  counter.em
+ linking  main.exe
+```
+
+The cache key is the fingerprint in the object's file name, so a hit is
+just a file existing — there is no manifest that can disagree with what
+is on disk. `--fresh` ignores it. Deleting `.ember` is always safe.
 
 ---
 
@@ -535,13 +576,31 @@ source text
   -> ember::lexer     tokens with line/column spans
   -> ember::parser    AST (recursive descent + Pratt for expressions)
   -> ember::typeck    resolved types, symbol tables, diagnostics
-  -> ember::codegen   LLVM IR -> native object file
+  -> ember::codegen   LLVM IR -> one native object file per module
   -> system linker    + ember::std runtime -> executable
 ```
 
 `ember::ast` holds what the stages share: AST nodes, source spans, and
 the diagnostic renderer. `ember::std` is the runtime linked into every
 compiled program — it backs `println` and reports runtime errors.
+
+### Separate compilation
+
+Codegen lowers one Ember module at a time. Functions from other modules
+become `declare` lines for the linker to resolve, so a module can be
+rebuilt without re-lowering the rest of the program.
+
+Monomorphized generics are the awkward case, because a copy of
+`max<int>` belongs to no single module: the template is written in one
+and demanded from others. Ember does what C++ does — emits each copy
+into every object that needs it under `linkonce_odr` linkage and lets
+the linker keep one. The module that *wrote* the template emits nothing
+for it; a generic function is not code until someone picks its types.
+
+Demand is transitive. If `max3<int>` calls `max<int>`, every object
+carrying the first also carries the second, so the checker propagates
+demand to a fixpoint before codegen runs — a fixpoint rather than a walk
+because generic functions may call each other in a cycle.
 
 ### Tests
 
@@ -594,9 +653,6 @@ v1 is deliberately small. These are the sharp edges worth knowing about.
   take a sub-range of either a `Vec` or a `String`.
 - **No capacity control.** No `reserve`, no `shrink`, no way to ask what
   a container has allocated.
-- **`pub` is parsed but not enforced.** Visibility starts mattering when
-  modules land, so it is checked and carried through the compiler now to
-  avoid a syntax change later.
 - **Generic methods and `impl<T>` blocks are not implemented.** Generic
   free functions and generic structs work; a method with its own type
   parameters, or an `impl` block over a generic type, is reported as
@@ -607,10 +663,20 @@ v1 is deliberately small. These are the sharp edges worth knowing about.
   as an argument instead.
 - **Closure parameter types are never inferred.** `|x| x + 1` is not
   valid; write `|x: int| -> int { return x + 1; }`.
-- **No separate compilation.** A program's modules are compiled
-  together into one object file, so a call across an `import` is direct
-  and the whole program optimizes as a unit — but changing one module
-  rebuilds everything, and there is no way to ship a compiled library.
+- **The front end is still whole-program.** Codegen is incremental, but
+  every build re-reads, re-parses and re-type-checks every module: on a
+  13-module program a no-change rebuild is 0.29s against 0.93s from
+  scratch, and of that 0.29s the front end is 0.08s and the link is most
+  of the rest. Cheap enough to leave alone at this size, and the reason
+  the numbers stop improving is the linker, not the compiler.
+- **There is no compiled-library format.** Building a module still needs
+  the *source* of everything it imports, because there is no interface
+  file recording another module's types and signatures. That is what a
+  package manager distributing binaries would need; one distributing
+  source, the way Cargo does, would not.
+- **Whole-program optimization is gone.** A cross-module call used to be
+  a direct call in one LLVM module and could be inlined; now it crosses
+  an object-file boundary. There is no `-O` flag or LTO to win it back.
 - **Module paths are one level deep.** `geometry::Point` works;
   `shapes::geometry::Point` does not. There are no nested modules and no
   search path — an imported module is a file beside the importer.

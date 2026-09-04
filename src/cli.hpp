@@ -36,6 +36,18 @@ enum class CommandKind {
     Version,
 };
 
+/// How to drive the back end. Both flags exist because compilation is
+/// now incremental: without them there is no way to see what was reused
+/// and no way to distrust it.
+struct BuildOptions {
+    /// Say which modules were compiled and which came from the cache.
+    bool verbose = false;
+    /// Ignore cached objects and lower every module again.
+    bool fresh = false;
+
+    friend bool operator==(const BuildOptions&, const BuildOptions&) = default;
+};
+
 /// A successfully parsed command line.
 struct Command {
     CommandKind kind = CommandKind::Help;
@@ -43,6 +55,8 @@ struct Command {
     std::filesystem::path input;
     /// `-o` argument. Only ever set for Build.
     std::optional<std::filesystem::path> output;
+    /// Ignored by Check, Help and Version.
+    BuildOptions build;
 
     friend bool operator==(const Command&, const Command&) = default;
 };
@@ -64,6 +78,15 @@ ParseResult parse_args(std::span<const std::string_view> args);
 /// path with the platform executable suffix in place of `.em`.
 std::filesystem::path default_output_path(const std::filesystem::path& input);
 
+/// Tell the driver where its own binary is, so a rebuilt compiler does
+/// not reuse object files the previous one produced.
+///
+/// The version string alone cannot carry this: two builds of the
+/// compiler from different sources share a version until someone
+/// remembers to bump it. `argv[0]` is the portable way to ask, and a
+/// path that resolves to nothing simply contributes nothing.
+void set_compiler_path(const std::filesystem::path& path);
+
 /// e.g. "ember 0.1.0".
 std::string version_string();
 
@@ -76,11 +99,16 @@ std::string version_string();
 int check_file(const std::filesystem::path& input);
 
 /// Compile `input` to a native executable at `output` (§6, `ember build`).
-int build_file(const std::filesystem::path& input, const std::filesystem::path& output);
+///
+/// Each module is lowered to its own object file, cached under `.ember`
+/// beside the entry source and reused when nothing it depends on has
+/// changed. `options.fresh` skips the cache.
+int build_file(const std::filesystem::path& input, const std::filesystem::path& output,
+               const BuildOptions& options = {});
 
 /// Compile `input` to a temporary executable, run it, and return its
 /// exit code (§6, `ember run`).
-int run_file(const std::filesystem::path& input);
+int run_file(const std::filesystem::path& input, const BuildOptions& options = {});
 
 /// The linker command the build uses, for diagnostics and the README.
 std::string linker_command();

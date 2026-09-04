@@ -93,6 +93,7 @@ public:
             const CompileOptions& options, const llvm::DataLayout* layout)
         : modules_(modules),
           checked_(checked),
+          target_(options.target_module),
           context_(std::make_unique<llvm::LLVMContext>()),
           module_(std::make_unique<llvm::Module>(options.module_name, *context_)),
           builder_(*context_) {
@@ -123,6 +124,7 @@ public:
         declare_functions();
         emit_constants();
         emit_function_bodies();
+        strip_unused_declarations();
 
         if (!diagnostics_.empty()) {
             return false;
@@ -147,6 +149,9 @@ public:
 private:
     const std::vector<ModuleInput>& modules_;
     const typeck::CheckResult& checked_;
+    /// The one module whose bodies belong in this object file, or unset
+    /// for a whole-program build.
+    std::optional<std::string> target_;
     std::unique_ptr<llvm::LLVMContext> context_;
     std::unique_ptr<llvm::Module> module_;
     llvm::IRBuilder<> builder_;
@@ -173,6 +178,12 @@ private:
 
     std::string qualify(const std::string& name) const {
         return current_module_.empty() ? name : current_module_ + "::" + name;
+    }
+
+    /// Whether definitions from `module` belong in this object file.
+    /// Always true for a whole-program build.
+    bool is_target(const std::string& module) const {
+        return !target_.has_value() || *target_ == module;
     }
 
     typeck::TypePtr type_of(const ast::Expr& expr) const {
@@ -299,17 +310,55 @@ private:
 
     void emit_function_bodies() {
         for (const ModuleInput& module : modules_) {
+            if (!is_target(module.name)) {
+                continue;  // a declaration is all this object needs
+            }
             current_module_ = module.name;
             emit_concrete_bodies(*module.program);
         }
 
         for (const typeck::Instantiation& instance : checked_.instantiations) {
+            if (!needs_instance(instance)) {
+                continue;
+            }
+            // Emitted wherever it is used rather than where it was
+            // written, so `linkonce_odr`: several objects may carry the
+            // same copy, and the linker is entitled to keep any one.
+            functions_.at(instance.info.mangled_name)
+                ->setLinkage(llvm::Function::LinkOnceODRLinkage);
             current_instance_ = instance.id;
             current_module_ = instance.info.module;
             emit_function(*instance.decl, instance.info);
         }
         current_instance_ = typeck::kRootInstance;
         current_module_.clear();
+    }
+
+    /// Removes the `declare` lines nothing ended up referring to.
+    ///
+    /// Every function in the program is declared before any body is
+    /// emitted, so a call can be lowered before its definition is
+    /// reached. In a whole-program build they all get bodies and this
+    /// finds nothing. In a per-module one most of them are another
+    /// object's business, and leaving them behind would write the whole
+    /// program's symbol table into every object file - which is the
+    /// coupling separate compilation exists to remove.
+    void strip_unused_declarations() {
+        std::vector<llvm::Function*> dead;
+        for (llvm::Function& function : *module_) {
+            if (function.isDeclaration() && function.use_empty()) {
+                dead.push_back(&function);
+            }
+        }
+        for (llvm::Function* function : dead) {
+            functions_.erase(function->getName().str());
+            function->eraseFromParent();
+        }
+    }
+
+    /// Whether this object file has to carry a copy of `instance`.
+    bool needs_instance(const typeck::Instantiation& instance) const {
+        return !target_.has_value() || instance.demanded_by.count(*target_) != 0;
     }
 
     void emit_concrete_bodies(const ast::Program& program) {

@@ -892,6 +892,35 @@ EMBER_TEST(cli_parses_run_and_check) {
     EMBER_CHECK_EQ(command_of(check).input.string(), std::string{"hello.em"});
 }
 
+EMBER_TEST(cli_parses_the_incremental_build_flags) {
+    const auto flagged = parse({"build", "--fresh", "main.em", "-v"});
+    const ember::cli::Command& build = command_of(flagged);
+    EMBER_CHECK(build.build.fresh);
+    EMBER_CHECK(build.build.verbose);
+    EMBER_CHECK_EQ(build.input.string(), std::string{"main.em"});
+
+    const auto bare = parse({"build", "main.em"});
+    const ember::cli::Command& plain = command_of(bare);
+    EMBER_CHECK(!plain.build.fresh);
+    EMBER_CHECK(!plain.build.verbose);
+}
+
+EMBER_TEST(cli_run_takes_the_build_flags_too) {
+    // `run` compiles before it runs, so the same decisions apply to it.
+    const auto result = parse({"run", "--verbose", "hello.em"});
+    const ember::cli::Command& command = command_of(result);
+    EMBER_CHECK(command.kind == ember::cli::CommandKind::Run);
+    EMBER_CHECK(command.build.verbose);
+    EMBER_CHECK_EQ(command.input.string(), std::string{"hello.em"});
+}
+
+EMBER_TEST(cli_check_rejects_the_build_flags) {
+    // `check` never reaches the back end, so there is nothing for these
+    // to mean; saying so beats accepting them and doing nothing.
+    EMBER_CHECK_EQ(usage_message(parse({"check", "--fresh", "hello.em"})),
+                   std::string{"unknown option `--fresh`"});
+}
+
 EMBER_TEST(cli_parses_help_and_version) {
     EMBER_CHECK(command_of(parse({"--help"})).kind == ember::cli::CommandKind::Help);
     EMBER_CHECK(command_of(parse({"-h"})).kind == ember::cli::CommandKind::Help);

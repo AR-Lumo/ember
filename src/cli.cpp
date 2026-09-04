@@ -7,12 +7,16 @@
 #include "ember/parser/parser.hpp"
 #include "ember/typeck/typeck.hpp"
 
+#include <cstdint>
 #include <cstdlib>
 #include <iostream>
+#include <map>
 #include <memory>
 #include <random>
+#include <set>
 #include <string>
 #include <system_error>
+#include <vector>
 
 // Baked in by CMake so the driver can find the runtime it has to link
 // into every compiled program, and the toolchain that does the linking.
@@ -43,37 +47,66 @@ std::variant<std::filesystem::path, UsageError> check_extension(std::string_view
 
 bool is_flag(std::string_view arg) { return !arg.empty() && arg.front() == '-'; }
 
-/// `run` and `check` both take exactly one positional argument.
+/// Flags that mean the same thing to `build` and `run`, because both of
+/// them compile. Returns false when the argument is not one of them.
+bool parse_build_flag(std::string_view arg, BuildOptions& options) {
+    if (arg == "-v" || arg == "--verbose") {
+        options.verbose = true;
+        return true;
+    }
+    if (arg == "--fresh") {
+        options.fresh = true;
+        return true;
+    }
+    return false;
+}
+
+/// `run` and `check` both take exactly one positional argument. `run`
+/// also takes the build flags, because it compiles before it runs;
+/// `check` never reaches the back end, so it does not.
 ParseResult parse_single_input(CommandKind kind, std::string_view subcommand,
                                std::span<const std::string_view> args) {
-    if (args.empty()) {
-        return usage_error("`" + std::string{subcommand} + "` requires an input file");
-    }
-    if (is_flag(args.front())) {
-        return usage_error("unknown option `" + std::string{args.front()} + "`");
-    }
-    if (args.size() > 1) {
-        return usage_error("unexpected extra argument `" + std::string{args[1]} + "`");
+    std::optional<std::filesystem::path> input;
+    BuildOptions options;
+
+    for (const std::string_view arg : args) {
+        if (kind == CommandKind::Run && parse_build_flag(arg, options)) {
+            continue;
+        }
+        if (is_flag(arg)) {
+            return usage_error("unknown option `" + std::string{arg} + "`");
+        }
+        if (input.has_value()) {
+            return usage_error("unexpected extra argument `" + std::string{arg} + "`");
+        }
+        auto checked = check_extension(arg);
+        if (const auto* error = std::get_if<UsageError>(&checked)) {
+            return *error;
+        }
+        input = std::get<std::filesystem::path>(checked);
     }
 
-    auto checked = check_extension(args.front());
-    if (const auto* error = std::get_if<UsageError>(&checked)) {
-        return *error;
+    if (!input.has_value()) {
+        return usage_error("`" + std::string{subcommand} + "` requires an input file");
     }
 
     Command command;
     command.kind = kind;
-    command.input = std::get<std::filesystem::path>(checked);
+    command.input = *input;
+    command.build = options;
     return command;
 }
 
 ParseResult parse_build(std::span<const std::string_view> args) {
     std::optional<std::filesystem::path> input;
     std::optional<std::filesystem::path> output;
+    BuildOptions options;
 
     for (std::size_t i = 0; i < args.size();) {
         const std::string_view arg = args[i];
-        if (arg == "-o" || arg == "--output") {
+        if (parse_build_flag(arg, options)) {
+            i += 1;
+        } else if (arg == "-o" || arg == "--output") {
             if (i + 1 >= args.size()) {
                 return usage_error("`-o` requires a path argument");
             }
@@ -105,6 +138,7 @@ ParseResult parse_build(std::span<const std::string_view> args) {
     command.kind = CommandKind::Build;
     command.input = *input;
     command.output = output;
+    command.build = options;
     return command;
 }
 
@@ -120,6 +154,8 @@ const std::string_view kUsage =
     "\n"
     "OPTIONS:\n"
     "    -o, --output <path>   output path for `build` (default: input stem)\n"
+    "    -v, --verbose         report which modules were compiled and which were cached\n"
+    "        --fresh           recompile every module, ignoring cached object files\n"
     "    -h, --help            print this message\n"
     "    -V, --version         print version information";
 
@@ -130,10 +166,10 @@ ParseResult parse_args(std::span<const std::string_view> args) {
 
     const std::string_view first = args.front();
     if (first == "-h" || first == "--help" || first == "help") {
-        return Command{CommandKind::Help, {}, std::nullopt};
+        return Command{CommandKind::Help, {}, std::nullopt, {}};
     }
     if (first == "-V" || first == "--version" || first == "version") {
-        return Command{CommandKind::Version, {}, std::nullopt};
+        return Command{CommandKind::Version, {}, std::nullopt, {}};
     }
 
     const std::span<const std::string_view> rest = args.subspan(1);
@@ -158,6 +194,18 @@ std::filesystem::path default_output_path(const std::filesystem::path& input) {
 #endif
     return output;
 }
+
+namespace {
+
+/// Where this process's own executable is, as `argv[0]` gave it.
+std::filesystem::path& compiler_path() {
+    static std::filesystem::path path;
+    return path;
+}
+
+}  // namespace
+
+void set_compiler_path(const std::filesystem::path& path) { compiler_path() = path; }
 
 std::string version_string() { return "ember " + std::string{ember::ast::version()}; }
 
@@ -250,9 +298,10 @@ private:
     std::filesystem::path path_;
 };
 
-/// Link an object file against the Ember runtime to produce `output`.
-/// Returns an exit code.
-int link_executable(const std::filesystem::path& object, const std::filesystem::path& output) {
+/// Link the program's object files against the Ember runtime to produce
+/// `output`. Returns an exit code.
+int link_executable(const std::vector<std::filesystem::path>& objects,
+                    const std::filesystem::path& output) {
     const std::filesystem::path runtime{EMBER_RUNTIME_LIBRARY};
     if (runtime.empty() || !std::filesystem::exists(runtime)) {
         std::cerr << "error: cannot find the Ember runtime library\n";
@@ -260,8 +309,11 @@ int link_executable(const std::filesystem::path& object, const std::filesystem::
         return kExitCompileError;
     }
 
-    const std::string command = quote(std::filesystem::path{EMBER_LINKER}) + " " +
-                                quote(object) + " " + quote(runtime) + " -o " + quote(output);
+    std::string command = quote(std::filesystem::path{EMBER_LINKER});
+    for (const std::filesystem::path& object : objects) {
+        command += " " + quote(object);
+    }
+    command += " " + quote(runtime) + " -o " + quote(output);
 
     if (run_command(command) != 0) {
         std::cerr << "error: linking failed\n";
@@ -271,8 +323,183 @@ int link_executable(const std::filesystem::path& object, const std::filesystem::
     return kExitSuccess;
 }
 
+/// A 64-bit FNV-1a hash.
+///
+/// This has to notice that a file changed, not resist someone trying to
+/// make it miss, so the cheapest thing that mixes well is the right
+/// tool (§9: what would C do).
+std::uint64_t hash_into(std::uint64_t seed, std::string_view bytes) {
+    std::uint64_t hash = seed;
+    for (const char byte : bytes) {
+        hash ^= static_cast<unsigned char>(byte);
+        hash *= 0x00000100000001b3ULL;
+    }
+    return hash;
+}
+
+constexpr std::uint64_t kHashSeed = 0xcbf29ce484222325ULL;
+
+std::string hex(std::uint64_t value, int digits) {
+    std::string out(static_cast<std::size_t>(digits), '0');
+    for (int i = digits - 1; i >= 0; --i) {
+        out[static_cast<std::size_t>(i)] = "0123456789abcdef"[value & 0xf];
+        value >>= 4;
+    }
+    return out;
+}
+
+/// Every module reachable from `start` through imports, including it.
+///
+/// Reachability rather than a dependency order, because Ember lets two
+/// modules import each other: there may be no order to walk, but the
+/// reachable set is well defined either way.
+std::set<std::size_t> reachable_from(const std::vector<parser::Module>& modules,
+                                     const std::map<std::string, std::size_t>& by_name,
+                                     std::size_t start) {
+    std::set<std::size_t> seen{start};
+    std::vector<std::size_t> pending{start};
+    while (!pending.empty()) {
+        const std::size_t current = pending.back();
+        pending.pop_back();
+        for (const std::string& import : modules[current].imports) {
+            const auto found = by_name.find(import);
+            if (found != by_name.end() && seen.insert(found->second).second) {
+                pending.push_back(found->second);
+            }
+        }
+    }
+    return seen;
+}
+
+/// One module's share of the build.
+struct ModuleBuild {
+    std::string name;
+    std::filesystem::path source;
+    std::filesystem::path object;
+    /// Whether the object was already on disk from an earlier build.
+    bool cached = false;
+
+    /// What to call this in progress output: the file, not the module,
+    /// because the entry module has no name.
+    std::string label() const { return source.filename().string(); }
+};
+
+/// Where object files are kept between builds: beside the entry file,
+/// the way Cargo puts `target/` beside `Cargo.toml`.
+///
+/// Falls back to the system temporary directory when the source tree is
+/// not writable, so compiling a read-only checkout still works - it just
+/// does not get to keep anything.
+std::filesystem::path cache_directory(const std::filesystem::path& entry) {
+    std::error_code code;
+    std::filesystem::path directory = entry.parent_path() / ".ember";
+    std::filesystem::create_directories(directory, code);
+    if (!code) {
+        return directory;
+    }
+    directory = std::filesystem::temp_directory_path() / "ember-cache";
+    std::filesystem::create_directories(directory, code);
+    return directory;
+}
+
+/// Names each module's object file after everything that decides
+/// whether it is still valid.
+///
+/// The fingerprint covers the module's own source *and* the source of
+/// everything it can reach through imports, because a struct that
+/// changes shape in one module changes the code generated in another.
+/// It also covers the compiler, so upgrading ember invalidates the lot.
+///
+/// Putting the fingerprint in the file name rather than in a manifest
+/// beside it means a cache hit is just a file existing: there is no
+/// window in which the name and the contents disagree.
+std::vector<ModuleBuild> plan_build(const FrontEnd& front_end,
+                                    const std::filesystem::path& cache,
+                                    const codegen::CompileOptions& options) {
+    const std::vector<parser::Module>& modules = front_end.loaded.modules;
+
+    std::map<std::string, std::size_t> by_name;
+    std::vector<std::uint64_t> source_hashes(modules.size(), kHashSeed);
+    for (std::size_t i = 0; i < modules.size(); ++i) {
+        by_name.emplace(modules[i].name, i);
+        source_hashes[i] =
+            hash_into(kHashSeed, front_end.sources.file(modules[i].file).contents());
+    }
+
+    // Anything that changes the generated code and is not a source file:
+    // the compiler that will do the lowering, and how it was asked to.
+    std::uint64_t base = hash_into(
+        hash_into(kHashSeed, version_string()),
+        std::to_string(options.optimization_level) + "/" + std::string{codegen::llvm_version()});
+
+    // A compiler rebuilt from different sources usually still reports
+    // the same version, so its size and timestamp stand in for what the
+    // version number does not say.
+    std::error_code code;
+    const std::uintmax_t size = std::filesystem::file_size(compiler_path(), code);
+    if (!code) {
+        base = hash_into(base, std::to_string(size));
+        base = hash_into(
+            base, std::to_string(std::filesystem::last_write_time(compiler_path(), code)
+                                     .time_since_epoch()
+                                     .count()));
+    }
+
+    std::vector<ModuleBuild> plan;
+    for (std::size_t i = 0; i < modules.size(); ++i) {
+        // Sorted, so the fingerprint does not depend on load order.
+        std::map<std::string, std::uint64_t> inputs;
+        for (const std::size_t reached : reachable_from(modules, by_name, i)) {
+            inputs.emplace(modules[reached].path.string(), source_hashes[reached]);
+        }
+
+        std::uint64_t fingerprint = base;
+        for (const auto& [path, hash] : inputs) {
+            fingerprint = hash_into(fingerprint, path);
+            fingerprint = hash_into(fingerprint, hex(hash, 16));
+        }
+
+        // The stem alone can collide across directories, so the path
+        // goes in the name too; the pair is the sweep prefix below.
+        const std::string prefix = modules[i].path.stem().string() + "-" +
+                                   hex(hash_into(kHashSeed, modules[i].path.string()), 8);
+
+        ModuleBuild build;
+        build.name = modules[i].name;
+        build.source = modules[i].path;
+        build.object = cache / (prefix + "-" + hex(fingerprint, 16) + ".o");
+        build.cached = std::filesystem::exists(build.object);
+        plan.push_back(std::move(build));
+    }
+    return plan;
+}
+
+/// Removes the objects a module left behind under older fingerprints,
+/// so the cache stays proportional to the source tree rather than to the
+/// number of times it has been edited.
+void sweep_stale_objects(const std::filesystem::path& cache,
+                         const std::vector<ModuleBuild>& plan) {
+    std::error_code code;
+    for (const ModuleBuild& build : plan) {
+        // Everything up to the fingerprint identifies the source file:
+        // the name ends in `-` plus 16 hex digits plus `.o`.
+        const std::string name = build.object.filename().string();
+        const std::string prefix = name.substr(0, name.size() - std::size_t{19});
+
+        for (const std::filesystem::directory_entry& entry :
+             std::filesystem::directory_iterator(cache, code)) {
+            const std::string candidate = entry.path().filename().string();
+            if (candidate != name && candidate.rfind(prefix, 0) == 0 &&
+                entry.path().extension() == ".o") {
+                std::filesystem::remove(entry.path(), code);
+            }
+        }
+    }
+}
+
 /// Compile a checked program all the way to a native executable.
-int emit_executable(const FrontEnd& front_end, const std::filesystem::path& output) {
+int emit_executable(const FrontEnd& front_end, const std::filesystem::path& output,
+                    bool fresh, bool verbose) {
     if (!codegen::is_available()) {
         std::cerr << "error: this build of ember has no code generator\n";
         std::cerr << "note: the compiler was built without LLVM; reconfigure with "
@@ -288,22 +515,65 @@ int emit_executable(const FrontEnd& front_end, const std::filesystem::path& outp
         return kExitCompileError;
     }
 
-    std::filesystem::path object = output;
-    object += ".o";
-    const ScratchFile scratch{object};
-
     codegen::CompileOptions options;
     options.output = codegen::OutputKind::Object;
-    options.module_name = front_end.loaded.modules.front().path.string();
 
-    const codegen::CompileResult compiled = codegen::compile(
-        front_end.codegen_modules(), front_end.checked, scratch.path(), options);
-    if (!compiled.ok()) {
-        std::cerr << ast::render_all(compiled.diagnostics, front_end.sources);
-        return kExitCompileError;
+    const std::filesystem::path cache =
+        cache_directory(front_end.loaded.modules.front().path);
+    const std::vector<ModuleBuild> plan = plan_build(front_end, cache, options);
+    const std::vector<codegen::ModuleInput> inputs = front_end.codegen_modules();
+
+    std::vector<std::filesystem::path> objects;
+    for (const ModuleBuild& build : plan) {
+        objects.push_back(build.object);
+
+        if (build.cached && !fresh) {
+            if (verbose) {
+                std::cerr << "  cached  " << build.label() << "\n";
+            }
+            continue;
+        }
+        if (verbose) {
+            std::cerr << "compiling " << build.label() << "\n";
+        }
+
+        options.module_name = build.source.string();
+        options.target_module = build.name;
+
+        // Written under a private name and moved into place, so a second
+        // ember running over the same sources cannot be caught reading a
+        // half-written object.
+        std::random_device entropy;
+        const std::filesystem::path partial =
+            build.object.string() + ".tmp" + std::to_string(entropy());
+        const codegen::CompileResult compiled =
+            codegen::compile(inputs, front_end.checked, partial, options);
+        if (!compiled.ok()) {
+            std::error_code ignored;
+            std::filesystem::remove(partial, ignored);
+            std::cerr << ast::render_all(compiled.diagnostics, front_end.sources);
+            return kExitCompileError;
+        }
+
+        std::error_code code;
+        std::filesystem::rename(partial, build.object, code);
+        if (code) {
+            // Losing the race is fine: whoever won wrote the same bytes,
+            // because the name is a hash of everything that went in.
+            std::filesystem::remove(partial, code);
+            if (!std::filesystem::exists(build.object)) {
+                std::cerr << "error: cannot write `" << build.object.string() << "`\n";
+                return kExitCompileError;
+            }
+        }
     }
 
-    return link_executable(scratch.path(), output);
+    sweep_stale_objects(cache, plan);
+
+    if (verbose) {
+        std::cerr << " linking  " << output.filename().string() << "\n";
+    }
+    return link_executable(objects, output);
 }
 
 }  // namespace
@@ -314,15 +584,16 @@ int check_file(const std::filesystem::path& input) {
     return run_front_end(input).ok ? kExitSuccess : kExitCompileError;
 }
 
-int build_file(const std::filesystem::path& input, const std::filesystem::path& output) {
+int build_file(const std::filesystem::path& input, const std::filesystem::path& output,
+               const BuildOptions& options) {
     const FrontEnd front_end = run_front_end(input);
     if (!front_end.ok) {
         return kExitCompileError;
     }
-    return emit_executable(front_end, output);
+    return emit_executable(front_end, output, options.fresh, options.verbose);
 }
 
-int run_file(const std::filesystem::path& input) {
+int run_file(const std::filesystem::path& input, const BuildOptions& options) {
     const FrontEnd front_end = run_front_end(input);
     if (!front_end.ok) {
         return kExitCompileError;
@@ -336,7 +607,8 @@ int run_file(const std::filesystem::path& input) {
         ("ember-run-" + std::to_string(entropy()) + std::string{".exe"});
 
     const ScratchFile scratch{executable};
-    if (emit_executable(front_end, scratch.path()) != kExitSuccess) {
+    if (emit_executable(front_end, scratch.path(), options.fresh, options.verbose) !=
+        kExitSuccess) {
         return kExitCompileError;
     }
 

@@ -32,6 +32,7 @@
 #include "ember/typeck/typeck.hpp"
 
 #include <filesystem>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -64,6 +65,14 @@ struct CompileOptions {
     std::string module_name = "ember";
     /// LLVM optimization level, 0-3.
     unsigned optimization_level = 0;
+    /// Which Ember module to emit definitions for. Unset means all of
+    /// them in one object file - the whole-program build, which is what
+    /// the golden tests read.
+    ///
+    /// When set, every other module's functions appear as declarations
+    /// and the linker resolves them, which is what makes a module
+    /// rebuildable on its own.
+    std::optional<std::string> target_module;
 };
 
 struct CompileResult {
@@ -87,10 +96,14 @@ struct ModuleInput {
 /// same modules: codegen reads the recorded expression types rather than
 /// re-deriving them, and assumes every one of them is present.
 ///
-/// Every module becomes one LLVM module. They are compiled together
-/// rather than separately, so a call across an `import` is a direct call
-/// and the whole program optimizes as a unit; separate compilation would
-/// need a real object-file interface, which v2 does not have.
+/// With `options.target_module` unset every module is folded into one
+/// LLVM module. Set it, and only that module's functions get bodies:
+/// the rest become declarations for the linker to resolve, so each
+/// Ember module can be rebuilt without re-lowering the others.
+///
+/// A monomorphized generic belongs to no one module, so it is emitted
+/// into every object that demands it under `linkonce_odr` linkage and
+/// the linker keeps one copy - the same bargain C++ strikes.
 CompileResult compile(const std::vector<ModuleInput>& modules,
                       const typeck::CheckResult& checked, const std::filesystem::path& output_path,
                       const CompileOptions& options = {});

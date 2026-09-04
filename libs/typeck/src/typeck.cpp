@@ -182,6 +182,7 @@ public:
         // Instantiations are checked last, each restoring the module it
         // was declared in so its body resolves names as that module.
         check_pending_instances();
+        resolve_instance_demand();
 
         current_module_.clear();
         return std::move(result_);
@@ -236,6 +237,11 @@ private:
     std::map<std::string, FunctionInfo> template_signatures_;
     /// Instantiations created but not yet checked.
     std::vector<std::size_t> pending_instances_;
+    /// Which instantiations each instantiation's body demands. Kept
+    /// separate from `demanded_by` because it is only resolvable once
+    /// every body has been checked: an instance demanded from inside
+    /// another one inherits whatever modules needed the outer copy.
+    std::map<InstanceId, std::set<InstanceId>> instance_demands_;
 
     TypeContext& types() { return *result_.types; }
 
@@ -1071,6 +1077,48 @@ private:
         return out;
     }
 
+    /// Notes that whatever is being checked right now needs `instance`.
+    ///
+    /// Inside a generic body the answer is another instantiation rather
+    /// than a module, because the outer copy may itself end up in
+    /// several object files; that edge is resolved after the walk.
+    void note_demand(Instantiation& instance) {
+        if (current_instance_ == kRootInstance) {
+            instance.demanded_by.insert(current_module_);
+        } else {
+            instance_demands_[current_instance_].insert(instance.id);
+        }
+    }
+
+    /// Pushes each instantiation's demanding modules along the edges
+    /// recorded above, until nothing changes.
+    ///
+    /// A fixpoint rather than a walk because generic functions may call
+    /// each other in a cycle, and `max<int>` calling `min<int>` means
+    /// every object holding the first also needs the second.
+    void resolve_instance_demand() {
+        bool changed = true;
+        while (changed) {
+            changed = false;
+            for (const auto& [from, targets] : instance_demands_) {
+                if (from == kRootInstance || from > result_.instantiations.size()) {
+                    continue;
+                }
+                const std::set<std::string> sources =
+                    result_.instantiations[from - 1].demanded_by;
+                for (const InstanceId to : targets) {
+                    if (to == kRootInstance || to > result_.instantiations.size()) {
+                        continue;
+                    }
+                    std::set<std::string>& sink = result_.instantiations[to - 1].demanded_by;
+                    const std::size_t before = sink.size();
+                    sink.insert(sources.begin(), sources.end());
+                    changed = changed || sink.size() != before;
+                }
+            }
+        }
+    }
+
     /// Find or create the instantiation of `tmpl` for `args`.
     ///
     /// The instance is registered before its body is checked, so a
@@ -1082,6 +1130,7 @@ private:
 
         for (Instantiation& existing : result_.instantiations) {
             if (existing.info.display_name == display) {
+                note_demand(existing);
                 return &existing.info;
             }
         }
@@ -1129,6 +1178,7 @@ private:
 
         result_.instantiations.push_back(std::move(instance));
         pending_instances_.push_back(result_.instantiations.size() - 1);
+        note_demand(result_.instantiations.back());
         return &result_.instantiations.back().info;
     }
 

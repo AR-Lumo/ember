@@ -30,11 +30,11 @@ int run_command(const ember::cli::Command& command) {
         case CommandKind::Build: {
             const std::filesystem::path output =
                 command.output.value_or(ember::cli::default_output_path(command.input));
-            return ember::cli::build_file(command.input, output);
+            return ember::cli::build_file(command.input, output, command.build);
         }
 
         case CommandKind::Run:
-            return ember::cli::run_file(command.input);
+            return ember::cli::run_file(command.input, command.build);
 
         case CommandKind::Check:
             return ember::cli::check_file(command.input);
@@ -46,6 +46,10 @@ int run_command(const ember::cli::Command& command) {
 }  // namespace
 
 int main(int argc, char** argv) {
+    if (argc > 0) {
+        ember::cli::set_compiler_path(argv[0]);
+    }
+
     std::vector<std::string_view> args;
     args.reserve(static_cast<std::size_t>(argc > 0 ? argc - 1 : 0));
     for (int i = 1; i < argc; ++i) {

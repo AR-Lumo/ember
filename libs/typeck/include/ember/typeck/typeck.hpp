@@ -152,6 +152,13 @@ struct Instantiation {
     const ast::FunctionDecl* decl = nullptr;
     /// Where this instantiation was first demanded, for diagnostics.
     ast::Span origin;
+    /// Which modules' code needs this copy, directly or through another
+    /// instantiation. A monomorphized function belongs to no single
+    /// module - the template is declared in one and demanded from
+    /// others - so separate compilation emits it into every object file
+    /// that needs it and lets the linker keep one, exactly as C++ does
+    /// with a template instantiation.
+    std::set<std::string> demanded_by;
 };
 
 struct CheckResult {
