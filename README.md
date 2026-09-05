@@ -1018,19 +1018,18 @@ v1 is deliberately small. These are the sharp edges worth knowing about.
 - **Closure parameter types are never inferred.** `|x| x + 1` is not
   valid; write `|x: int| -> int { return x + 1; }`.
 - **The front end is still whole-program.** Codegen is incremental, but
-  every build re-reads, re-parses and re-type-checks every module: on a
+  every build re-reads, re-parses and re-type-checks every module whose
+  source it has. Interfaces make it *possible* to check a module against
+  a description of its imports instead; nothing does that yet. On a
   13-module program a no-change rebuild is 0.29s against 0.93s from
   scratch, and of that 0.29s the front end is 0.08s and the link is most
-  of the rest. Cheap enough to leave alone at this size, and the reason
-  the numbers stop improving is the linker, not the compiler.
+  of the rest — so the reason the numbers stop improving is the linker,
+  not the compiler.
 - **A shipped library is an object file and nothing else.** No archive,
   no target triple recorded, no ABI version. Handing someone an object
   built for a different platform fails at the link, or worse, and
   nothing checks. The package manager still distributes source; wiring
   interfaces into it would need all of that first.
-- **The front end is not incremental.** Interfaces make it *possible* to
-  check a module without its imports' sources, but a normal build still
-  reads and re-checks every module's source when it has it.
 - **A module's private functions are still symbols.** They carry the
   module prefix, so nothing collides and nothing links against them by
   accident, but they are not hidden. Making them internal would break a
