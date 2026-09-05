@@ -3,6 +3,7 @@
 #include "ember/ast/ast.hpp"
 #include "ember/ast/diagnostic.hpp"
 #include "ember/ast/span.hpp"
+#include "ember/ast/interface.hpp"
 #include "ember/codegen/codegen.hpp"
 #include "ember/manifest/manifest.hpp"
 #include "ember/manifest/registry.hpp"
@@ -102,6 +103,13 @@ FlagOutcome parse_build_flag(std::string_view arg, BuildOptions& options) {
         options.fresh = true;
         return FlagOutcome{true, std::nullopt};
     }
+    if (arg == "--lib") {
+        options.library = true;
+        return FlagOutcome{true, std::nullopt};
+    }
+
+    // `--link <path>` is handled where the arguments are walked, since
+    // it consumes two of them.
 
     // `-O2`, spelled as C spells it (§9). Lowercase `-o` is the output
     // path and is handled by `build` alone, so the case matters.
@@ -149,6 +157,14 @@ ParseResult parse_single_input(CommandKind kind, std::string_view subcommand,
             i += 1;
             continue;
         }
+        if (kind == CommandKind::Run && arg == "--link") {
+            if (i + 1 >= args.size()) {
+                return usage_error("`--link` requires a path argument");
+            }
+            options.link.emplace_back(std::string{args[i + 1]});
+            i += 2;
+            continue;
+        }
         if (kind == CommandKind::Run) {
             const FlagOutcome outcome = parse_build_flag(arg, options);
             if (outcome.error.has_value()) {
@@ -186,7 +202,10 @@ ParseResult parse_single_input(CommandKind kind, std::string_view subcommand,
     return command;
 }
 
-ParseResult parse_build(std::span<const std::string_view> args) {
+/// `build` and `interface` take the same shape: one input file and an
+/// optional `-o`.
+ParseResult parse_build(std::span<const std::string_view> args,
+                        CommandKind kind = CommandKind::Build) {
     std::optional<std::filesystem::path> input;
     std::optional<std::filesystem::path> output;
     BuildOptions options;
@@ -205,6 +224,14 @@ ParseResult parse_build(std::span<const std::string_view> args) {
         }
         if (parse_update_flag(arg, update)) {
             i += 1;
+            continue;
+        }
+        if (arg == "--link") {
+            if (i + 1 >= args.size()) {
+                return usage_error("`--link` requires a path argument");
+            }
+            options.link.emplace_back(std::string{args[i + 1]});
+            i += 2;
             continue;
         }
 
@@ -239,11 +266,13 @@ ParseResult parse_build(std::span<const std::string_view> args) {
     }
 
     if (!input.has_value()) {
-        return usage_error("`build` requires an input file");
+        return usage_error("`" +
+                           std::string{kind == CommandKind::Interface ? "interface" : "build"} +
+                           "` requires an input file");
     }
 
     Command command;
-    command.kind = CommandKind::Build;
+    command.kind = kind;
     command.input = *input;
     command.output = output;
     command.build = options;
@@ -301,6 +330,7 @@ const std::string_view kUsage =
     "    ember check <file.em>                 type-check only, no codegen\n"
     "    ember fetch                           resolve and download dependencies\n"
     "    ember publish                         record this version in the registry index\n"
+    "    ember interface <file.em>             write the module's public interface\n"
     "\n"
     "OPTIONS:\n"
     "    -o, --output <path>   output path for `build` (default: input stem)\n"
@@ -308,6 +338,8 @@ const std::string_view kUsage =
     "                          also look here for imported modules (repeatable)\n"
     "        --update          re-resolve git dependencies, ignoring `ember.lock`\n"
     "        --dry-run         for `publish`: say what it would record, record nothing\n"
+    "        --lib             compile to an object file, with no `main` required\n"
+    "        --link <path>     an object or library to link in as well\n"
     "    -O0 .. -O3            optimization level (default: -O0)\n"
     "    -v, --verbose         report which modules were compiled and which were cached\n"
     "        --fresh           recompile every module, ignoring cached object files\n"
@@ -342,6 +374,9 @@ ParseResult parse_args(std::span<const std::string_view> args) {
     }
     if (first == "publish") {
         return parse_publish(rest);
+    }
+    if (first == "interface") {
+        return parse_build(rest, CommandKind::Interface);
     }
     return usage_error("unknown subcommand `" + std::string{first} + "`");
 }
@@ -406,7 +441,7 @@ struct FrontEnd {
 /// continuing would only bury the real error.
 FrontEnd run_front_end(const std::filesystem::path& input,
                        const std::vector<std::filesystem::path>& module_path, bool update,
-                       bool verbose) {
+                       bool verbose, const std::string& entry_name = {}) {
     FrontEnd result;
 
     // Dependencies first: a package that will not resolve is not
@@ -419,7 +454,8 @@ FrontEnd run_front_end(const std::filesystem::path& input,
 
     // Loading pulls in every module the entry file imports, transitively.
     result.loaded = parser::load_program(
-        input, result.sources, module_search_path(input, module_path, packages.search_path));
+        input, result.sources, module_search_path(input, module_path, packages.search_path),
+        entry_name);
     if (!result.loaded.ok()) {
         std::cerr << ast::render_all(result.loaded.diagnostics, result.sources);
         return result;
@@ -684,6 +720,11 @@ std::vector<ModuleBuild> plan_build(const FrontEnd& front_end,
 
     std::vector<ModuleBuild> plan;
     for (std::size_t i = 0; i < modules.size(); ++i) {
+        if (modules[i].is_interface) {
+            // A description of a module, not the module. Its object
+            // comes from whoever wrote it, by way of `--link`.
+            continue;
+        }
         // Sorted, so the fingerprint does not depend on load order.
         std::map<std::string, std::uint64_t> inputs;
         for (const std::size_t reached : reachable_from(modules, by_name, i)) {
@@ -1048,6 +1089,28 @@ int emit_executable(const FrontEnd& front_end, const std::filesystem::path& outp
         return kExitCompileError;
     }
 
+    // A library is compiled and left as an object: no entry point to
+    // require, and nothing to link it into. Whole-program rather than
+    // one object per module, because what ships is one file - the
+    // interface says what is in it, and the consumer links it whole.
+    if (build.library) {
+        codegen::CompileOptions options;
+        options.output = codegen::OutputKind::Object;
+        options.optimization_level = build.optimization_level;
+        options.module_name = front_end.loaded.modules.front().path.string();
+
+        const codegen::CompileResult compiled = codegen::compile(
+            front_end.codegen_modules(), front_end.checked, output, options);
+        if (!compiled.ok()) {
+            std::cerr << ast::render_all(compiled.diagnostics, front_end.sources);
+            return kExitCompileError;
+        }
+        if (build.verbose) {
+            std::cerr << " compiled " << output.filename().string() << "\n";
+        }
+        return kExitSuccess;
+    }
+
     // An executable needs an entry point. This is not a type error, so
     // it is checked here rather than by `ember check`.
     const std::vector<ast::Diagnostic> entry = codegen::verify_entry_point(front_end.checked);
@@ -1111,6 +1174,15 @@ int emit_executable(const FrontEnd& front_end, const std::filesystem::path& outp
     }
 
     sweep_stale_objects(cache, plan);
+
+    for (const std::filesystem::path& extra : build.link) {
+        std::error_code code;
+        if (!std::filesystem::exists(extra, code)) {
+            std::cerr << "error: cannot find `" << extra.string() << "` to link\n";
+            return kExitCompileError;
+        }
+        objects.push_back(extra);
+    }
 
     if (build.verbose) {
         std::cerr << " linking  " << output.filename().string() << "\n";
@@ -1512,6 +1584,66 @@ int publish_package(const std::filesystem::path& from, bool dry_run) {
     return kExitSuccess;
 }
 
+int write_interface(const std::filesystem::path& input,
+                    const std::optional<std::filesystem::path>& output,
+                    const std::vector<std::filesystem::path>& module_path) {
+    // Checked first. An interface for a module that does not compile
+    // would be a promise nothing keeps, and the errors are better
+    // reported against the source than discovered by whoever imports it.
+    // Named from its file stem, the same rule `import` uses to find it,
+    // so the interface says which module it describes.
+    const FrontEnd front_end = run_front_end(input, module_path, /*update=*/false,
+                                             /*verbose=*/false, input.stem().string());
+    if (!front_end.ok) {
+        return kExitCompileError;
+    }
+
+    const parser::Module& module = front_end.loaded.modules.front();
+    const ast::SourceFile& source = front_end.sources.file(module.file);
+
+    const ast::InterfaceResult written = ast::write_interface(*module.program, source);
+    if (!written.ok()) {
+        std::cerr << ast::render_all(written.diagnostics, front_end.sources);
+        return kExitCompileError;
+    }
+
+    // What was just written has to be a module in its own right, or it
+    // is not an interface, it is a suggestion. The usual way it is not
+    // is a public signature naming a private type: perfectly legal
+    // inside the module, and meaningless outside it.
+    ast::SourceMap check_sources;
+    const ast::FileId id = check_sources.add(
+        input.stem().string() + "." + std::string{ast::kInterfaceExtension}, written.contents);
+    const parser::ParseResult parsed = parser::parse_source(check_sources.file(id));
+    typeck::CheckResult checked;
+    if (parsed.ok()) {
+        checked = typeck::check(*parsed.program, check_sources.file(id));
+    }
+    if (!parsed.ok() || !checked.ok()) {
+        std::cerr << "error: the interface for this module does not stand on its own\n";
+        std::cerr << (parsed.ok() ? ast::render_all(checked.diagnostics, check_sources)
+                                  : ast::render_all(parsed.diagnostics, check_sources));
+        std::cerr << "note: a `pub` item whose signature names a private type cannot be used "
+                     "from outside the module\n";
+        return kExitCompileError;
+    }
+
+    if (!output.has_value()) {
+        std::cout << written.contents;
+        return kExitSuccess;
+    }
+
+    std::error_code code;
+    std::filesystem::create_directories(output->parent_path(), code);
+    std::ofstream out(*output, std::ios::binary);
+    out << written.contents;
+    if (!out) {
+        std::cerr << "error: cannot write `" << output->string() << "`\n";
+        return kExitCompileError;
+    }
+    return kExitSuccess;
+}
+
 int check_file(const std::filesystem::path& input,
                const std::vector<std::filesystem::path>& module_path, bool update) {
     return run_front_end(input, module_path, update, /*verbose=*/false).ok
@@ -1522,7 +1654,12 @@ int check_file(const std::filesystem::path& input,
 int build_file(const std::filesystem::path& input, const std::filesystem::path& output,
                const BuildOptions& options,
                const std::vector<std::filesystem::path>& module_path, bool update) {
-    const FrontEnd front_end = run_front_end(input, module_path, update, options.verbose);
+    // A library's own module name is its file stem, the same rule
+    // `import` uses to find it. Without it the library's symbols would
+    // have no module prefix and nothing importing it would link.
+    const FrontEnd front_end =
+        run_front_end(input, module_path, update, options.verbose,
+                      options.library ? input.stem().string() : std::string{});
     if (!front_end.ok) {
         return kExitCompileError;
     }

@@ -6,6 +6,7 @@ add_library(ember_ast STATIC
     src/diagnostic.cpp
     src/nodes.cpp
     src/printer.cpp
+    src/interface.cpp
 )
 add_library(ember::ast ALIAS ember_ast)
 

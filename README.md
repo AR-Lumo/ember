@@ -154,12 +154,15 @@ ember run <file.em>                   compile and run in one step
 ember check <file.em>                 type-check only, no codegen
 ember fetch                           resolve and download dependencies
 ember publish                         record this version in the registry index
+ember interface <file.em>             write the module's public interface
 
   -L, --module-path <dir>
                    also look here for imported modules (repeatable)
   -O0 .. -O3       optimization level (default: -O0)
       --update     re-resolve git dependencies, ignoring `ember.lock`
       --dry-run    for `publish`: say what it would record, record nothing
+      --lib        compile to an object file, with no `main` required
+      --link <path> an object or library to link in as well
   -v, --verbose    say which modules were compiled and which were cached
       --fresh      recompile every module, ignoring cached object files
 ```
@@ -339,6 +342,74 @@ index can publish, which is a property of the git repository rather than
 of ember.
 
 [`examples/managed`](examples/managed) is a small project end to end.
+
+### Interfaces, and shipping a compiled library
+
+`ember interface` writes a module's public surface with the
+implementations taken out:
+
+```console
+$ ember interface geometry.em
+// Interface for `geometry`, written by ember.
+//
+// The public surface of the module, with the implementations taken
+// out. A generic keeps its body, because monomorphizing one needs it.
+
+pub struct Point {
+    pub x: int,
+    pub y: int,
+}
+
+pub const ORIGIN: Point = Point { x: 0, y: 0 };
+
+pub fn distance_sq(a: Point, b: Point) -> int;
+```
+
+`fn f() -> int;` — a signature with no body — is now part of the
+language. It is checked as a signature and lowered to a declaration, and
+separate compilation already knew what to do with a function whose body
+is somewhere else.
+
+An interface plus an object is a library. `--lib` writes the object:
+
+```console
+$ ember interface lib/textkit.em -o dist/textkit.emi
+$ ember build --lib lib/textkit.em -o dist/textkit.o
+$ rm -r lib                                    # the consumer never sees it
+$ ember run app/main.em -L dist --link dist/textkit.o
+ember!
+```
+
+`import textkit;` finds `textkit.emi` on the search path when there is
+no `textkit.em`; **source always wins**, so an interface can never
+quietly stand in for something you could have compiled. A library's
+symbols carry its module prefix, taken from its file name — the same
+rule `import` uses to find it.
+
+**A generic keeps its body.** Ember monomorphizes, so a copy of
+`twice<int>` is generated wherever it is first used, and generating it
+needs the body. That is the bargain C++ strikes by putting templates in
+headers, and it has the same consequence: a generic's implementation is
+part of its interface, and changing it changes what everyone compiles.
+
+**The interface is cut out of the source, not printed from the tree.**
+Every item knows the span it came from, so a signature is the text up to
+the body and a generic is the text of the whole thing. Nothing is
+re-rendered, so nothing can be rendered wrong — the output is your own
+Ember, and it parses because it already did.
+
+A public signature that names a private type is refused, because a
+caller could not use it:
+
+```console
+error: `Point::distance_sq` cannot be part of an interface
+ --> point.em:9:38
+  |
+9 |     pub fn distance_sq(&self, other: Point) -> int {
+  |                                      ^^^^^ `Point` is not `pub`
+  = note: a caller outside this module cannot name `Point`, so it could not call `Point::distance_sq` even with the declaration in front of it
+  = note: make `Point` public, or keep `Point::distance_sq` private
+```
 
 ### Incremental builds
 
@@ -952,11 +1023,19 @@ v1 is deliberately small. These are the sharp edges worth knowing about.
   scratch, and of that 0.29s the front end is 0.08s and the link is most
   of the rest. Cheap enough to leave alone at this size, and the reason
   the numbers stop improving is the linker, not the compiler.
-- **There is no compiled-library format.** Building a module still needs
-  the *source* of everything it imports, because there is no interface
-  file recording another module's types and signatures. Packages are
-  distributed as source, the way Cargo does it; distributing binaries
-  would need that interface file first.
+- **A shipped library is an object file and nothing else.** No archive,
+  no target triple recorded, no ABI version. Handing someone an object
+  built for a different platform fails at the link, or worse, and
+  nothing checks. The package manager still distributes source; wiring
+  interfaces into it would need all of that first.
+- **The front end is not incremental.** Interfaces make it *possible* to
+  check a module without its imports' sources, but a normal build still
+  reads and re-checks every module's source when it has it.
+- **A module's private functions are still symbols.** They carry the
+  module prefix, so nothing collides and nothing links against them by
+  accident, but they are not hidden. Making them internal would break a
+  public generic that calls one, since that generic's body is
+  monomorphized in the consumer's object.
 - **Version selection does not backtrack.** It takes the highest
   version satisfying every requirement, iterated to a fixpoint. A graph
   that could only be satisfied by choosing a *lower* version of one

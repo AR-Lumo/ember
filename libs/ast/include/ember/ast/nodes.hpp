@@ -503,6 +503,11 @@ struct FunctionDecl : Item {
     /// Null when the function returns nothing.
     TypeRefPtr return_type;
     Block body;
+    /// False for `fn f() -> int;` — a signature with no body, which is
+    /// what an interface file is made of. Such a function is checked as
+    /// a signature, emitted as a declaration, and defined somewhere the
+    /// linker will find it.
+    bool has_body = true;
     /// Set for methods: the impl type they were declared in. Empty for
     /// free functions.
     std::string owner_type;

@@ -364,12 +364,18 @@ private:
     void emit_concrete_bodies(const ast::Program& program) {
         for (const ast::ItemPtr& item : program.items) {
             if (const auto* declaration = ast::node_cast<ast::FunctionDecl>(item.get())) {
+                if (!declaration->has_body) {
+                    continue;  // declared here, defined somewhere else
+                }
                 const auto entry = checked_.functions.find(qualify(declaration->name));
                 if (entry != checked_.functions.end() && entry->second.decl == declaration) {
                     emit_function(*declaration, entry->second);
                 }
             } else if (const auto* block = ast::node_cast<ast::ImplBlock>(item.get())) {
                 for (const std::unique_ptr<ast::FunctionDecl>& method : block->methods) {
+                    if (!method->has_body) {
+                        continue;
+                    }
                     const auto entry = checked_.methods.find(
                         std::make_pair(qualify(block->type_name), method->name));
                     if (entry != checked_.methods.end() && entry->second.decl == method.get()) {

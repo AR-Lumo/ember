@@ -1,3 +1,4 @@
+#include "ember/ast/interface.hpp"
 #include "ember/parser/parser.hpp"
 
 #include "ember/ast/ast.hpp"
@@ -296,6 +297,17 @@ private:
 
         if (match(TokenKind::Arrow)) {
             function->return_type = parse_type();
+        }
+
+        // `;` instead of a block declares the function without
+        // defining it. An interface file is a module written entirely
+        // this way, and separate compilation already knows what to do
+        // with a function whose body is somewhere else.
+        if (check(TokenKind::Semicolon)) {
+            const Token& semi = advance();
+            function->has_body = false;
+            function->span = start.merge(semi.span);
+            return function;
         }
 
         function->body = parse_block();
@@ -1022,13 +1034,14 @@ std::vector<std::string> segments_of(const std::string& path) {
     }
 }
 
-/// `a::b::c` as the relative file `a/b/c.em`.
-std::filesystem::path file_for(const std::vector<std::string>& segments) {
+/// `a::b::c` as the relative file `a/b/c.<extension>`.
+std::filesystem::path file_for(const std::vector<std::string>& segments,
+                               std::string_view extension) {
     std::filesystem::path relative;
     for (std::size_t i = 0; i + 1 < segments.size(); ++i) {
         relative /= segments[i];
     }
-    return relative / (segments.back() + "." + std::string{ast::kFileExtension});
+    return relative / (segments.back() + "." + std::string{extension});
 }
 
 /// One place a module might be, and the root it would be relative to.
@@ -1061,13 +1074,21 @@ std::vector<Candidate> candidates_for(const std::string& name,
                                       const std::filesystem::path& importer_root,
                                       const ModulePath& search) {
     const std::vector<std::string> segments = segments_of(name);
-    const std::filesystem::path relative = file_for(segments);
 
-    std::vector<Candidate> candidates{Candidate{importer_root / relative, importer_root}};
-    for (const std::filesystem::path& directory : search) {
-        candidates.push_back(Candidate{directory / relative, directory});
-        if (segments.size() == 1) {
-            candidates.push_back(Candidate{directory / name / relative, directory / name});
+    // Source first, then an interface. A module you have the source of
+    // is the module; an interface is what you use when you do not, so
+    // preferring the source means an interface can never quietly stand
+    // in for something you could have compiled.
+    std::vector<Candidate> candidates;
+    for (const std::string_view extension :
+         {ast::kFileExtension, ast::kInterfaceExtension}) {
+        const std::filesystem::path relative = file_for(segments, extension);
+        candidates.push_back(Candidate{importer_root / relative, importer_root});
+        for (const std::filesystem::path& directory : search) {
+            candidates.push_back(Candidate{directory / relative, directory});
+            if (segments.size() == 1) {
+                candidates.push_back(Candidate{directory / name / relative, directory / name});
+            }
         }
     }
 
@@ -1089,7 +1110,7 @@ std::vector<Candidate> candidates_for(const std::string& name,
 }  // namespace
 
 LoadResult load_program(const std::filesystem::path& entry, ast::SourceMap& sources,
-                        const ModulePath& search) {
+                        const ModulePath& search, const std::string& entry_name) {
     LoadResult result;
 
     // Breadth-first from the entry file. Each module is loaded once, so
@@ -1110,7 +1131,7 @@ LoadResult load_program(const std::filesystem::path& entry, ast::SourceMap& sour
     };
 
     std::deque<Pending> queue;
-    queue.push_back(Pending{{}, entry, entry.parent_path(), std::nullopt});
+    queue.push_back(Pending{entry_name, entry, entry.parent_path(), std::nullopt});
     /// Module name -> the file it was loaded from, so a second file
     /// claiming the name is caught rather than silently ignored.
     std::vector<std::pair<std::string, std::filesystem::path>> loaded;
@@ -1190,6 +1211,8 @@ LoadResult load_program(const std::filesystem::path& entry, ast::SourceMap& sour
         Module module;
         module.name = pending.name;
         module.path = path;
+        module.is_interface =
+            path.extension() == ("." + std::string{ast::kInterfaceExtension});
         module.file = file;
         module.program = std::move(parsed.program);
         module.program->module = pending.name;

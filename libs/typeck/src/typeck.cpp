@@ -1521,6 +1521,13 @@ private:
     }
 
     void check_function(const ast::FunctionDecl& function, const FunctionInfo& info) {
+        // A declaration with no body is a promise that one exists
+        // elsewhere. There is nothing to walk and nothing to require a
+        // return from.
+        if (!function.has_body) {
+            return;
+        }
+
         // TODO(v2): `pub` is parsed and carried on every item, but v1 is
         // single-file so there is no boundary to enforce it across (§4).
         // When the module system lands, this is where a reference to a

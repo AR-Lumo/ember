@@ -104,7 +104,11 @@ visibility     = [ "pub" ] ;
 const_decl     = visibility "const" identifier ":" type "=" expression ";" ;
 
 function_decl  = visibility "fn" identifier [ generic_params ]
-                 "(" [ param_list ] ")" [ "->" type ] block ;
+                 "(" [ param_list ] ")" [ "->" type ] ( block | ";" ) ;
+                                            (* `;` declares without
+                                               defining: an interface
+                                               file is written this
+                                               way, v2 *)
 
 generic_params = "<" identifier { "," identifier } ">" ;   (* v2 *)
 param_list     = param { "," param } ;
@@ -243,10 +247,13 @@ ember run file.em                  # compile + run in one step
 ember check file.em                # type-check only, no codegen
 ember fetch                        # resolve dependencies             (v2)
 ember publish                      # add this version to the index     (v2)
+ember interface file.em            # write the module's interface      (v2)
 
   -L, --module-path <dir>          # extra place to find modules       (v2)
       --update                     # re-resolve git dependencies       (v2)
       --dry-run                    # `publish`: report, write nothing  (v2)
+      --lib                        # compile to an object, no `main`   (v2)
+      --link <path>                # link this object in as well       (v2)
   -O0 .. -O3                       # optimization level, default -O0   (v2)
   -v, --verbose                    # report per-module compile/cache decisions
       --fresh                      # ignore cached object files       (v2)
@@ -357,10 +364,11 @@ moving to the next. Don't let phases blend together.
   files, hosted as a directory or a git repository. `ember publish` adds
   a version to one, stopping short of pushing it. Packages are
   distributed as source. Still to come: ownership and checksums for a
-  registry, and distributing compiled libraries, which would
-  additionally need an interface file recording a module's types and
-  signatures so a dependent can be built without the dependency's
-  source.
+  registry. Interface files (`.emi`) let a program be built against a
+  library it does not have the source of; wiring them into the package
+  manager additionally needs an archive format and a recorded target
+  triple, so that shipping an object for the wrong platform is caught
+  rather than discovered at the link.
 
 ---
 

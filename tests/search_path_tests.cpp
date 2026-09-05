@@ -260,12 +260,19 @@ EMBER_TEST(search_path_says_everywhere_it_looked) {
         load_failure(workspace, "main.em", {workspace.path("vendor")});
     EMBER_CHECK_EQ(errors.at(0).message, std::string{"cannot find module `greeter`"});
 
-    // Beside the importer, then the search directory two ways.
-    EMBER_CHECK_EQ(errors.at(0).notes.size(), std::size_t{3});
-    EMBER_CHECK_MSG(errors.at(0).notes.at(0).find("main.em") == std::string::npos ||
-                        errors.at(0).notes.at(0).find("greeter.em") != std::string::npos,
-                    "first place looked should be beside the importer: " +
+    // Beside the importer, then the search directory two ways - and
+    // then the same three again looking for an interface instead of a
+    // source file.
+    EMBER_CHECK_EQ(errors.at(0).notes.size(), std::size_t{6});
+    EMBER_CHECK_MSG(errors.at(0).notes.at(0).find("greeter.em") != std::string::npos,
+                    "the first place looked should be beside the importer: " +
                         errors.at(0).notes.at(0));
+
+    bool mentions_interface = false;
+    for (const std::string& note : errors.at(0).notes) {
+        mentions_interface = mentions_interface || note.find("greeter.emi") != std::string::npos;
+    }
+    EMBER_CHECK_MSG(mentions_interface, "an interface is a place it looks, so it should say so");
 }
 
 EMBER_TEST(search_path_suggests_the_flag_when_none_was_given) {

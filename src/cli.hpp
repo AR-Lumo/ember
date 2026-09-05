@@ -38,6 +38,8 @@ enum class CommandKind {
     Fetch,
     /// Record this package's current version in the registry index.
     Publish,
+    /// Write out a module's public interface.
+    Interface,
     Help,
     Version,
 };
@@ -54,6 +56,14 @@ struct BuildOptions {
     /// every C compiler: an unoptimized build compiles faster and its
     /// generated code still resembles the source it came from.
     unsigned optimization_level = 0;
+    /// `--link` arguments: object files or libraries to hand the linker
+    /// alongside what ember compiled. This is how a module imported
+    /// through an interface gets a body.
+    std::vector<std::filesystem::path> link;
+    /// `--lib`: compile to an object file rather than an executable, and
+    /// do not ask for a `main`. This is the other half of shipping a
+    /// library - the object that an interface describes.
+    bool library = false;
 
     friend bool operator==(const BuildOptions&, const BuildOptions&) = default;
 };
@@ -141,6 +151,16 @@ PackageResolution resolve_packages(const std::filesystem::path& entry, bool upda
 /// `ember fetch` (§6): resolve and download, and stop there. Returns a
 /// process exit code.
 int fetch_packages(const std::filesystem::path& from, bool update);
+
+/// `ember interface <file.em> [-o <out.emi>]` (§6): write the module's
+/// public surface, with the implementations taken out.
+///
+/// The file this produces can be imported in place of the module it
+/// describes, so a program can be built against a library it does not
+/// have the source of - provided it links the library's object.
+int write_interface(const std::filesystem::path& input,
+                    const std::optional<std::filesystem::path>& output,
+                    const std::vector<std::filesystem::path>& module_path = {});
 
 /// `ember publish` (§6): record this package's version in the registry
 /// index, and stop short of pushing it.

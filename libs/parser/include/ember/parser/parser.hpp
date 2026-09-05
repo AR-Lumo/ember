@@ -73,6 +73,11 @@ struct Module {
     std::unique_ptr<ast::Program> program;
     /// The modules this one imported, in source order.
     std::vector<std::string> imports;
+    /// True when this was loaded from a `.emi` rather than a `.em`: a
+    /// description of a module rather than the module. There is nothing
+    /// in it to compile, and whoever supplied it has to supply the
+    /// object too.
+    bool is_interface = false;
 
     bool is_entry() const noexcept { return name.empty(); }
 };
@@ -104,8 +109,13 @@ using ModulePath = std::vector<std::filesystem::path>;
 /// between two modules terminates and is legal: names are resolved after
 /// every module is parsed, so neither has to come first. Two different
 /// files claiming the same module name is an error rather than a race.
+/// `entry_name` names the entry file's own module. It is empty for a
+/// program, whose entry module nothing can import and whose symbols are
+/// therefore unprefixed. Compiling a *library* has to pass its name,
+/// because a library's symbols are the ones its consumers will link
+/// against - and those carry the module prefix.
 LoadResult load_program(const std::filesystem::path& entry, ast::SourceMap& sources,
-                        const ModulePath& search = {});
+                        const ModulePath& search = {}, const std::string& entry_name = {});
 
 }  // namespace ember::parser
 
