@@ -97,4 +97,59 @@ IndexResult parse_index_entry(const ast::SourceFile& source, const std::string& 
     return result;
 }
 
+// ---------------------------------------------------------------------
+// Publishing
+// ---------------------------------------------------------------------
+
+std::string render_index_entry(const std::string& name, std::vector<Release> releases) {
+    std::sort(releases.begin(), releases.end(),
+              [](const Release& a, const Release& b) { return a.version < b.version; });
+
+    std::string out =
+        "# Index entry for `" + name +
+        "`, written by ember. Each section is one published\n"
+        "# version and the commit it is. A version already here never changes.\n";
+
+    for (const Release& release : releases) {
+        out += "\n[" + release.version.to_string() + "]\n";
+        out += "git = " + toml::quoted(release.git) + "\n";
+        out += "rev = " + toml::quoted(release.rev) + "\n";
+    }
+    return out;
+}
+
+PublishResult add_release(const ast::SourceFile& existing, const std::string& name,
+                          const Release& release) {
+    PublishResult result;
+
+    std::vector<Release> releases;
+    if (!existing.contents().empty()) {
+        IndexResult parsed = parse_index_entry(existing, name);
+        // An index file that will not parse is not one to append to:
+        // rewriting it would throw away whatever is wrong with it along
+        // with whatever is right.
+        if (!parsed.diagnostics.empty()) {
+            result.diagnostics = std::move(parsed.diagnostics);
+            return result;
+        }
+        releases = std::move(parsed.entry->releases);
+    }
+
+    for (const Release& published : releases) {
+        if (published.version == release.version) {
+            push(result.diagnostics,
+                 "version " + release.version.to_string() + " of `" + name +
+                     "` is already published",
+                 ast::Span{0, 0, existing.id()}, "a published version never changes")
+                .with_note("it is `" + published.rev + "`; publish a new version instead")
+                .with_note("anyone who locked this version did so expecting it to stay put");
+            return result;
+        }
+    }
+
+    releases.push_back(release);
+    result.contents = render_index_entry(name, std::move(releases));
+    return result;
+}
+
 }  // namespace ember::manifest

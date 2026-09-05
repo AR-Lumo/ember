@@ -132,6 +132,15 @@ ManifestResult parse_manifest(const ast::SourceFile& source);
 /// tool eventually learns to. Returns the first one found.
 std::optional<std::filesystem::path> find_manifest(const std::filesystem::path& start);
 
+/// Whether this package could be published at all, ignoring anything to
+/// do with git or the index.
+///
+/// The one that matters is the path dependency: it names a directory on
+/// the author's machine, so a package with one is unbuildable by anybody
+/// else. Better to refuse it here than to publish something that cannot
+/// work and find out from a stranger.
+std::vector<ast::Diagnostic> check_publishable(const Manifest& manifest);
+
 // ---------------------------------------------------------------------
 // Resolution
 // ---------------------------------------------------------------------

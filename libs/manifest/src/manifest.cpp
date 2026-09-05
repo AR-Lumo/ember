@@ -264,6 +264,30 @@ ManifestResult parse_manifest(const ast::SourceFile& source) {
     return result;
 }
 
+std::vector<ast::Diagnostic> check_publishable(const Manifest& manifest) {
+    std::vector<Diagnostic> diagnostics;
+
+    if (!Version::parse(manifest.version).has_value()) {
+        push(diagnostics, "`" + manifest.version + "` is not a version that can be published",
+             ast::Span{}, "expected `major.minor.patch`")
+            .with_note("a published version has to be one the registry can order and "
+                       "compare");
+    }
+
+    for (const Dependency& dependency : manifest.dependencies) {
+        if (dependency.kind == SourceKind::Path) {
+            push(diagnostics,
+                 "`" + manifest.name + "` cannot be published: it depends on a path",
+                 dependency.span, "`" + dependency.name + "` is a directory on this machine")
+                .with_note("nobody else has `" + dependency.location +
+                           "`, so the package would not build for them")
+                .with_note("publish `" + dependency.name +
+                           "` too and depend on its version, or use a git dependency");
+        }
+    }
+    return diagnostics;
+}
+
 std::optional<std::filesystem::path> find_manifest(const std::filesystem::path& start) {
     std::error_code code;
     std::filesystem::path directory = std::filesystem::absolute(start, code);
@@ -360,13 +384,13 @@ std::string write_lock(const std::vector<ResolvedPackage>& packages) {
 
     for (const ResolvedPackage* package : sorted) {
         out += "\n[" + package->name + "]\n";
-        out += "source = \"" + std::string{source_kind_name(package->kind)} + "\"\n";
-        out += "location = \"" + package->location + "\"\n";
+        out += "source = " + toml::quoted(source_kind_name(package->kind)) + "\n";
+        out += "location = " + toml::quoted(package->location) + "\n";
         if (!package->resolved_rev.empty()) {
-            out += "rev = \"" + package->resolved_rev + "\"\n";
+            out += "rev = " + toml::quoted(package->resolved_rev) + "\n";
         }
         if (!package->version.empty()) {
-            out += "version = \"" + package->version + "\"\n";
+            out += "version = " + toml::quoted(package->version) + "\n";
         }
     }
     return out;

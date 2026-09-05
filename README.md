@@ -153,11 +153,13 @@ ember build <file.em> [-o <output>]   compile to a native executable
 ember run <file.em>                   compile and run in one step
 ember check <file.em>                 type-check only, no codegen
 ember fetch                           resolve and download dependencies
+ember publish                         record this version in the registry index
 
   -L, --module-path <dir>
                    also look here for imported modules (repeatable)
   -O0 .. -O3       optimization level (default: -O0)
       --update     re-resolve git dependencies, ignoring `ember.lock`
+      --dry-run    for `publish`: say what it would record, record nothing
   -v, --verbose    say which modules were compiled and which were cached
       --fresh      recompile every module, ignoring cached object files
 ```
@@ -295,6 +297,46 @@ The lockfile pins the version as well as the commit, so publishing
 says so. And an index that claims a commit is `1.3.0` when the package
 there says `1.2.0` is refused — an index that can be wrong about that
 can serve anything for anything.
+
+#### Publishing
+
+`ember publish` adds this package's current version to the index. It
+checks first — the package has to type-check, have a root module, sit in
+a clean git tree with an `origin` remote, and be tagged `v<version>`:
+
+```console
+$ ember publish
+ checking textkit 1.0.0
+ packaged textkit 1.0.0 (d3743a17)
+   staged /home/me/.../index/textkit.toml
+committed to the index, and not pushed
+
+To publish textkit 1.0.0, send it:
+    git -C "/home/me/.../index" push
+```
+
+**It stops before pushing.** Everything up to that point can be undone
+by deleting a directory; sending it cannot, because a version once
+published has to go on meaning what it meant. So ember writes the entry,
+commits it in its own checkout of the index, and hands you the command.
+`--dry-run` prints what it would record and writes nothing.
+
+What gets recorded is the **commit**, not the tag — a tag can be moved
+and a commit cannot. Republishing a version is refused outright:
+
+```console
+error: version 1.0.0 of `textkit` is already published
+  = note: it is `d3743a17...`; publish a new version instead
+  = note: anyone who locked this version did so expecting it to stay put
+```
+
+A package that depends on a **path** cannot be published at all: nobody
+else has that directory, so it would not build for them. Publish that
+dependency too and depend on its version, or use a git dependency.
+
+There is no server, no account and no ownership. Whoever can push to the
+index can publish, which is a property of the git repository rather than
+of ember.
 
 [`examples/managed`](examples/managed) is a small project end to end.
 
@@ -921,9 +963,12 @@ v1 is deliberately small. These are the sharp edges worth knowing about.
   package to make room for another is reported as a conflict rather than
   solved. Requirements are carets and exact versions only — no ranges,
   wildcards or pre-release tags.
-- **Nothing publishes to a registry.** An index is a directory of TOML
-  files; adding a version means committing one. There is no `ember
-  publish`, no ownership, no checksums, and no hosted index to point at.
+- **A registry has no owners and no checksums.** Whoever can push to
+  the index repository can publish anything under any name, and nothing
+  verifies that a commit still contains what it did when it was
+  published. `ember publish` stops before pushing, so the git host's own
+  access control is what stands in for all of this. There is no hosted
+  index to point at.
 - **A package's manifest is a subset of TOML.** Comments, `[section]`
   headers, string values, and one level of `{ ... }`. No numbers, no
   booleans, no arrays. Anything else is refused by name rather than

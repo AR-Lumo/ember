@@ -86,6 +86,13 @@ struct ParseResult {
 /// so a manifest with two mistakes reports both.
 ParseResult parse(const ast::SourceFile& source);
 
+/// `text` as a quoted TOML string, escaped so it reads back unchanged.
+///
+/// Not optional, and not only for exotic input: a git remote on Windows
+/// is a path full of backslashes, and writing one raw produces a file
+/// this parser rejects for having unknown escapes in it.
+std::string quoted(std::string_view text);
+
 }  // namespace ember::manifest::toml
 
 #endif  // EMBER_MANIFEST_TOML_HPP

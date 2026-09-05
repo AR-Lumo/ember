@@ -312,3 +312,32 @@ ParseResult parse(const ast::SourceFile& source) {
 }
 
 }  // namespace ember::manifest::toml
+
+namespace ember::manifest::toml {
+
+std::string quoted(std::string_view text) {
+    std::string out{'"'};
+    for (const char c : text) {
+        switch (c) {
+            case '"':
+                out += "\\\"";
+                break;
+            case '\\':
+                out += "\\\\";
+                break;
+            case '\n':
+                out += "\\n";
+                break;
+            case '\t':
+                out += "\\t";
+                break;
+            default:
+                out.push_back(c);
+                break;
+        }
+    }
+    out.push_back('"');
+    return out;
+}
+
+}  // namespace ember::manifest::toml

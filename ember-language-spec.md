@@ -242,9 +242,11 @@ ember build file.em -o output      # compile to native executable
 ember run file.em                  # compile + run in one step
 ember check file.em                # type-check only, no codegen
 ember fetch                        # resolve dependencies             (v2)
+ember publish                      # add this version to the index     (v2)
 
   -L, --module-path <dir>          # extra place to find modules       (v2)
       --update                     # re-resolve git dependencies       (v2)
+      --dry-run                    # `publish`: report, write nothing  (v2)
   -O0 .. -O3                       # optimization level, default -O0   (v2)
   -v, --verbose                    # report per-module compile/cache decisions
       --fresh                      # ignore cached object files       (v2)
@@ -352,11 +354,13 @@ moving to the next. Don't let phases blend together.
 - Package manager: `ember.toml`, path, git and registry dependencies,
   semver requirements, and an `ember.lock` pinning the version and
   commit each dependency resolved to. A registry is a directory of index
-  files, hosted as a directory or a git repository. Packages are
-  distributed as source. Still to come: publishing to a registry, and
-  distributing compiled libraries, which would additionally need an
-  interface file recording a module's types and signatures so a
-  dependent can be built without the dependency's source.
+  files, hosted as a directory or a git repository. `ember publish` adds
+  a version to one, stopping short of pushing it. Packages are
+  distributed as source. Still to come: ownership and checksums for a
+  registry, and distributing compiled libraries, which would
+  additionally need an interface file recording a module's types and
+  signatures so a dependent can be built without the dependency's
+  source.
 
 ---
 

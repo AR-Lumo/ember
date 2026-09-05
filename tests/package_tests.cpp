@@ -949,6 +949,131 @@ EMBER_TEST(registry_lock_gives_way_when_it_no_longer_satisfies) {
 }
 
 // -------------------------------------------------------------------
+// Publishing
+// -------------------------------------------------------------------
+
+namespace {
+
+ember::manifest::Release published(const char* v, const char* rev = "abc") {
+    return ember::manifest::Release{version(v), "https://example.invalid/textkit", rev};
+}
+
+ember::manifest::PublishResult publish_into(const std::string& existing,
+                                            const ember::manifest::Release& release) {
+    return ember::manifest::add_release(SourceFile{"/index/textkit.toml", existing}, "textkit",
+                                        release);
+}
+
+}  // namespace
+
+EMBER_TEST(publish_writes_an_entry_for_a_package_nobody_has_published) {
+    const ember::manifest::PublishResult result = publish_into({}, published("1.0.0"));
+    EMBER_CHECK(result.ok());
+    EMBER_CHECK_MSG(result.contents.find("[1.0.0]") != std::string::npos, result.contents);
+    EMBER_CHECK_MSG(result.contents.find("rev = \"abc\"") != std::string::npos,
+                    result.contents);
+
+    // And what it wrote is something the index reader accepts.
+    const ember::manifest::IndexResult read = index_of(result.contents);
+    EMBER_CHECK(read.ok());
+    EMBER_CHECK_EQ(read.entry->releases.size(), std::size_t{1});
+}
+
+EMBER_TEST(publish_keeps_versions_in_order) {
+    // So two people publishing different versions produce a diff of one
+    // section rather than a conflict.
+    ember::manifest::PublishResult result = publish_into({}, published("2.0.0"));
+    result = publish_into(result.contents, published("1.0.0"));
+    result = publish_into(result.contents, published("1.5.0"));
+    EMBER_CHECK(result.ok());
+
+    EMBER_CHECK(result.contents.find("[1.0.0]") < result.contents.find("[1.5.0]"));
+    EMBER_CHECK(result.contents.find("[1.5.0]") < result.contents.find("[2.0.0]"));
+}
+
+EMBER_TEST(publish_refuses_to_republish_a_version) {
+    // The cardinal sin. Anyone who locked 1.0.0 did so expecting it to
+    // stay put.
+    const ember::manifest::PublishResult first = publish_into({}, published("1.0.0", "aaa"));
+    const ember::manifest::PublishResult again =
+        publish_into(first.contents, published("1.0.0", "bbb"));
+
+    EMBER_CHECK(!again.ok());
+    EMBER_CHECK_EQ(again.diagnostics.at(0).message,
+                   std::string{"version 1.0.0 of `textkit` is already published"});
+    EMBER_CHECK_MSG(again.contents.empty(), "a refused publish must write nothing");
+}
+
+EMBER_TEST(publish_will_not_rewrite_an_index_file_it_cannot_read) {
+    // Rewriting the file is how a release is added, so a file that will
+    // not parse has to stop the whole thing: the alternative is
+    // discarding whatever was wrong with it along with whatever was
+    // right.
+    const ember::manifest::PublishResult result =
+        publish_into("[not-a-version]\ngit = \"g\"\nrev = \"r\"\n", published("1.0.0"));
+    EMBER_CHECK(!result.ok());
+    EMBER_CHECK_MSG(result.contents.empty(), "a refused publish must write nothing");
+}
+
+EMBER_TEST(publish_escapes_a_location_so_the_index_reads_back) {
+    // A git remote on Windows is a path full of backslashes. Written
+    // raw, `C:\Users` is an unknown escape and the entry it lands in is
+    // unreadable - which is a package published and instantly broken.
+    const std::string windows_remote = "C:\\Users\\me\\textkit";
+    const ember::manifest::PublishResult result = publish_into(
+        {}, ember::manifest::Release{version("1.0.0"), windows_remote, "abc"});
+    EMBER_CHECK(result.ok());
+
+    const ember::manifest::IndexResult read = index_of(result.contents);
+    EMBER_CHECK_MSG(read.ok(), "the entry it wrote does not parse:\n" + result.contents);
+    EMBER_CHECK_EQ(read.entry->releases.at(0).git, windows_remote);
+}
+
+EMBER_TEST(lock_escapes_a_location_so_it_reads_back) {
+    // The same hazard, on the file every build writes.
+    ember::manifest::ResolvedPackage package;
+    package.name = "textkit";
+    package.kind = SourceKind::Git;
+    package.location = "C:\\Users\\me\\textkit";
+    package.resolved_rev = "abc";
+
+    const std::string text = ember::manifest::write_lock({package});
+    const ember::manifest::LockResult read =
+        ember::manifest::parse_lock(SourceFile{"/project/ember.lock", text});
+    EMBER_CHECK_MSG(read.ok(), "the lock it wrote does not parse:\n" + text);
+    EMBER_CHECK_EQ(read.lock.entries.at(0).location, package.location);
+}
+
+EMBER_TEST(publish_refuses_a_package_that_depends_on_a_path) {
+    // The check that matters: nobody else has that directory, so the
+    // package would not build for them.
+    const ember::manifest::Manifest manifest =
+        good(std::string{kHeader} + "\n[dependencies]\nhelper = { path = \"../helper\" }\n");
+    const std::vector<Diagnostic> errors = ember::manifest::check_publishable(manifest);
+    EMBER_CHECK_EQ(errors.size(), std::size_t{1});
+    EMBER_CHECK_EQ(errors.at(0).message,
+                   std::string{"`app` cannot be published: it depends on a path"});
+}
+
+EMBER_TEST(publish_allows_git_and_registry_dependencies) {
+    const ember::manifest::Manifest manifest =
+        good(std::string{kHeader} +
+             "\n[dependencies]\n"
+             "a = \"1.0.0\"\n"
+             "b = { git = \"https://example.invalid/b\", rev = \"v1\" }\n");
+    EMBER_CHECK(ember::manifest::check_publishable(manifest).empty());
+}
+
+EMBER_TEST(publish_refuses_a_version_the_registry_could_not_order) {
+    const ember::manifest::Manifest manifest =
+        good("[package]\nname = \"app\"\nversion = \"snapshot\"\n");
+    const std::vector<Diagnostic> errors = ember::manifest::check_publishable(manifest);
+    EMBER_CHECK_MSG(errors.at(0).message.find("not a version that can be published") !=
+                        std::string::npos,
+                    errors.at(0).message);
+}
+
+// -------------------------------------------------------------------
 // End to end, through the driver
 //
 // Everything above injects its fetching. These drive the real `ember`
@@ -998,6 +1123,10 @@ bool git_is_available() {
     return available;
 }
 
+/// Starts a repository with an identity, so commits in it work on a
+/// machine with no global git config.
+void git_init(const fs::path& directory);
+
 /// Runs a git command inside `directory`.
 void git(const fs::path& directory, const std::string& arguments) {
     const ProcessResult result =
@@ -1006,6 +1135,12 @@ void git(const fs::path& directory, const std::string& arguments) {
         ::ember::test::fail(__FILE__, __LINE__,
                             "git " + arguments + " failed:\n" + result.output);
     }
+}
+
+void git_init(const fs::path& directory) {
+    git(directory, "init --quiet .");
+    git(directory, "config user.email tests@example.invalid");
+    git(directory, "config user.name Tests");
 }
 
 /// Builds a real repository holding one package, and returns its path.
@@ -1230,6 +1365,131 @@ EMBER_TEST(registry_lock_survives_a_new_compatible_release) {
     const std::string updated = run_ember(workspace.path("app"), "run src/main.em --update");
     EMBER_CHECK_MSG(updated.find("110") != std::string::npos,
                     "`--update` should take 1.1.0:\n" + updated);
+}
+
+EMBER_TEST(publish_records_a_version_and_stops_before_pushing) {
+    if (!git_is_available() || !ember::codegen::is_available()) {
+        return;
+    }
+    // The whole round trip: a package with a remote and a tag, an index
+    // that is a real repository, and afterwards a *different* project
+    // resolving what was published.
+    const Workspace workspace;
+
+    // An index repository with something already in it, so the entry is
+    // added rather than creating the first file.
+    const fs::path index = workspace.path("index");
+    workspace.write("index/README.md", "the index\n");
+    git_init(index);
+    git(index, "add -A");
+    git(index, "commit --quiet -m \"init\"");
+
+    // The package, with somewhere to be fetched from.
+    workspace.write("textkit/ember.toml",
+                    "[package]\nname = \"textkit\"\nversion = \"1.0.0\"\n"
+                    "\n[registry]\nindex = \"" + index.generic_string() + "\"\n");
+    workspace.write("textkit/src/textkit.em", "pub fn value() -> int { return 42; }\n");
+
+    const fs::path package = workspace.path("textkit");
+    git_init(package);
+    git(package, "remote add origin " + quoted(package));
+    git(package, "add -A");
+    git(package, "commit --quiet -m \"1.0.0\"");
+    git(package, "tag v1.0.0");
+
+    const std::string dry = run_ember(package, "publish --dry-run");
+    EMBER_CHECK_MSG(dry.find("[1.0.0]") != std::string::npos, dry);
+    EMBER_CHECK_MSG(!fs::exists(index / "textkit.toml"),
+                    "a dry run must not write to the index");
+
+    const std::string done = run_ember(package, "publish");
+    EMBER_CHECK_MSG(done.find("not pushed") != std::string::npos,
+                    "publish should say it stopped short:\n" + done);
+    EMBER_CHECK_MSG(done.find("git -C") != std::string::npos,
+                    "publish should say how to send it:\n" + done);
+
+    // A directory index is written in place, so the entry is there now.
+    const std::optional<ember::ast::SourceFile> entry =
+        ember::ast::SourceFile::load(index / "textkit.toml");
+    EMBER_CHECK_MSG(entry.has_value(), "no index entry was written");
+    EMBER_CHECK_MSG(entry->contents().find("[1.0.0]") != std::string::npos,
+                    entry->contents());
+
+    // And somebody else can now depend on it.
+    workspace.write("app/ember.toml",
+                    "[package]\nname = \"app\"\nversion = \"0.1.0\"\n"
+                    "\n[registry]\nindex = \"" + index.generic_string() + "\"\n"
+                    "\n[dependencies]\ntextkit = \"1.0.0\"\n");
+    workspace.write("app/src/main.em",
+                    "import textkit;\npub fn main() { println(textkit::value()); }\n");
+
+    const std::string ran = run_ember(workspace.path("app"), "run src/main.em");
+    EMBER_CHECK_MSG(ran.find("42") != std::string::npos, ran);
+}
+
+EMBER_TEST(publish_refuses_an_untagged_or_dirty_package) {
+    if (!git_is_available() || !ember::codegen::is_available()) {
+        return;
+    }
+    const Workspace workspace;
+    const fs::path index = workspace.path("index");
+    workspace.write("index/README.md", "the index\n");
+
+    workspace.write("textkit/ember.toml",
+                    "[package]\nname = \"textkit\"\nversion = \"1.0.0\"\n"
+                    "\n[registry]\nindex = \"" + index.generic_string() + "\"\n");
+    workspace.write("textkit/src/textkit.em", "pub fn value() -> int { return 42; }\n");
+
+    const fs::path package = workspace.path("textkit");
+    git_init(package);
+    git(package, "remote add origin " + quoted(package));
+    git(package, "add -A");
+    git(package, "commit --quiet -m \"1.0.0\"");
+
+    // Committed, but never tagged: there is no `v1.0.0` to fetch.
+    const std::string untagged = run_ember(package, "publish");
+    EMBER_CHECK_MSG(untagged.find("no tag `v1.0.0`") != std::string::npos, untagged);
+
+    // Tagged, but with an edit sitting in the tree.
+    git(package, "tag v1.0.0");
+    workspace.write("textkit/src/textkit.em", "pub fn value() -> int { return 43; }\n");
+    const std::string dirty = run_ember(package, "publish");
+    EMBER_CHECK_MSG(dirty.find("uncommitted changes") != std::string::npos, dirty);
+}
+
+EMBER_TEST(publish_ignores_embers_own_output_when_checking_the_tree) {
+    if (!git_is_available() || !ember::codegen::is_available()) {
+        return;
+    }
+    // `.ember` and the lockfile appear the moment a package is checked
+    // once. Tripping over its own output would make the dirty-tree
+    // check unusable.
+    const Workspace workspace;
+    const fs::path index = workspace.path("index");
+    workspace.write("index/README.md", "the index\n");
+
+    workspace.write("textkit/ember.toml",
+                    "[package]\nname = \"textkit\"\nversion = \"1.0.0\"\n"
+                    "\n[registry]\nindex = \"" + index.generic_string() + "\"\n");
+    workspace.write("textkit/src/textkit.em", "pub fn value() -> int { return 42; }\n");
+
+    const fs::path package = workspace.path("textkit");
+    git_init(package);
+    git(package, "remote add origin " + quoted(package));
+    git(package, "add -A");
+    git(package, "commit --quiet -m \"1.0.0\"");
+    git(package, "tag v1.0.0");
+
+    // The state a package is in after being built once: a cache
+    // directory and a lockfile, both untracked. Written directly rather
+    // than by building, because what is under test is the filter, not
+    // how the files come to be there.
+    workspace.write("textkit/.ember/textkit-0000-O0-0000.o", "not really an object\n");
+    workspace.write("textkit/ember.lock", "# generated by ember\n");
+
+    const std::string done = run_ember(package, "publish --dry-run");
+    EMBER_CHECK_MSG(done.find("uncommitted changes") == std::string::npos,
+                    "ember's own output should not block a publish:\n" + done);
 }
 
 EMBER_TEST(a_program_with_no_manifest_still_builds) {

@@ -45,6 +45,10 @@ int run_command(const ember::cli::Command& command) {
         case CommandKind::Fetch:
             return ember::cli::fetch_packages(std::filesystem::current_path(),
                                               command.update);
+
+        case CommandKind::Publish:
+            return ember::cli::publish_package(std::filesystem::current_path(),
+                                               command.dry_run);
     }
 
     return ember::cli::kExitSuccess;

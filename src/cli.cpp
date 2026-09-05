@@ -271,6 +271,25 @@ ParseResult parse_fetch(std::span<const std::string_view> args) {
     return command;
 }
 
+/// `ember publish [--dry-run]`. Like `fetch`, it works on the manifest
+/// it finds rather than on a file it is handed.
+ParseResult parse_publish(std::span<const std::string_view> args) {
+    Command command;
+    command.kind = CommandKind::Publish;
+
+    for (const std::string_view arg : args) {
+        if (arg == "--dry-run") {
+            command.dry_run = true;
+            continue;
+        }
+        if (is_flag(arg)) {
+            return usage_error("unknown option `" + std::string{arg} + "`");
+        }
+        return usage_error("`publish` takes no input file, only the manifest it finds");
+    }
+    return command;
+}
+
 }  // namespace
 
 const std::string_view kUsage =
@@ -281,12 +300,14 @@ const std::string_view kUsage =
     "    ember run <file.em>                   compile and run in one step\n"
     "    ember check <file.em>                 type-check only, no codegen\n"
     "    ember fetch                           resolve and download dependencies\n"
+    "    ember publish                         record this version in the registry index\n"
     "\n"
     "OPTIONS:\n"
     "    -o, --output <path>   output path for `build` (default: input stem)\n"
     "    -L, --module-path <dir>\n"
     "                          also look here for imported modules (repeatable)\n"
     "        --update          re-resolve git dependencies, ignoring `ember.lock`\n"
+    "        --dry-run         for `publish`: say what it would record, record nothing\n"
     "    -O0 .. -O3            optimization level (default: -O0)\n"
     "    -v, --verbose         report which modules were compiled and which were cached\n"
     "        --fresh           recompile every module, ignoring cached object files\n"
@@ -318,6 +339,9 @@ ParseResult parse_args(std::span<const std::string_view> args) {
     }
     if (first == "fetch") {
         return parse_fetch(rest);
+    }
+    if (first == "publish") {
+        return parse_publish(rest);
     }
     return usage_error("unknown subcommand `" + std::string{first} + "`");
 }
@@ -421,6 +445,17 @@ FrontEnd run_front_end(const std::filesystem::path& input,
 /// so this is not optional.
 std::string quote(const std::filesystem::path& path) {
     return "\"" + path.string() + "\"";
+}
+
+/// Quote a git revision for the shell.
+///
+/// The *whole* revspec has to be inside the quotes, suffix included:
+/// `^` is cmd.exe's escape character, so `"v1.0.0"^{commit}` arrives as
+/// `v1.0.0commit` and git says there is no such tag. That has been got
+/// wrong twice, which is why building the string is this function's job
+/// and not the caller's.
+std::string quote_rev(const std::string& rev, std::string_view suffix = {}) {
+    return "\"" + rev + std::string{suffix} + "\"";
 }
 
 /// Run a command line, returning its exit code.
@@ -771,7 +806,7 @@ private:
         const std::string at = " -C " + quote(checkout) + " ";
         const bool have_it =
             is_commit_hash(rev) && capture_command("git" + at + "rev-parse --verify --quiet " +
-                                                   quote_arg(rev + "^{commit}"))
+                                                   quote_rev(rev, "^{commit}"))
                                            .exit_code == 0;
         if (!have_it) {
             if (verbose_) {
@@ -789,7 +824,7 @@ private:
         }
 
         const CapturedCommand checked_out =
-            capture_command("git" + at + "checkout --quiet --detach " + quote_arg(rev));
+            capture_command("git" + at + "checkout --quiet --detach " + quote_rev(rev));
         if (checked_out.exit_code != 0) {
             fetched.error = git_failure("checkout " + rev, checked_out);
             return fetched;
@@ -811,11 +846,6 @@ private:
     /// What has already been fetched this run, by repository and
     /// revision.
     std::map<std::string, manifest::Fetched> already_;
-
-    /// A revision or URL goes to a shell, so it is quoted like a path.
-    /// The whole revspec has to be inside the quotes: `^` is cmd.exe's
-    /// escape character, and `v1.0.0"^{commit}` loses the brace.
-    static std::string quote_arg(const std::string& text) { return "\"" + text + "\""; }
 
     /// Whether `rev` is a full commit hash, and so cannot ever name
     /// different code than it did last time.
@@ -850,13 +880,19 @@ private:
 /// the first time or `--update` says to choose again.
 class RegistryIndex {
 public:
-    RegistryIndex(std::string configured, std::filesystem::path cache, GitFetcher& fetcher,
-                  bool update, ast::SourceMap& sources)
+    RegistryIndex(std::string configured, std::filesystem::path cache, bool update,
+                  ast::SourceMap& sources)
         : configured_(std::move(configured)),
           cache_(std::move(cache)),
-          fetcher_(fetcher),
           update_(update),
           sources_(sources) {}
+
+    /// Where the index actually is, materializing it if need be.
+    /// Publishing writes here; resolution only reads.
+    std::optional<std::filesystem::path> directory() { return locate(); }
+
+    /// Why `directory()` came back empty.
+    const std::string& error() const noexcept { return error_; }
 
     manifest::IndexLookup operator()(const std::string& name) {
         manifest::IndexLookup lookup;
@@ -889,13 +925,22 @@ public:
 private:
     std::string configured_;
     std::filesystem::path cache_;
-    GitFetcher& fetcher_;
     bool update_ = false;
     ast::SourceMap& sources_;
 
     std::optional<std::filesystem::path> resolved_;
     std::string error_;
     bool tried_ = false;
+
+    /// Whether `path` is a git repository with no working tree - the
+    /// layout git itself recognizes, without needing git to be present
+    /// to ask.
+    static bool is_bare_repository(const std::filesystem::path& path) {
+        std::error_code code;
+        return std::filesystem::is_regular_file(path / "HEAD", code) &&
+               std::filesystem::is_directory(path / "objects", code) &&
+               std::filesystem::is_directory(path / "refs", code);
+    }
 
     /// Materializes the index once, whatever kind it is.
     std::optional<std::filesystem::path> locate() {
@@ -910,34 +955,48 @@ private:
         }
 
         // A directory that exists is used as it is; anything else is a
-        // repository to clone. That is the whole rule.
+        // repository to clone.
+        //
+        // A *bare* repository is the exception, and the reason this is
+        // not one line: `index.git` is a directory, and reading it as
+        // one would serve git's own object store as index entries. It
+        // has to be cloned like any other repository.
         std::error_code code;
         const std::filesystem::path as_directory{configured_};
-        if (std::filesystem::is_directory(as_directory, code)) {
+        if (std::filesystem::is_directory(as_directory, code) && !is_bare_repository(as_directory)) {
             resolved_ = as_directory;
             return resolved_;
         }
 
+        // Cloned and pulled rather than pinned to a commit. An index is
+        // something you keep up to date, not a version you depend on;
+        // `GitFetcher` is built for the other job, and detaching it at a
+        // branch tip is not a shape it has.
         const std::filesystem::path checkout =
             cache_ / ("index-" + hex(hash_into(kHashSeed, configured_), 16));
-        if (std::filesystem::is_directory(checkout / ".git", code) && !update_) {
+        const bool cloned = std::filesystem::is_directory(checkout / ".git", code);
+
+        if (cloned && !update_) {
             resolved_ = checkout;
             return resolved_;
         }
 
-        manifest::Dependency index;
-        index.name = "index";
-        index.kind = manifest::SourceKind::Git;
-        index.location = configured_;
-        index.rev = "HEAD";
-
         std::cerr << "fetching the registry index (" << configured_ << ")\n";
-        const manifest::Fetched fetched = fetcher_(index, "HEAD");
-        if (!fetched.ok()) {
-            error_ = "cannot read the registry index: " + fetched.error;
+        CapturedCommand result;
+        if (cloned) {
+            result = capture_command("git -C " + quote(checkout) + " pull --quiet --ff-only");
+        } else {
+            std::filesystem::remove_all(checkout, code);
+            result = capture_command("git clone --quiet " +
+                                     quote(std::filesystem::path{configured_}) + " " +
+                                     quote(checkout));
+        }
+        if (result.exit_code != 0) {
+            const std::string said = trimmed(result.output);
+            error_ = "cannot read the registry index" + (said.empty() ? "" : ": " + said);
             return std::nullopt;
         }
-        resolved_ = fetched.root;
+        resolved_ = checkout;
         return resolved_;
     }
 };
@@ -1148,7 +1207,7 @@ PackageResolution resolve_packages(const std::filesystem::path& entry, bool upda
 
     const std::filesystem::path cache = root / ".ember" / "packages";
     GitFetcher fetcher{cache, verbose};
-    RegistryIndex index{parsed.manifest->registry_index, cache, fetcher, update, sources};
+    RegistryIndex index{parsed.manifest->registry_index, cache, update, sources};
 
     manifest::Resolution resolution = manifest::resolve(*parsed.manifest, lock,
                                                         std::ref(fetcher), std::ref(index),
@@ -1191,6 +1250,265 @@ int fetch_packages(const std::filesystem::path& from, bool update) {
                       ? "nothing to fetch\n"
                       : std::to_string(resolved.search_path.size()) + " package" +
                             (resolved.search_path.size() == 1 ? "" : "s") + " ready\n");
+    return kExitSuccess;
+}
+
+namespace {
+
+/// Asks git something about a directory, or gives up saying why.
+struct GitAnswer {
+    std::string value;
+    std::string error;
+
+    bool ok() const noexcept { return error.empty(); }
+};
+
+/// What `git status --porcelain` said, minus anything ember itself put
+/// there: the `.ember` build cache and the lockfile.
+///
+/// Both appear the moment a package has been checked once, so without
+/// this every package looks dirty and the check that matters - that the
+/// commit about to be published is the one just tested - drowns in the
+/// tool tripping over its own output. Neither file affects what a
+/// consumer builds: they resolve their own dependencies.
+std::string authored_changes(const std::string& status) {
+    std::string out;
+    std::size_t at = 0;
+    while (at < status.size()) {
+        const std::size_t end = status.find('\n', at);
+        const std::string line =
+            status.substr(at, end == std::string::npos ? std::string::npos : end - at);
+        at = end == std::string::npos ? status.size() : end + 1;
+
+        // Porcelain lines are `XY <path>`, and a path with a space in it
+        // is quoted; either way `.ember/` is what follows the status.
+        const std::size_t path = line.find_first_not_of(" ?!AMDRCU", 0);
+        const std::string_view rest =
+            path == std::string::npos ? std::string_view{} : std::string_view{line}.substr(path);
+        if (rest.rfind(".ember/", 0) == 0 || rest.rfind("\".ember/", 0) == 0 ||
+            rest == manifest::kLockName) {
+            continue;
+        }
+        if (!line.empty()) {
+            out += (out.empty() ? "" : "\n") + line;
+        }
+    }
+    return out;
+}
+
+GitAnswer ask_git(const std::filesystem::path& directory, const std::string& arguments,
+                  const std::string& what) {
+    const CapturedCommand result =
+        capture_command("git -C " + quote(directory) + " " + arguments);
+    if (result.exit_code != 0) {
+        return GitAnswer{{}, what};
+    }
+    return GitAnswer{trimmed(result.output), {}};
+}
+
+}  // namespace
+
+int publish_package(const std::filesystem::path& from, bool dry_run) {
+    const std::optional<std::filesystem::path> manifest_path = manifest::find_manifest(from);
+    if (!manifest_path.has_value()) {
+        std::cerr << "error: no `" << manifest::kManifestName << "` here or above\n";
+        std::cerr << "note: `publish` works on a package; create a manifest to make this one\n";
+        return kExitCompileError;
+    }
+
+    ast::SourceMap sources;
+    const std::optional<ast::SourceFile> file = ast::SourceFile::load(*manifest_path);
+    if (!file.has_value()) {
+        std::cerr << "error: cannot read `" << manifest_path->string() << "`\n";
+        return kExitCompileError;
+    }
+
+    const ast::FileId id = sources.add(manifest_path->string(), file->contents());
+    manifest::ManifestResult parsed = manifest::parse_manifest(sources.file(id));
+    if (!parsed.diagnostics.empty() || !parsed.manifest.has_value()) {
+        std::cerr << ast::render_all(parsed.diagnostics, sources);
+        return kExitCompileError;
+    }
+    const manifest::Manifest& package = *parsed.manifest;
+
+    const std::vector<ast::Diagnostic> publishable = manifest::check_publishable(package);
+    if (!publishable.empty()) {
+        std::cerr << ast::render_all(publishable, sources);
+        return kExitCompileError;
+    }
+
+    // A package whose root module is missing is one `import` cannot
+    // reach, however well the rest of it is put together.
+    const std::filesystem::path entry =
+        package.source_directory() / (package.name + "." + std::string{ast::kFileExtension});
+    if (!std::filesystem::exists(entry)) {
+        std::cerr << "error: `" << package.name << "` has no root module\n";
+        std::cerr << "note: expected `" << entry.string() << "`, which is what `import "
+                  << package.name << ";` looks for\n";
+        return kExitCompileError;
+    }
+
+    std::cerr << " checking " << package.name << " " << package.version << "\n";
+    if (check_file(entry, {}, /*update=*/false) != kExitSuccess) {
+        std::cerr << "error: `" << package.name << "` does not check; not publishing it\n";
+        return kExitCompileError;
+    }
+
+    // What everyone else will fetch. A dirty tree would publish a commit
+    // that does not match the files it was checked from.
+    const GitAnswer dirty = ask_git(package.root, "status --porcelain",
+                                    "`" + package.root.string() + "` is not a git repository");
+    if (!dirty.ok()) {
+        std::cerr << "error: cannot publish `" << package.name << "`\n";
+        std::cerr << "note: " << dirty.error << "; a published version is a commit somebody "
+                     "else can fetch\n";
+        return kExitCompileError;
+    }
+    const std::string changes = authored_changes(dirty.value);
+    if (!changes.empty()) {
+        std::cerr << "error: the working tree has uncommitted changes\n";
+        std::cerr << "note: publishing would record a commit that is not what was just "
+                     "checked\n";
+        std::cerr << changes << "\n";
+        return kExitCompileError;
+    }
+
+    const GitAnswer origin =
+        ask_git(package.root, "remote get-url origin", "this package has no `origin` remote");
+    if (!origin.ok()) {
+        std::cerr << "error: cannot publish `" << package.name << "`\n";
+        std::cerr << "note: " << origin.error << ", so there is nowhere to fetch it from\n";
+        return kExitCompileError;
+    }
+
+    // The tag is the human-facing name; the commit is what gets
+    // recorded, because a tag can be moved and a commit cannot.
+    const std::string tag = "v" + package.version;
+    const GitAnswer commit =
+        ask_git(package.root, "rev-parse --verify " + quote_rev(tag, "^{commit}"),
+                "no tag `" + tag + "`");
+    if (!commit.ok()) {
+        std::cerr << "error: cannot publish `" << package.name << "` " << package.version
+                  << "\n";
+        std::cerr << "note: " << commit.error << "; tag the release with `git tag " << tag
+                  << "`\n";
+        return kExitCompileError;
+    }
+
+    const GitAnswer head = ask_git(package.root, "rev-parse HEAD", "cannot read HEAD");
+    if (head.ok() && head.value != commit.value) {
+        std::cerr << "error: `" << tag << "` is not what is checked out\n";
+        std::cerr << "note: the tag is " << commit.value.substr(0, 8) << " and HEAD is "
+                  << head.value.substr(0, 8) << "; publishing the tag would publish code "
+                     "that was not just checked\n";
+        return kExitCompileError;
+    }
+
+    const std::optional<manifest::Version> version = manifest::Version::parse(package.version);
+    manifest::Release release;
+    release.version = *version;
+    release.git = origin.value;
+    release.rev = commit.value;
+
+    std::cerr << " packaged " << package.name << " " << package.version << " ("
+              << commit.value.substr(0, 8) << ")\n";
+
+    // The index. A directory is edited where it is; a repository is
+    // cloned first, and the clone is where the commit lands.
+    const std::filesystem::path cache = package.root / ".ember" / "packages";
+    GitFetcher fetcher{cache, /*verbose=*/false};
+    RegistryIndex index{package.registry_index, cache, /*update=*/true, sources};
+
+    const std::optional<std::filesystem::path> index_directory = index.directory();
+    if (!index_directory.has_value()) {
+        std::cerr << "error: " << (index.error().empty() ? "no registry is configured"
+                                                         : index.error())
+                  << "\n";
+        std::cerr << "note: `publish` writes to the index named by `[registry] index`\n";
+        return kExitCompileError;
+    }
+
+    const std::filesystem::path index_file =
+        *index_directory / (package.name + std::string{manifest::kIndexExtension});
+    const std::optional<ast::SourceFile> existing = ast::SourceFile::load(index_file);
+    const ast::SourceFile empty{index_file.string(), {}};
+
+    const manifest::PublishResult written =
+        manifest::add_release(existing.has_value() ? *existing : empty, package.name, release);
+    if (!written.ok()) {
+        ast::SourceMap index_sources;
+        index_sources.add(index_file.string(),
+                          existing.has_value() ? existing->contents() : std::string{});
+        std::cerr << ast::render_all(written.diagnostics, index_sources);
+        return kExitCompileError;
+    }
+
+    if (dry_run) {
+        std::cerr << "  dry run, nothing written. `" << index_file.string()
+                  << "` would read:\n\n";
+        std::cout << written.contents;
+        return kExitSuccess;
+    }
+
+    std::error_code code;
+    std::filesystem::create_directories(index_file.parent_path(), code);
+    {
+        std::ofstream out(index_file, std::ios::binary);
+        out << written.contents;
+        if (!out) {
+            std::cerr << "error: cannot write `" << index_file.string() << "`\n";
+            return kExitCompileError;
+        }
+    }
+    std::cerr << "   staged " << index_file.string() << "\n";
+
+    // A directory index is now up to date and there is nothing to push.
+    if (!std::filesystem::is_directory(*index_directory / ".git", code)) {
+        std::cerr << "published " << package.name << " " << package.version << "\n";
+        return kExitSuccess;
+    }
+
+    const std::string message = "publish " + package.name + " " + package.version;
+    const std::string at = "git -C " + quote(*index_directory) + " ";
+
+    for (const std::string& step : {"add " + quote(index_file.filename()),
+                                    "commit --quiet -m " +
+                                        quote(std::filesystem::path{message})}) {
+        const CapturedCommand done = capture_command(at + step);
+        if (done.exit_code == 0) {
+            continue;
+        }
+        // Put the index back the way it was. Leaving the entry on disk
+        // would make the next attempt believe the version is already
+        // published, which is a lie that outlives the error that caused
+        // it - and the guard against republishing is worth more than
+        // saving the write.
+        if (existing.has_value()) {
+            capture_command(at + "checkout --quiet HEAD -- " + quote(index_file.filename()));
+        } else {
+            std::error_code ignored;
+            std::filesystem::remove(index_file, ignored);
+        }
+
+        // Whatever git objected to is what the author has to fix, so it
+        // goes on the screen rather than into a generic apology. The
+        // usual one is a clone with no `user.email` set.
+        std::cerr << "error: cannot commit the index entry\n";
+        const std::string said = trimmed(done.output);
+        if (!said.empty()) {
+            std::cerr << said << "\n";
+        }
+        std::cerr << "note: nothing was published; fix the above and run `ember publish` "
+                     "again\n";
+        return kExitCompileError;
+    }
+
+    // Deliberately not pushed. Everything up to here can be undone by
+    // deleting a directory; sending it cannot, because a version once
+    // published has to go on meaning what it meant.
+    std::cerr << "committed to the index, and not pushed\n\n";
+    std::cerr << "To publish " << package.name << " " << package.version << ", send it:\n";
+    std::cerr << "    git -C " << quote(*index_directory) << " push\n";
     return kExitSuccess;
 }
 

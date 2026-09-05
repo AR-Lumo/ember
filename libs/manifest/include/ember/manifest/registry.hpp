@@ -93,6 +93,35 @@ struct IndexLookup {
 /// against an index that exists only in the test.
 using IndexReader = std::function<IndexLookup(const std::string& name)>;
 
+// ---------------------------------------------------------------------
+// Publishing
+// ---------------------------------------------------------------------
+
+/// Renders a package's index file: every release, lowest version first.
+///
+/// The whole file is rewritten rather than appended to, so the ordering
+/// is canonical and two people publishing different versions produce a
+/// diff of one section rather than a conflict. An index file is
+/// machine-written; a comment put in one by hand does not survive.
+std::string render_index_entry(const std::string& name, std::vector<Release> releases);
+
+struct PublishResult {
+    /// The index file as it should now read.
+    std::string contents;
+    std::vector<ast::Diagnostic> diagnostics;
+
+    bool ok() const noexcept { return diagnostics.empty(); }
+};
+
+/// Adds `release` to `existing`, which may be an empty file for a
+/// package nobody has published before.
+///
+/// Republishing a version is refused. A version that already means one
+/// thing must go on meaning it: everyone who locked it did so on the
+/// understanding that it would not change underneath them.
+PublishResult add_release(const ast::SourceFile& existing, const std::string& name,
+                          const Release& release);
+
 }  // namespace ember::manifest
 
 #endif  // EMBER_MANIFEST_REGISTRY_HPP

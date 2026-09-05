@@ -36,6 +36,8 @@ enum class CommandKind {
     /// Resolve and download what the manifest depends on, without
     /// building anything.
     Fetch,
+    /// Record this package's current version in the registry index.
+    Publish,
     Help,
     Version,
 };
@@ -72,6 +74,8 @@ struct Command {
     /// `--update`: re-resolve git dependencies instead of using the
     /// revisions `ember.lock` pinned.
     bool update = false;
+    /// `--dry-run`: say what `publish` would record, and record nothing.
+    bool dry_run = false;
 
     friend bool operator==(const Command&, const Command&) = default;
 };
@@ -137,6 +141,17 @@ PackageResolution resolve_packages(const std::filesystem::path& entry, bool upda
 /// `ember fetch` (§6): resolve and download, and stop there. Returns a
 /// process exit code.
 int fetch_packages(const std::filesystem::path& from, bool update);
+
+/// `ember publish` (§6): record this package's version in the registry
+/// index, and stop short of pushing it.
+///
+/// Everything up to the push is a local, reversible act: the index entry
+/// is written and committed in ember's own checkout of the index, and
+/// the command prints the `git push` that would make it public. Sending
+/// it is the author's to do — publishing is irreversible in the way that
+/// matters, since a version, once out, has to go on meaning what it
+/// meant.
+int publish_package(const std::filesystem::path& from, bool dry_run);
 
 /// Run the front end over `input` - lex, parse, type-check - printing
 /// any diagnostics to stderr in the §7 format. Returns a process exit
