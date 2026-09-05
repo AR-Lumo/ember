@@ -301,13 +301,27 @@ EMBER_TEST(string_accepts_another_string_buffer) {
                    "    println(a);"));
 }
 
-EMBER_TEST(string_is_distinct_from_the_string_view) {
-    // `String` owns a buffer; `string` is a borrowed fixed-length view.
-    // Passing one where the other is wanted is a type error.
+EMBER_TEST(string_lends_a_view_of_itself_where_one_is_wanted) {
+    // `String` owns a buffer; `string` is a borrowed fixed-length view
+    // of one. Handing a `String` to something that only wants to read it
+    // takes a view - the caller keeps the buffer, so this is a borrow
+    // and not a move.
+    accept("pub fn take(s: string) -> int { return len(s); }\n" +
+           in_main("let mut s: String = new_string();\n"
+                   "    push_str(s, \"text\");\n"
+                   "    println(take(s));\n"
+                   "    println(take(s));\n"
+                   "    println(len(s));"));
+}
+
+EMBER_TEST(string_cannot_be_conjured_from_a_view) {
+    // The other direction needs a copy, and nothing here copies
+    // silently: a `string` borrows bytes it does not own, and no
+    // coercion can turn that into ownership.
     const std::vector<ember::ast::Diagnostic> errors =
-        reject("pub fn take(s: string) { }\n" +
-               in_main("let mut s: String = new_string();\n    take(s);"));
-    EMBER_CHECK_EQ(errors.at(0).label, std::string{"expected `string`, found `String`"});
+        reject("pub fn take(s: String) { }\n" +
+               in_main("let view = \"fixed\";\n    take(view);"));
+    EMBER_CHECK_EQ(errors.at(0).label, std::string{"expected `String`, found `string`"});
 }
 
 EMBER_TEST(string_rejects_appending_to_a_view) {

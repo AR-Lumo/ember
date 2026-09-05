@@ -160,6 +160,14 @@ bool is_generic(TypePtr type) noexcept;
 bool is_owned(TypePtr type) noexcept;
 
 /// Numeric types, which are the ones arithmetic accepts.
+/// True for either kind of text: the borrowed `string` view and the
+/// owned `String` buffer. They hold the same bytes and differ only in
+/// who owns them, so anything that only *reads* text takes both.
+inline bool is_text(TypePtr type) noexcept {
+    return type != nullptr &&
+           (type->kind == TypeKind::String || type->kind == TypeKind::StringBuf);
+}
+
 inline bool is_numeric(TypePtr type) noexcept {
     return type != nullptr && (type->kind == TypeKind::Int || type->kind == TypeKind::Float);
 }

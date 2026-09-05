@@ -768,6 +768,39 @@ println(message);
 turbofish and nothing in the call to infer from. That same rule now also
 lets `let xs: [int; 0] = [];` work.
 
+`capacity(c)` says what a container has room for and `reserve(c, n)`
+asks for more, on either growable container. Neither ever shrinks.
+
+#### Text reads the same whichever type holds it
+
+`string` borrows and `String` owns, but the bytes say the same thing, so
+everything that only *reads* takes either:
+
+```ember
+let sentence = "the quick brown fox";
+println(slice(sentence, 4, 9));      // quick
+println(find(sentence, "fox"));      // 16
+println(contains(sentence, "cat"));  // false
+
+let mut owned: String = new_string();
+push_str(owned, "the quick brown fox");
+println(owned == sentence);          // true, across the two types
+println("apple" < "banana");         // text orders lexicographically
+```
+
+`slice` returns a **view**, so a substring costs a bounds check and two
+fields rather than an allocation — and carries the same warning `&T`
+does: it points into something else, and dangles if that something is
+dropped or grown while the view is alive.
+
+Passing a `String` where a `string` is wanted **lends a view of it**;
+the caller keeps the buffer, so this borrows rather than moves. The
+other direction is refused, because turning a borrow into ownership
+needs a copy and nothing here copies silently.
+
+[`examples/words.em`](examples/words.em) splits a sentence, sorts the
+pieces and searches them.
+
 An element may own memory of its own — `Vec<String>`, `Vec<Vec<int>>`,
 as deep as you like. Dropping such a vector is not one `free`: it walks
 its live elements, drops each, and only then releases the buffer they
@@ -1002,11 +1035,10 @@ v1 is deliberately small. These are the sharp edges worth knowing about.
   code to know which parts are still live — so it is rejected. Move the
   whole struct, or use `pop` to shorten a `Vec` and take its last
   element back.
-- **No slicing, no concatenation operator.** `push_str` builds a
-  `String`; `+` on strings is still not a thing, and there is no way to
-  take a sub-range of either a `Vec` or a `String`.
-- **No capacity control.** No `reserve`, no `shrink`, no way to ask what
-  a container has allocated.
+- **No `+` on text, and no slicing a `Vec`.** `push_str` appends and
+  `slice` takes a sub-range of text, but `+` on strings is still not a
+  thing — allocation stays visible, as it is in Rust — and only text can
+  be sliced. Index a `Vec` instead.
 - **Generic methods and `impl<T>` blocks are not implemented.** Generic
   free functions and generic structs work; a method with its own type
   parameters, or an `impl` block over a generic type, is reported as

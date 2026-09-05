@@ -231,11 +231,20 @@ plus compiler-recognized intrinsics:
 - `println(x)` — works for `int`, `float`, `bool`, `string`
 - `print(x)` — same, no newline
 - Arithmetic/comparison operators (compiler intrinsics, not library calls)
-- `len(x)` for arrays, `Vec`s and `String`s
+- `len(x)` for arrays, `Vec`s, `string`s and `String`s
 - `new_vec()`, `push(v, x)`, `pop(v)` for `Vec<T>` (v2)
 - `new_string()`, `push_str(s, text)` for `String` (v2)
+- `capacity(c)`, `reserve(c, n)` for either growable container (v2)
+- `slice(text, start, end)` — a borrowed view, no copy (v2)
+- `find(haystack, needle)` — byte offset, or -1 (v2)
+- `contains(haystack, needle)` (v2)
 
-Everything else (file I/O, collections, string manipulation) is v2+.
+Text reads the same whichever type holds it: everything above that only
+*reads* takes a `string` or a `String`, comparison works across the two,
+and a `String` passed where a `string` is wanted lends a view of itself
+rather than moving. (v2)
+
+Everything else (file I/O, collections) is v2+.
 
 ---
 

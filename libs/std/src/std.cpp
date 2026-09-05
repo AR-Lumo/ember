@@ -79,6 +79,41 @@ void ember_println_string(const char* bytes, int64_t length) {
 
 // --- support --------------------------------------------------------
 
+int64_t ember_string_cmp(const char* left, int64_t left_length, const char* right,
+                         int64_t right_length) {
+    const int64_t shared = left_length < right_length ? left_length : right_length;
+    if (shared > 0) {
+        const int order = memcmp(left, right, static_cast<size_t>(shared));
+        if (order != 0) {
+            return order < 0 ? -1 : 1;
+        }
+    }
+    // One is a prefix of the other, so the shorter comes first.
+    if (left_length == right_length) {
+        return 0;
+    }
+    return left_length < right_length ? -1 : 1;
+}
+
+int64_t ember_string_find(const char* haystack, int64_t haystack_length, const char* needle,
+                          int64_t needle_length) {
+    if (needle_length == 0) {
+        return 0;  // the empty string is at the start of everything
+    }
+    if (needle_length > haystack_length) {
+        return -1;
+    }
+    // Naive search. A million-character haystack would want something
+    // better; nothing in Ember has one yet, and this is the version
+    // whose correctness is obvious.
+    for (int64_t at = 0; at + needle_length <= haystack_length; ++at) {
+        if (memcmp(haystack + at, needle, static_cast<size_t>(needle_length)) == 0) {
+            return at;
+        }
+    }
+    return -1;
+}
+
 int8_t ember_string_eq(const char* left, int64_t left_length, const char* right,
                        int64_t right_length) {
     if (left_length != right_length) {
@@ -88,6 +123,15 @@ int8_t ember_string_eq(const char* left, int64_t left_length, const char* right,
         return 1;
     }
     return memcmp(left, right, static_cast<size_t>(left_length)) == 0 ? 1 : 0;
+}
+
+void ember_panic_bad_slice(int64_t start, int64_t end, int64_t length) {
+    fflush(stdout);
+    fprintf(stderr,
+            "ember: slice out of bounds: the length is %" PRId64 " but the range is %" PRId64
+            "..%" PRId64 "\n",
+            length, start, end);
+    exit(101);
 }
 
 void ember_panic_index_out_of_bounds(int64_t index, int64_t length) {
@@ -136,6 +180,15 @@ void* ember_realloc(void* buffer, int64_t bytes) {
 }
 
 void ember_free(void* buffer) { free(buffer); }
+
+void* ember_reserve(void* buffer, int64_t element_size, int64_t* capacity, int64_t wanted) {
+    if (wanted <= *capacity) {
+        return buffer;  // never shrinks: what is already there is paid for
+    }
+    void* grown = ember_realloc(buffer, wanted * element_size);
+    *capacity = wanted;
+    return grown;
+}
 
 void* ember_grow(void* buffer, int64_t element_size, int64_t length, int64_t* capacity) {
     if (length < *capacity) {

@@ -13,8 +13,9 @@ using ast::Diagnostic;
 using ast::Span;
 
 /// §5: recognized by the compiler rather than declared in a library.
-constexpr std::array<std::string_view, 8> kIntrinsics{
-    "println", "print", "len", "new_vec", "push", "pop", "new_string", "push_str"};
+constexpr std::array<std::string_view, 13> kIntrinsics{
+    "println", "print",  "len",      "new_vec", "push",     "pop",     "new_string",
+    "push_str", "slice", "find",     "contains", "capacity", "reserve"};
 
 /// One binding visible in a scope.
 struct Binding {
@@ -49,6 +50,38 @@ public:
         }
         scope.emplace(name, binding);
         return nullptr;
+    }
+
+    /// Which bindings have been moved out of, and where.
+    ///
+    /// Taken before a branch and put back after one that cannot fall
+    /// through, because a value given up on a path that returns was not
+    /// given up on the path that carries on.
+    using MoveState = std::vector<std::map<std::string, std::pair<bool, Span>>>;
+
+    MoveState moves() const {
+        MoveState state;
+        state.reserve(scopes_.size());
+        for (const std::map<std::string, Binding>& scope : scopes_) {
+            std::map<std::string, std::pair<bool, Span>> level;
+            for (const auto& [name, binding] : scope) {
+                level.emplace(name, std::pair{binding.moved, binding.moved_at});
+            }
+            state.push_back(std::move(level));
+        }
+        return state;
+    }
+
+    void restore_moves(const MoveState& state) {
+        for (std::size_t i = 0; i < scopes_.size() && i < state.size(); ++i) {
+            for (auto& [name, binding] : scopes_[i]) {
+                const auto found = state[i].find(name);
+                if (found != state[i].end()) {
+                    binding.moved = found->second.first;
+                    binding.moved_at = found->second.second;
+                }
+            }
+        }
     }
 
     const Binding* lookup(const std::string& name) const {
@@ -815,6 +848,24 @@ private:
             context.closure->captures.push_back(ast::Capture{name, span});
         }
         (void)binding;
+    }
+
+    /// Whether handing `argument` to a parameter of type `parameter`
+    /// lends it rather than gives it away.
+    ///
+    /// A `&T` parameter borrows, which is the obvious case. So does a
+    /// `string` parameter given a `String`: what is passed is a view of
+    /// the buffer, and the caller still owns the buffer.
+    static bool passes_by_borrow(TypePtr parameter, TypePtr argument) {
+        if (parameter == nullptr) {
+            return false;
+        }
+        if (parameter->kind == TypeKind::Reference) {
+            return true;
+        }
+        return parameter->kind == TypeKind::String &&
+               strip_reference(argument) != nullptr &&
+               strip_reference(argument)->kind == TypeKind::StringBuf;
     }
 
     /// Records that `expr` gives up ownership of whatever it names.
@@ -1693,9 +1744,28 @@ private:
 
     void check_if(const ast::IfStmt& statement) {
         check_condition(*statement.condition);
+
+        // Moves made on a branch that cannot fall through are put back
+        // before checking what follows it. Without this, the ordinary
+        // shape
+        //
+        //     if done { return answer; }
+        //     use(answer);
+        //
+        // would report the second line as a use of something moved on a
+        // path that never reaches it.
+        const Scopes::MoveState before_then = scopes_.moves();
         check_block(statement.then_block);
+        if (always_returns(statement.then_block)) {
+            scopes_.restore_moves(before_then);
+        }
+
         if (statement.else_branch) {
+            const Scopes::MoveState before_else = scopes_.moves();
             check_stmt(*statement.else_branch);
+            if (always_returns(*statement.else_branch)) {
+                scopes_.restore_moves(before_else);
+            }
         }
     }
 
@@ -1962,6 +2032,12 @@ private:
 
             case ast::BinaryOp::Equal:
             case ast::BinaryOp::NotEqual: {
+                // A `string` and a `String` hold the same bytes and
+                // differ only in who owns them, so comparing one with
+                // the other is comparing text with text.
+                if (is_text(left) && is_text(right)) {
+                    return record(expr, types().bool_type());
+                }
                 if (left != right) {
                     return record(expr, mismatched_operands(expr, symbol, left, right));
                 }
@@ -1980,12 +2056,18 @@ private:
             case ast::BinaryOp::Greater:
             case ast::BinaryOp::LessEq:
             case ast::BinaryOp::GreaterEq: {
+                // Text orders lexicographically, by bytes. That is the
+                // same order as by code point for UTF-8, and it is an
+                // order rather than a collation - `Z` before `a`.
+                if (is_text(left) && is_text(right)) {
+                    return record(expr, types().bool_type());
+                }
                 if (left != right) {
                     return record(expr, mismatched_operands(expr, symbol, left, right));
                 }
                 if (!is_numeric(left)) {
                     report("cannot compare values of type `" + to_string(left) + "`", expr.span,
-                           "`" + symbol + "` needs an `int` or a `float`");
+                           "`" + symbol + "` needs an `int`, a `float` or text");
                     return record(expr, types().error_type());
                 }
                 return record(expr, types().bool_type());
@@ -2155,7 +2237,7 @@ private:
             if (!assignable(callee->args[i], argument)) {
                 report_mismatch(expr.args[i]->span, callee->args[i], argument);
             }
-            if (callee->args[i] != nullptr && callee->args[i]->kind != TypeKind::Reference) {
+            if (!passes_by_borrow(callee->args[i], argument)) {
                 move_out_of(*expr.args[i]);
             }
         }
@@ -2313,7 +2395,7 @@ private:
                 report_mismatch(args[i]->span, parameter, argument);
             }
             // A `&T` parameter borrows; a `T` parameter takes ownership.
-            if (parameter != nullptr && parameter->kind != TypeKind::Reference) {
+            if (!passes_by_borrow(parameter, recorded_type(*args[i]))) {
                 move_out_of(*args[i]);
             }
         }
@@ -2334,6 +2416,15 @@ private:
         if (expr.callee == "push" || expr.callee == "pop" || expr.callee == "push_str") {
             return check_container_op(expr);
         }
+        if (expr.callee == "slice") {
+            return check_slice(expr);
+        }
+        if (expr.callee == "find" || expr.callee == "contains") {
+            return check_search(expr);
+        }
+        if (expr.callee == "capacity" || expr.callee == "reserve") {
+            return check_capacity_op(expr);
+        }
 
         for (const ast::ExprPtr& arg : expr.args) {
             check_expr(*arg);
@@ -2349,9 +2440,10 @@ private:
             }
             const TypePtr argument = strip_reference(recorded_type(*expr.args[0]));
             if (!is_error(argument) && argument->kind != TypeKind::Array &&
-                argument->kind != TypeKind::Vec && argument->kind != TypeKind::StringBuf) {
+                argument->kind != TypeKind::Vec && !is_text(argument)) {
                 report("cannot take the length of `" + to_string(argument) + "`",
-                       expr.args[0]->span, "`len` needs an array, a `Vec` or a `String`");
+                       expr.args[0]->span,
+                       "`len` needs an array, a `Vec`, a `string` or a `String`");
             }
             return record(expr, types().int_type());
         }
@@ -2470,6 +2562,104 @@ private:
         // The pushed value is stored in the vector, so ownership passes.
         move_out_of(*expr.args[1]);
         return record(expr, types().void_type());
+    }
+
+    /// `slice(text, start, end)`: the bytes from `start` up to but not
+    /// including `end`, as a borrowed view.
+    ///
+    /// A `string` rather than a `String`, so it costs nothing - and
+    /// dangles if what it points into is dropped or grown, exactly as
+    /// `&T` does. That is the same bargain the language already made,
+    /// and copying instead would make every substring an allocation.
+    TypePtr check_slice(const ast::CallExpr& expr) {
+        for (const ast::ExprPtr& arg : expr.args) {
+            check_expr(*arg);
+        }
+        if (!check_arity(expr, 3)) {
+            return record(expr, types().string_type());
+        }
+
+        const TypePtr text = strip_reference(recorded_type(*expr.args[0]));
+        if (!is_error(text) && !is_text(text)) {
+            report("cannot slice `" + to_string(text) + "`", expr.args[0]->span,
+                   "`slice` needs a `string` or a `String`")
+                .with_note("a `Vec` has no slicing yet; index it instead");
+        }
+        for (std::size_t i = 1; i < 3 && i < expr.args.size(); ++i) {
+            const TypePtr bound = recorded_type(*expr.args[i]);
+            if (!is_error(bound) && bound->kind != TypeKind::Int) {
+                report_mismatch(expr.args[i]->span, types().int_type(), bound);
+            }
+        }
+        return record(expr, types().string_type());
+    }
+
+    /// `find(haystack, needle)` and `contains(haystack, needle)`.
+    TypePtr check_search(const ast::CallExpr& expr) {
+        for (const ast::ExprPtr& arg : expr.args) {
+            check_expr(*arg);
+        }
+        const TypePtr result = expr.callee == "find" ? types().int_type()
+                                                     : types().bool_type();
+        if (!check_arity(expr, 2)) {
+            return record(expr, result);
+        }
+
+        for (const ast::ExprPtr& arg : expr.args) {
+            const TypePtr text = strip_reference(recorded_type(*arg));
+            if (!is_error(text) && !is_text(text)) {
+                report("cannot search `" + to_string(text) + "`", arg->span,
+                       "`" + expr.callee + "` needs a `string` or a `String`");
+            }
+        }
+        return record(expr, result);
+    }
+
+    /// `capacity(c)` and `reserve(c, n)`: what a container has room for,
+    /// and asking it for more.
+    TypePtr check_capacity_op(const ast::CallExpr& expr) {
+        for (const ast::ExprPtr& arg : expr.args) {
+            check_expr(*arg);
+        }
+        const bool reserving = expr.callee == "reserve";
+        const TypePtr result = reserving ? types().void_type() : types().int_type();
+        if (!check_arity(expr, reserving ? 2 : 1)) {
+            return record(expr, result);
+        }
+
+        const TypePtr container = strip_reference(recorded_type(*expr.args[0]));
+        if (!is_error(container) && container->kind != TypeKind::Vec &&
+            container->kind != TypeKind::StringBuf) {
+            report("cannot ask `" + to_string(container) + "` about capacity",
+                   expr.args[0]->span, "`" + expr.callee + "` needs a `Vec` or a `String`")
+                .with_note("a `[T; N]` and a `string` are fixed; only a growable container "
+                           "has capacity to speak of");
+            return record(expr, result);
+        }
+
+        if (reserving) {
+            check_container_is_mutable(*expr.args[0]);
+            const TypePtr wanted = recorded_type(*expr.args[1]);
+            if (!is_error(wanted) && wanted->kind != TypeKind::Int) {
+                report_mismatch(expr.args[1]->span, types().int_type(), wanted);
+            }
+        }
+        return record(expr, result);
+    }
+
+    /// Reports a call with the wrong number of arguments. Returns false
+    /// when it did.
+    bool check_arity(const ast::CallExpr& expr, std::size_t expected) {
+        if (expr.args.size() == expected) {
+            return true;
+        }
+        report("this function takes " + std::to_string(expected) + " argument" +
+                   (expected == 1 ? "" : "s") + " but " + std::to_string(expr.args.size()) +
+                   " " + (expr.args.size() == 1 ? "was" : "were") + " supplied",
+               expr.span,
+               "expected " + std::to_string(expected) + ", found " +
+                   std::to_string(expr.args.size()));
+        return false;
     }
 
     /// A container being pushed to has to be a mutable binding, the same
@@ -2923,6 +3113,18 @@ private:
         // A `&T` also satisfies a plain `T` parameter, since references
         // are transparent everywhere else in v1.
         if (found->kind == TypeKind::Reference && found->element == expected) {
+            return true;
+        }
+        // A `String` goes where a `string` is wanted: the view is the
+        // buffer's own bytes, and handing one over lends rather than
+        // gives. It carries the warning every borrow here carries - the
+        // view dangles if the buffer is dropped or grown - which is the
+        // same bargain `&T` already makes.
+        //
+        // Not the other way round: a `string` borrows bytes it does not
+        // own, and nothing can turn that into ownership without copying.
+        if (expected->kind == TypeKind::String &&
+            strip_reference(found)->kind == TypeKind::StringBuf) {
             return true;
         }
         return false;

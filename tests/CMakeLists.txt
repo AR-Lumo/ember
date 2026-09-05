@@ -17,6 +17,7 @@ add_executable(ember_snapshot_tests
     search_path_tests.cpp
     package_tests.cpp
     interface_tests.cpp
+    string_tests.cpp
 )
 
 target_include_directories(ember_snapshot_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")

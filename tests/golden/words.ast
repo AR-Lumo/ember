@@ -1,0 +1,273 @@
+(program
+  (fn @18:1 pub split
+    (params
+      (param @18:14 text
+        (string @18:20))
+      (param @18:28 separator
+        (string @18:39)))
+    (returns
+      (named @18:50 Vec))
+    (block @18:62
+      (let @19:5 mut pieces
+        (named @19:21 Vec)
+        (call @19:35 new_vec))
+      (let @20:5 mut rest
+        (name @20:20 text))
+      (while @22:5
+        (binary @22:11 gt
+          (call @22:11 len
+            (name @22:15 rest))
+          (int-lit @22:23 0))
+        (block @22:25
+          (let @23:9 at
+            (call @23:18 find
+              (name @23:23 rest)
+              (name @23:29 separator)))
+          (if @24:9
+            (binary @24:12 lt
+              (name @24:12 at)
+              (int-lit @24:17 0))
+            (block @24:19
+              (expr-stmt @25:13
+                (call @25:13 push
+                  (name @25:18 pieces)
+                  (call @25:26 owned
+                    (name @25:32 rest))))
+              (return @26:13
+                (name @26:20 pieces))))
+          (let @29:9 mut piece
+            (named @29:24 String)
+            (call @29:33 new_string))
+          (expr-stmt @30:9
+            (call @30:9 push_str
+              (name @30:18 piece)
+              (call @30:25 slice
+                (name @30:31 rest)
+                (int-lit @30:37 0)
+                (name @30:40 at))))
+          (expr-stmt @31:9
+            (call @31:9 push
+              (name @31:14 pieces)
+              (name @31:22 piece)))
+          (assign @33:9
+            (name @33:9 rest)
+            (call @33:16 slice
+              (name @33:22 rest)
+              (binary @33:28 add
+                (name @33:28 at)
+                (call @33:33 len
+                  (name @33:37 separator)))
+              (call @33:49 len
+                (name @33:53 rest))))))
+      (return @35:5
+        (name @35:12 pieces))))
+  (fn @39:1 pub owned
+    (params
+      (param @39:14 text
+        (string @39:20)))
+    (returns
+      (named @39:31 String))
+    (block @39:38
+      (let @40:5 mut out
+        (named @40:18 String)
+        (call @40:27 new_string))
+      (expr-stmt @41:5
+        (call @41:5 push_str
+          (name @41:14 out)
+          (name @41:19 text)))
+      (return @42:5
+        (name @42:12 out))))
+  (fn @46:1 pub smallest_from
+    (params
+      (param @46:22 words
+        (ref @46:29
+          (named @46:30 Vec)))
+      (param @46:43 from
+        (int @46:49)))
+    (returns
+      (int @46:57))
+    (block @46:61
+      (let @47:5 mut best
+        (name @47:20 from))
+      (let @48:5 mut i
+        (binary @48:17 add
+          (name @48:17 from)
+          (int-lit @48:24 1)))
+      (while @49:5
+        (binary @49:11 lt
+          (name @49:11 i)
+          (call @49:15 len
+            (name @49:19 words)))
+        (block @49:26
+          (if @50:9
+            (binary @50:12 lt
+              (index @50:12
+                (name @50:12 words)
+                (name @50:18 i))
+              (index @50:23
+                (name @50:23 words)
+                (name @50:29 best)))
+            (block @50:35
+              (assign @51:13
+                (name @51:13 best)
+                (name @51:20 i))))
+          (assign @53:9
+            (name @53:9 i)
+            (binary @53:13 add
+              (name @53:13 i)
+              (int-lit @53:17 1)))))
+      (return @55:5
+        (name @55:12 best))))
+  (fn @58:1 pub main
+    (params)
+    (block @58:15
+      (let @59:5 sentence
+        (string-lit @59:20 "the quick brown fox jumps over the lazy dog"))
+      (expr-stmt @62:5
+        (call @62:5 print
+          (string-lit @62:11 "first word:  ")))
+      (expr-stmt @63:5
+        (call @63:5 println
+          (call @63:13 slice
+            (name @63:19 sentence)
+            (int-lit @63:29 0)
+            (call @63:32 find
+              (name @63:37 sentence)
+              (string-lit @63:47 " ")))))
+      (expr-stmt @66:5
+        (call @66:5 print
+          (string-lit @66:11 "has 'brown': ")))
+      (expr-stmt @67:5
+        (call @67:5 println
+          (call @67:13 contains
+            (name @67:22 sentence)
+            (string-lit @67:32 "brown"))))
+      (expr-stmt @68:5
+        (call @68:5 print
+          (string-lit @68:11 "'fox' at:    ")))
+      (expr-stmt @69:5
+        (call @69:5 println
+          (call @69:13 find
+            (name @69:18 sentence)
+            (string-lit @69:28 "fox"))))
+      (expr-stmt @70:5
+        (call @70:5 print
+          (string-lit @70:11 "'cat' at:    ")))
+      (expr-stmt @71:5
+        (call @71:5 println
+          (call @71:13 find
+            (name @71:18 sentence)
+            (string-lit @71:28 "cat"))))
+      (let @73:5 mut words
+        (call @73:21 split
+          (name @73:27 sentence)
+          (string-lit @73:37 " ")))
+      (expr-stmt @74:5
+        (call @74:5 print
+          (string-lit @74:11 "words:       ")))
+      (expr-stmt @75:5
+        (call @75:5 println
+          (call @75:13 len
+            (name @75:17 words))))
+      (let @80:5 mut i
+        (int-lit @80:17 0))
+      (while @81:5
+        (binary @81:11 lt
+          (name @81:11 i)
+          (call @81:15 len
+            (name @81:19 words)))
+        (block @81:26
+          (let @82:9 best
+            (call @82:20 smallest_from
+              (name @82:34 words)
+              (name @82:41 i)))
+          (if @83:9
+            (binary @83:12 ne
+              (name @83:12 best)
+              (name @83:20 i))
+            (block @83:22
+              (let @84:13 mut held
+                (named @84:27 String)
+                (call @84:36 new_string))
+              (expr-stmt @85:13
+                (call @85:13 push_str
+                  (name @85:22 held)
+                  (index @85:28
+                    (name @85:28 words)
+                    (name @85:34 i))))
+              (assign @86:13
+                (index @86:13
+                  (name @86:13 words)
+                  (name @86:19 i))
+                (call @86:24 owned
+                  (index @86:30
+                    (name @86:30 words)
+                    (name @86:36 best))))
+              (assign @87:13
+                (index @87:13
+                  (name @87:13 words)
+                  (name @87:19 best))
+                (name @87:27 held))))
+          (assign @89:9
+            (name @89:9 i)
+            (binary @89:13 add
+              (name @89:13 i)
+              (int-lit @89:17 1)))))
+      (expr-stmt @92:5
+        (call @92:5 print
+          (string-lit @92:11 "sorted:     ")))
+      (let @93:5 mut j
+        (int-lit @93:17 0))
+      (while @94:5
+        (binary @94:11 lt
+          (name @94:11 j)
+          (call @94:15 len
+            (name @94:19 words)))
+        (block @94:26
+          (expr-stmt @95:9
+            (call @95:9 print
+              (string-lit @95:15 " ")))
+          (expr-stmt @96:9
+            (call @96:9 print
+              (index @96:15
+                (name @96:15 words)
+                (name @96:21 j))))
+          (assign @97:9
+            (name @97:9 j)
+            (binary @97:13 add
+              (name @97:13 j)
+              (int-lit @97:17 1)))))
+      (expr-stmt @99:5
+        (call @99:5 println
+          (string-lit @99:13 "")))
+      (expr-stmt @102:5
+        (call @102:5 print
+          (string-lit @102:11 "first is 'brown': ")))
+      (expr-stmt @103:5
+        (call @103:5 println
+          (binary @103:13 eq
+            (index @103:13
+              (name @103:13 words)
+              (int-lit @103:19 0))
+            (string-lit @103:25 "brown"))))
+      (let @106:5 mut room
+        (named @106:19 Vec)
+        (call @106:30 new_vec))
+      (expr-stmt @107:5
+        (call @107:5 reserve
+          (name @107:13 room)
+          (int-lit @107:19 64)))
+      (expr-stmt @108:5
+        (call @108:5 print
+          (string-lit @108:11 "reserved:    ")))
+      (expr-stmt @109:5
+        (call @109:5 println
+          (call @109:13 capacity
+            (name @109:22 room))))
+      (expr-stmt @110:5
+        (call @110:5 print
+          (string-lit @110:11 "holding:     ")))
+      (expr-stmt @111:5
+        (call @111:5 println
+          (call @111:13 len
+            (name @111:17 room)))))))

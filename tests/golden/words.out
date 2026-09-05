@@ -1,0 +1,9 @@
+first word:  the
+has 'brown': true
+'fox' at:    16
+'cat' at:    -1
+words:       9
+sorted:      brown dog fox jumps lazy over quick the the
+first is 'brown': true
+reserved:    64
+holding:     0

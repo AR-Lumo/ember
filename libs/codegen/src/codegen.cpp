@@ -995,6 +995,19 @@ private:
         if (target->kind != TypeKind::Reference && actual->kind == TypeKind::Reference) {
             return builder_.CreateLoad(lower(target), emit_value(expr), "deref");
         }
+        // A `String` where a `string` is wanted: take a view of the
+        // buffer. Both start with a pointer and a length, so this is
+        // dropping the capacity rather than converting anything.
+        if (target->kind == TypeKind::String &&
+            typeck::strip_reference(actual)->kind == TypeKind::StringBuf) {
+            llvm::Value* buffer = emit_as(expr, typeck::strip_reference(actual));
+            llvm::Value* view = llvm::UndefValue::get(string_type_);
+            view = builder_.CreateInsertValue(view, builder_.CreateExtractValue(buffer, {0}),
+                                              {0});
+            view = builder_.CreateInsertValue(view, builder_.CreateExtractValue(buffer, {1}),
+                                              {1});
+            return view;
+        }
         return emit_value(expr);
     }
 
@@ -1098,7 +1111,10 @@ private:
         llvm::Value* left = emit_value(*expr.left);
         llvm::Value* right = emit_value(*expr.right);
 
-        if (operand_type->kind == TypeKind::String) {
+        // Either kind of text, and either side: `String == string` is
+        // ordinary, so the decision cannot rest on the left operand's
+        // representation.
+        if (typeck::is_text(operand_type) || typeck::is_text(type_of(*expr.right))) {
             return emit_string_comparison(expr, left, right);
         }
 
@@ -1166,16 +1182,52 @@ private:
         builder_.SetInsertPoint(ok);
     }
 
+    /// Compares text, whichever of the two representations holds it.
+    ///
+    /// A `string` is `{ ptr, len }` and a `String` is `{ ptr, len, cap }`,
+    /// so the pointer and the length are at the same two positions in
+    /// both and one path serves either.
     llvm::Value* emit_string_comparison(const ast::BinaryExpr& expr, llvm::Value* left,
                                         llvm::Value* right) {
-        llvm::Value* equal = builder_.CreateCall(
-            runtime("ember_string_eq", byte_type(),
-                    {ptr_type(), int_type(), ptr_type(), int_type()}),
-            {builder_.CreateExtractValue(left, {0}), builder_.CreateExtractValue(left, {1}),
-             builder_.CreateExtractValue(right, {0}), builder_.CreateExtractValue(right, {1})});
+        llvm::Value* left_bytes = builder_.CreateExtractValue(left, {0});
+        llvm::Value* left_length = builder_.CreateExtractValue(left, {1});
+        llvm::Value* right_bytes = builder_.CreateExtractValue(right, {0});
+        llvm::Value* right_length = builder_.CreateExtractValue(right, {1});
 
-        llvm::Value* as_bool = builder_.CreateICmpNE(equal, builder_.getInt8(0), "streq");
-        return expr.op == ast::BinaryOp::Equal ? as_bool : builder_.CreateNot(as_bool, "strne");
+        if (expr.op == ast::BinaryOp::Equal || expr.op == ast::BinaryOp::NotEqual) {
+            llvm::Value* equal = builder_.CreateCall(
+                runtime("ember_string_eq", byte_type(),
+                        {ptr_type(), int_type(), ptr_type(), int_type()}),
+                {left_bytes, left_length, right_bytes, right_length});
+
+            llvm::Value* as_bool = builder_.CreateICmpNE(equal, builder_.getInt8(0), "streq");
+            return expr.op == ast::BinaryOp::Equal ? as_bool
+                                                   : builder_.CreateNot(as_bool, "strne");
+        }
+
+        llvm::Value* order = builder_.CreateCall(
+            runtime("ember_string_cmp", int_type(),
+                    {ptr_type(), int_type(), ptr_type(), int_type()}),
+            {left_bytes, left_length, right_bytes, right_length}, "strcmp");
+        llvm::Value* zero = builder_.getInt64(0);
+
+        switch (expr.op) {
+            case ast::BinaryOp::Less:
+                return builder_.CreateICmpSLT(order, zero, "strlt");
+            case ast::BinaryOp::Greater:
+                return builder_.CreateICmpSGT(order, zero, "strgt");
+            case ast::BinaryOp::LessEq:
+                return builder_.CreateICmpSLE(order, zero, "strle");
+            default:
+                return builder_.CreateICmpSGE(order, zero, "strge");
+        }
+    }
+
+    /// The `{ pointer, length }` of a text value, whichever kind it is.
+    std::pair<llvm::Value*, llvm::Value*> text_parts(const ast::Expr& expr) {
+        llvm::Value* value = emit_value(expr);
+        return {builder_.CreateExtractValue(value, {0}),
+                builder_.CreateExtractValue(value, {1})};
     }
 
     /// `a && b` evaluates `b` only when `a` is true, and `a || b` only
@@ -1306,6 +1358,18 @@ private:
         if (expr.callee == "pop") {
             return emit_pop(expr);
         }
+        if (expr.callee == "slice") {
+            return emit_slice(expr);
+        }
+        if (expr.callee == "find" || expr.callee == "contains") {
+            return emit_search(expr);
+        }
+        if (expr.callee == "capacity") {
+            return emit_capacity(expr);
+        }
+        if (expr.callee == "reserve") {
+            return emit_reserve(expr);
+        }
         if (expr.callee == "push_str") {
             return emit_push_str(expr);
         }
@@ -1318,6 +1382,14 @@ private:
                 llvm::Value* address = container_address(*expr.args.front());
                 return builder_.CreateLoad(
                     int_type(), builder_.CreateStructGEP(buffer_type_, address, 1), "len");
+            }
+
+            if (argument->kind == TypeKind::String) {
+                // A borrowed view carries its length in its second
+                // field, which is the whole reason `len` on one is O(1)
+                // and can hold a NUL byte.
+                return builder_.CreateExtractValue(emit_as(*expr.args.front(), argument), {1},
+                                                   "len");
             }
 
             // An array's length is part of its type, so `len` folds to a
@@ -1456,6 +1528,90 @@ private:
         return builder_.CreateLoad(
             lower(container->element),
             builder_.CreateInBoundsGEP(lower(container->element), buffer, {last}), "popped");
+    }
+
+    /// `slice(text, start, end)`: a view of part of what is already
+    /// there. No copy, so it costs a bounds check and two fields.
+    llvm::Value* emit_slice(const ast::CallExpr& expr) {
+        const auto [bytes, length] = text_parts(*expr.args[0]);
+        llvm::Value* start = emit_value(*expr.args[1]);
+        llvm::Value* end = emit_value(*expr.args[2]);
+
+        emit_slice_bounds_check(start, end, length);
+
+        llvm::Value* value = llvm::UndefValue::get(string_type_);
+        value = builder_.CreateInsertValue(
+            value, builder_.CreateInBoundsGEP(byte_type(), bytes, {start}), {0});
+        value = builder_.CreateInsertValue(value, builder_.CreateSub(end, start, "sliced"), {1});
+        return value;
+    }
+
+    /// `0 <= start <= end <= length`, or a named panic. Three conditions
+    /// rather than one so the message can say which range was wrong.
+    void emit_slice_bounds_check(llvm::Value* start, llvm::Value* end, llvm::Value* length) {
+        llvm::Value* ok = builder_.CreateAnd(
+            builder_.CreateICmpSGE(start, builder_.getInt64(0)),
+            builder_.CreateAnd(builder_.CreateICmpSLE(start, end),
+                               builder_.CreateICmpSLE(end, length)));
+
+        llvm::BasicBlock* good = llvm::BasicBlock::Create(*context_, "slice.ok");
+        llvm::BasicBlock* bad = llvm::BasicBlock::Create(*context_, "slice.bad");
+        builder_.CreateCondBr(ok, good, bad);
+
+        bad->insertInto(current_function_);
+        builder_.SetInsertPoint(bad);
+        builder_.CreateCall(
+            runtime("ember_panic_bad_slice", void_type(), {int_type(), int_type(), int_type()}),
+            {start, end, length});
+        builder_.CreateUnreachable();
+
+        good->insertInto(current_function_);
+        builder_.SetInsertPoint(good);
+    }
+
+    /// `find(haystack, needle)` and `contains(haystack, needle)`.
+    llvm::Value* emit_search(const ast::CallExpr& expr) {
+        const auto [haystack, haystack_length] = text_parts(*expr.args[0]);
+        const auto [needle, needle_length] = text_parts(*expr.args[1]);
+
+        llvm::Value* at = builder_.CreateCall(
+            runtime("ember_string_find", int_type(),
+                    {ptr_type(), int_type(), ptr_type(), int_type()}),
+            {haystack, haystack_length, needle, needle_length}, "found");
+
+        if (expr.callee == "find") {
+            return at;
+        }
+        return builder_.CreateICmpSGE(at, builder_.getInt64(0), "contains");
+    }
+
+    /// `capacity(c)`: the third field of the buffer, which is what the
+    /// container has room for rather than what is in it.
+    llvm::Value* emit_capacity(const ast::CallExpr& expr) {
+        llvm::Value* address = container_address(*expr.args[0]);
+        return builder_.CreateLoad(int_type(),
+                                   builder_.CreateStructGEP(buffer_type_, address, 2), "cap");
+    }
+
+    /// `reserve(c, n)`: room for `n`, however many are in it now.
+    llvm::Value* emit_reserve(const ast::CallExpr& expr) {
+        const TypePtr container = typeck::strip_reference(type_of(*expr.args[0]));
+        llvm::Value* address = container_address(*expr.args[0]);
+        llvm::Value* wanted = emit_value(*expr.args[1]);
+
+        // A `String` counts bytes; a `Vec<T>` counts elements.
+        llvm::Value* element_size = container->kind == TypeKind::StringBuf
+                                        ? builder_.getInt64(1)
+                                        : size_of(container->element);
+
+        llvm::Value* buffer_field = builder_.CreateStructGEP(buffer_type_, address, 0);
+        llvm::Value* grown = builder_.CreateCall(
+            runtime("ember_reserve", ptr_type(),
+                    {ptr_type(), int_type(), ptr_type(), int_type()}),
+            {builder_.CreateLoad(ptr_type(), buffer_field, "buf"), element_size,
+             builder_.CreateStructGEP(buffer_type_, address, 2), wanted});
+        builder_.CreateStore(grown, buffer_field);
+        return nullptr;
     }
 
     /// `push_str(s, text)`: append bytes, growing the buffer as needed.

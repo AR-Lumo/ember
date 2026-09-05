@@ -36,6 +36,18 @@ void ember_println_bool(int8_t value);
 void ember_println_string(const char* bytes, int64_t length);
 
 /// Byte-wise equality for `==` and `!=` on strings.
+/// Lexicographic order: negative, zero or positive, the way `strcmp`
+/// answers. Compares bytes, so it orders ASCII correctly and orders
+/// anything else by its UTF-8 encoding - which is the same order as by
+/// code point, and is not a collation.
+int64_t ember_string_cmp(const char* left, int64_t left_length, const char* right,
+                         int64_t right_length);
+
+/// Byte offset of the first occurrence of `needle` in `haystack`, or -1.
+/// An empty needle is found at 0, as it is everywhere.
+int64_t ember_string_find(const char* haystack, int64_t haystack_length, const char* needle,
+                          int64_t needle_length);
+
 int8_t ember_string_eq(const char* left, int64_t left_length, const char* right,
                        int64_t right_length);
 
@@ -66,6 +78,14 @@ void ember_free(void* buffer);
 /// Doubling keeps a run of pushes amortized O(1); growing by a constant
 /// would make building a vector quadratic.
 void* ember_grow(void* buffer, int64_t element_size, int64_t length, int64_t* capacity);
+
+/// Makes room for at least `wanted` elements, and never shrinks. Unlike
+/// `ember_grow` this takes exactly what was asked for rather than
+/// doubling: the caller has said how much it needs.
+void* ember_reserve(void* buffer, int64_t element_size, int64_t* capacity, int64_t wanted);
+
+/// Reports a slice whose bounds are not inside what it is slicing.
+void ember_panic_bad_slice(int64_t start, int64_t end, int64_t length);
 
 /// Reports popping from an empty container and terminates.
 void ember_panic_empty(const char* what, int64_t what_length);
