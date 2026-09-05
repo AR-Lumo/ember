@@ -238,8 +238,10 @@ Everything else (file I/O, collections, string manipulation) is v2+.
 ember build file.em -o output      # compile to native executable
 ember run file.em                  # compile + run in one step
 ember check file.em                # type-check only, no codegen
+ember fetch                        # resolve dependencies             (v2)
 
   -L, --module-path <dir>          # extra place to find modules       (v2)
+      --update                     # re-resolve git dependencies       (v2)
   -O0 .. -O3                       # optimization level, default -O0   (v2)
   -v, --verbose                    # report per-module compile/cache decisions
       --fresh                      # ignore cached object files       (v2)
@@ -344,11 +346,13 @@ moving to the next. Don't let phases blend together.
   module does not re-lower the rest.
 - A module search path, so a program can import code that does not sit
   beside it.
-- Package manager. Distributing *source*, the way Cargo does, needs
-  nothing beyond separate compilation. Distributing compiled libraries
-  additionally needs an interface file recording a module's types and
-  signatures, so a dependent can be built without the dependency's
-  source.
+- Package manager: `ember.toml`, path and git dependencies, and an
+  `ember.lock` pinning the commit each git dependency resolved to.
+  Packages are distributed as source. Still to come: a registry, and the
+  version solving that only makes sense once there is one. Distributing
+  compiled libraries would additionally need an interface file recording
+  a module's types and signatures, so a dependent can be built without
+  the dependency's source.
 
 ---
 

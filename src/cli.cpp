@@ -4,11 +4,14 @@
 #include "ember/ast/diagnostic.hpp"
 #include "ember/ast/span.hpp"
 #include "ember/codegen/codegen.hpp"
+#include "ember/manifest/manifest.hpp"
 #include "ember/parser/parser.hpp"
 #include "ember/typeck/typeck.hpp"
 
 #include <cstdint>
+#include <cstdio>
 #include <cstdlib>
+#include <fstream>
 #include <iostream>
 #include <map>
 #include <memory>
@@ -67,6 +70,17 @@ std::optional<std::variant<std::size_t, UsageError>> parse_module_path_flag(
     return std::size_t{2};
 }
 
+/// `--update`: ignore the revisions `ember.lock` pinned and resolve git
+/// dependencies afresh. Like `--module-path` it belongs to every
+/// subcommand that reads a program, `check` included.
+bool parse_update_flag(std::string_view arg, bool& update) {
+    if (arg != "--update") {
+        return false;
+    }
+    update = true;
+    return true;
+}
+
 /// What the shared build-flag parser made of one argument.
 struct FlagOutcome {
     /// Whether this argument was one of the build flags at all.
@@ -118,6 +132,7 @@ ParseResult parse_single_input(CommandKind kind, std::string_view subcommand,
     std::optional<std::filesystem::path> input;
     BuildOptions options;
     std::vector<std::filesystem::path> module_path;
+    bool update = false;
 
     for (std::size_t i = 0; i < args.size();) {
         const std::string_view arg = args[i];
@@ -127,6 +142,10 @@ ParseResult parse_single_input(CommandKind kind, std::string_view subcommand,
                 return *error;
             }
             i += std::get<std::size_t>(*taken);
+            continue;
+        }
+        if (parse_update_flag(arg, update)) {
+            i += 1;
             continue;
         }
         if (kind == CommandKind::Run) {
@@ -162,6 +181,7 @@ ParseResult parse_single_input(CommandKind kind, std::string_view subcommand,
     command.input = *input;
     command.build = options;
     command.module_path = std::move(module_path);
+    command.update = update;
     return command;
 }
 
@@ -170,6 +190,7 @@ ParseResult parse_build(std::span<const std::string_view> args) {
     std::optional<std::filesystem::path> output;
     BuildOptions options;
     std::vector<std::filesystem::path> module_path;
+    bool update = false;
 
     for (std::size_t i = 0; i < args.size();) {
         const std::string_view arg = args[i];
@@ -179,6 +200,10 @@ ParseResult parse_build(std::span<const std::string_view> args) {
                 return *error;
             }
             i += std::get<std::size_t>(*taken);
+            continue;
+        }
+        if (parse_update_flag(arg, update)) {
+            i += 1;
             continue;
         }
 
@@ -222,6 +247,26 @@ ParseResult parse_build(std::span<const std::string_view> args) {
     command.output = output;
     command.build = options;
     command.module_path = std::move(module_path);
+    command.update = update;
+    return command;
+}
+
+/// `ember fetch [--update]`. The odd one out: it takes no input file,
+/// because what it works on is the manifest, found by walking up from
+/// wherever it was run.
+ParseResult parse_fetch(std::span<const std::string_view> args) {
+    Command command;
+    command.kind = CommandKind::Fetch;
+
+    for (const std::string_view arg : args) {
+        if (parse_update_flag(arg, command.update)) {
+            continue;
+        }
+        if (is_flag(arg)) {
+            return usage_error("unknown option `" + std::string{arg} + "`");
+        }
+        return usage_error("`fetch` takes no input file, only the manifest it finds");
+    }
     return command;
 }
 
@@ -234,11 +279,13 @@ const std::string_view kUsage =
     "    ember build <file.em> [-o <output>]   compile to a native executable\n"
     "    ember run <file.em>                   compile and run in one step\n"
     "    ember check <file.em>                 type-check only, no codegen\n"
+    "    ember fetch                           resolve and download dependencies\n"
     "\n"
     "OPTIONS:\n"
     "    -o, --output <path>   output path for `build` (default: input stem)\n"
     "    -L, --module-path <dir>\n"
     "                          also look here for imported modules (repeatable)\n"
+    "        --update          re-resolve git dependencies, ignoring `ember.lock`\n"
     "    -O0 .. -O3            optimization level (default: -O0)\n"
     "    -v, --verbose         report which modules were compiled and which were cached\n"
     "        --fresh           recompile every module, ignoring cached object files\n"
@@ -267,6 +314,9 @@ ParseResult parse_args(std::span<const std::string_view> args) {
     }
     if (first == "check") {
         return parse_single_input(CommandKind::Check, "check", rest);
+    }
+    if (first == "fetch") {
+        return parse_fetch(rest);
     }
     return usage_error("unknown subcommand `" + std::string{first} + "`");
 }
@@ -330,12 +380,21 @@ struct FrontEnd {
 /// parse meaningless, and a bad tree makes the types meaningless, so
 /// continuing would only bury the real error.
 FrontEnd run_front_end(const std::filesystem::path& input,
-                       const std::vector<std::filesystem::path>& module_path) {
+                       const std::vector<std::filesystem::path>& module_path, bool update,
+                       bool verbose) {
     FrontEnd result;
 
+    // Dependencies first: a package that will not resolve is not
+    // something to discover halfway through checking a program that
+    // imports it.
+    const PackageResolution packages = resolve_packages(input, update, verbose);
+    if (!packages.ok) {
+        return result;
+    }
+
     // Loading pulls in every module the entry file imports, transitively.
-    result.loaded =
-        parser::load_program(input, result.sources, module_search_path(input, module_path));
+    result.loaded = parser::load_program(
+        input, result.sources, module_search_path(input, module_path, packages.search_path));
     if (!result.loaded.ok()) {
         std::cerr << ast::render_all(result.loaded.diagnostics, result.sources);
         return result;
@@ -374,6 +433,51 @@ int run_command(const std::string& command) {
     const std::string& wrapped = command;
 #endif
     return std::system(wrapped.c_str());
+}
+
+/// Runs a command and returns its standard output, with the exit code.
+///
+/// `run_command` above only reports whether something worked; asking git
+/// which commit it checked out needs the answer as well.
+struct CapturedCommand {
+    int exit_code = 0;
+    std::string output;
+};
+
+CapturedCommand capture_command(const std::string& command) {
+    const std::string redirected = command + " 2>&1";
+#ifdef _WIN32
+    const std::string wrapped = "\"" + redirected + "\"";
+    FILE* pipe = _popen(wrapped.c_str(), "r");
+#else
+    FILE* pipe = popen(redirected.c_str(), "r");
+#endif
+    if (pipe == nullptr) {
+        return CapturedCommand{-1, "cannot start `" + command + "`"};
+    }
+
+    CapturedCommand result;
+    char buffer[4096];
+    while (std::fgets(buffer, static_cast<int>(sizeof(buffer)), pipe) != nullptr) {
+        result.output += buffer;
+    }
+#ifdef _WIN32
+    result.exit_code = _pclose(pipe);
+#else
+    result.exit_code = pclose(pipe);
+#endif
+    return result;
+}
+
+/// Trims whitespace, since every git command ends its answer with a
+/// newline.
+std::string trimmed(std::string text) {
+    const std::size_t first = text.find_first_not_of(" \t\r\n");
+    if (first == std::string::npos) {
+        return {};
+    }
+    const std::size_t last = text.find_last_not_of(" \t\r\n");
+    return text.substr(first, last - first + 1);
 }
 
 /// A scratch path beside the output, removed when this object dies.
@@ -602,6 +706,156 @@ void sweep_stale_objects(const std::filesystem::path& cache,
     }
 }
 
+// -------------------------------------------------------------------
+// Packages
+// -------------------------------------------------------------------
+
+/// Clones a git dependency into the build cache and checks out what was
+/// asked for.
+///
+/// Shelling out to `git` rather than linking a library: the user has one
+/// already, it is the only thing that understands every URL a repository
+/// might live behind, and vendoring an implementation of git to avoid
+/// starting one process would be a poor trade (§9: what would C do).
+class GitFetcher {
+public:
+    GitFetcher(std::filesystem::path cache, bool verbose)
+        : cache_(std::move(cache)), verbose_(verbose) {}
+
+    manifest::Fetched operator()(const manifest::Dependency& dependency,
+                                 const std::string& rev) {
+        std::error_code code;
+        std::filesystem::create_directories(cache_, code);
+
+        const std::filesystem::path checkout =
+            cache_ / (dependency.name + "-" +
+                      hex(hash_into(kHashSeed, dependency.location), 16));
+
+        manifest::Fetched fetched;
+        if (!std::filesystem::is_directory(checkout / ".git", code)) {
+            std::cerr << "fetching " << dependency.name << " (" << dependency.location
+                      << ")\n";
+            std::filesystem::remove_all(checkout, code);
+            const CapturedCommand cloned = capture_command(
+                "git clone --quiet " + quote(std::filesystem::path{dependency.location}) +
+                " " + quote(checkout));
+            if (cloned.exit_code != 0) {
+                fetched.error = git_failure("clone", cloned);
+                return fetched;
+            }
+        }
+
+        // Only reach the network when the answer could have changed.
+        //
+        // A full commit hash cannot move, so having it locally is proof
+        // enough - which is the case after the first build, because the
+        // lockfile pins hashes. A tag or a branch can point somewhere
+        // new at any time, and having *a* `v1.0.0` locally says nothing
+        // about whether it is still the `v1.0.0` upstream has.
+        const std::string at = " -C " + quote(checkout) + " ";
+        const bool have_it =
+            is_commit_hash(rev) && capture_command("git" + at + "rev-parse --verify --quiet " +
+                                                   quote_arg(rev + "^{commit}"))
+                                           .exit_code == 0;
+        if (!have_it) {
+            if (verbose_) {
+                std::cerr << "updating " << dependency.name << " (" << rev
+                          << " is not a pinned commit we already have)\n";
+            }
+            // `--force` because a moved tag is exactly what is being
+            // looked for here; without it git refuses to update one.
+            const CapturedCommand updated =
+                capture_command("git" + at + "fetch --quiet --force --tags origin");
+            if (updated.exit_code != 0) {
+                fetched.error = git_failure("fetch", updated);
+                return fetched;
+            }
+        }
+
+        const CapturedCommand checked_out =
+            capture_command("git" + at + "checkout --quiet --detach " + quote_arg(rev));
+        if (checked_out.exit_code != 0) {
+            fetched.error = git_failure("checkout " + rev, checked_out);
+            return fetched;
+        }
+
+        const CapturedCommand head = capture_command("git" + at + "rev-parse HEAD");
+        if (head.exit_code != 0) {
+            fetched.error = git_failure("rev-parse", head);
+            return fetched;
+        }
+
+        fetched.root = checkout;
+        fetched.rev = trimmed(head.output);
+        return fetched;
+    }
+
+private:
+    std::filesystem::path cache_;
+    bool verbose_ = false;
+
+    /// A revision or URL goes to a shell, so it is quoted like a path.
+    /// The whole revspec has to be inside the quotes: `^` is cmd.exe's
+    /// escape character, and `v1.0.0"^{commit}` loses the brace.
+    static std::string quote_arg(const std::string& text) { return "\"" + text + "\""; }
+
+    /// Whether `rev` is a full commit hash, and so cannot ever name
+    /// different code than it did last time.
+    static bool is_commit_hash(const std::string& rev) {
+        if (rev.size() != 40) {
+            return false;
+        }
+        for (const char c : rev) {
+            if (std::isxdigit(static_cast<unsigned char>(c)) == 0) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    static std::string git_failure(const std::string& what, const CapturedCommand& result) {
+        const std::string said = trimmed(result.output);
+        return "`git " + what + "` failed" + (said.empty() ? "" : ": " + said);
+    }
+};
+
+/// Reads `ember.lock` beside the manifest, if there is one.
+manifest::Lock read_lock(const std::filesystem::path& directory, ast::SourceMap& sources,
+                         bool& ok) {
+    const std::filesystem::path path = directory / std::filesystem::path{manifest::kLockName};
+    const std::optional<ast::SourceFile> file = ast::SourceFile::load(path);
+    if (!file.has_value()) {
+        return {};
+    }
+
+    const ast::FileId id = sources.add(path.string(), file->contents());
+    manifest::LockResult parsed = manifest::parse_lock(sources.file(id));
+    if (!parsed.ok()) {
+        // Quietly ignoring a broken lock would turn a repeatable build
+        // into an unrepeatable one without saying so.
+        std::cerr << ast::render_all(parsed.diagnostics, sources);
+        ok = false;
+    }
+    return std::move(parsed.lock);
+}
+
+/// Writes the lock, but only when it would say something new - so a
+/// build of an unchanged project does not keep touching a checked-in
+/// file.
+void write_lock_if_changed(const std::filesystem::path& directory,
+                           const std::vector<manifest::ResolvedPackage>& packages) {
+    const std::filesystem::path path = directory / std::filesystem::path{manifest::kLockName};
+    const std::string contents = manifest::write_lock(packages);
+
+    if (const std::optional<ast::SourceFile> existing = ast::SourceFile::load(path)) {
+        if (existing->contents() == contents) {
+            return;
+        }
+    }
+    std::ofstream out(path, std::ios::binary);
+    out << contents;
+}
+
 /// Compile a checked program all the way to a native executable.
 int emit_executable(const FrontEnd& front_end, const std::filesystem::path& output,
                     const BuildOptions& build) {
@@ -687,8 +941,14 @@ int emit_executable(const FrontEnd& front_end, const std::filesystem::path& outp
 std::string linker_command() { return EMBER_LINKER; }
 
 std::vector<std::filesystem::path> module_search_path(
-    const std::filesystem::path& entry, const std::vector<std::filesystem::path>& requested) {
+    const std::filesystem::path& entry, const std::vector<std::filesystem::path>& requested,
+    const std::vector<std::filesystem::path>& packages) {
     std::vector<std::filesystem::path> search = requested;
+
+    // A dependency the manifest declared outranks the environment: it is
+    // part of the project, and the environment is whatever the shell
+    // happened to be carrying.
+    search.insert(search.end(), packages.begin(), packages.end());
 
     if (const char* environment = std::getenv("EMBER_MODULE_PATH")) {
         const std::string text{environment};
@@ -717,15 +977,107 @@ std::vector<std::filesystem::path> module_search_path(
     return search;
 }
 
+PackageResolution resolve_packages(const std::filesystem::path& entry, bool update,
+                                   bool verbose) {
+    PackageResolution result;
+
+    // Most Ember programs are one file and depend on nothing, so having
+    // no manifest is the ordinary case rather than a mistake.
+    const std::optional<std::filesystem::path> manifest_path =
+        manifest::find_manifest(entry.parent_path());
+    if (!manifest_path.has_value()) {
+        return result;
+    }
+
+    ast::SourceMap sources;
+    const std::optional<ast::SourceFile> file = ast::SourceFile::load(*manifest_path);
+    if (!file.has_value()) {
+        std::cerr << "error: cannot read `" << manifest_path->string() << "`\n";
+        result.ok = false;
+        return result;
+    }
+
+    const ast::FileId id = sources.add(manifest_path->string(), file->contents());
+    manifest::ManifestResult parsed = manifest::parse_manifest(sources.file(id));
+    if (!parsed.diagnostics.empty()) {
+        std::cerr << ast::render_all(parsed.diagnostics, sources);
+    }
+    if (!parsed.manifest.has_value()) {
+        result.ok = false;
+        return result;
+    }
+    if (!parsed.diagnostics.empty()) {
+        result.ok = false;
+        return result;
+    }
+
+    const std::filesystem::path root = parsed.manifest->root;
+
+    manifest::Lock lock;
+    if (!update) {
+        bool lock_ok = true;
+        lock = read_lock(root, sources, lock_ok);
+        if (!lock_ok) {
+            result.ok = false;
+            return result;
+        }
+    }
+
+    GitFetcher fetcher{root / ".ember" / "packages", verbose};
+    manifest::Resolution resolution =
+        manifest::resolve(*parsed.manifest, lock, std::ref(fetcher), sources);
+    if (!resolution.ok()) {
+        std::cerr << ast::render_all(resolution.diagnostics, sources);
+        result.ok = false;
+        return result;
+    }
+
+    if (verbose) {
+        for (const manifest::ResolvedPackage& package : resolution.packages) {
+            std::cerr << "  package " << package.name
+                      << (package.version.empty() ? "" : " " + package.version) << " ("
+                      << manifest::source_kind_name(package.kind) << ")\n";
+        }
+    }
+
+    write_lock_if_changed(root, resolution.packages);
+    result.search_path = resolution.search_path();
+    return result;
+}
+
+int fetch_packages(const std::filesystem::path& from, bool update) {
+    const std::optional<std::filesystem::path> manifest_path = manifest::find_manifest(from);
+    if (!manifest_path.has_value()) {
+        std::cerr << "error: no `" << manifest::kManifestName << "` here or above\n";
+        std::cerr << "note: `fetch` works on a package; create a manifest to make this one\n";
+        return kExitCompileError;
+    }
+
+    // `fetch` exists to say what it did, so it reports as it goes.
+    const PackageResolution resolved =
+        resolve_packages(*manifest_path, update, /*verbose=*/true);
+    if (!resolved.ok) {
+        return kExitCompileError;
+    }
+
+    std::cerr << (resolved.search_path.empty()
+                      ? "nothing to fetch\n"
+                      : std::to_string(resolved.search_path.size()) + " package" +
+                            (resolved.search_path.size() == 1 ? "" : "s") + " ready\n");
+    return kExitSuccess;
+}
+
 int check_file(const std::filesystem::path& input,
-               const std::vector<std::filesystem::path>& module_path) {
-    return run_front_end(input, module_path).ok ? kExitSuccess : kExitCompileError;
+               const std::vector<std::filesystem::path>& module_path, bool update) {
+    return run_front_end(input, module_path, update, /*verbose=*/false).ok
+               ? kExitSuccess
+               : kExitCompileError;
 }
 
 int build_file(const std::filesystem::path& input, const std::filesystem::path& output,
                const BuildOptions& options,
-               const std::vector<std::filesystem::path>& module_path) {
-    const FrontEnd front_end = run_front_end(input, module_path);
+               const std::vector<std::filesystem::path>& module_path, bool update) {
+    const FrontEnd front_end = run_front_end(input, module_path, update, options.verbose);
     if (!front_end.ok) {
         return kExitCompileError;
     }
@@ -733,8 +1085,8 @@ int build_file(const std::filesystem::path& input, const std::filesystem::path& 
 }
 
 int run_file(const std::filesystem::path& input, const BuildOptions& options,
-             const std::vector<std::filesystem::path>& module_path) {
-    const FrontEnd front_end = run_front_end(input, module_path);
+             const std::vector<std::filesystem::path>& module_path, bool update) {
+    const FrontEnd front_end = run_front_end(input, module_path, update, options.verbose);
     if (!front_end.ok) {
         return kExitCompileError;
     }

@@ -152,10 +152,12 @@ stopping at the first.
 ember build <file.em> [-o <output>]   compile to a native executable
 ember run <file.em>                   compile and run in one step
 ember check <file.em>                 type-check only, no codegen
+ember fetch                           resolve and download dependencies
 
   -L, --module-path <dir>
                    also look here for imported modules (repeatable)
   -O0 .. -O3       optimization level (default: -O0)
+      --update     re-resolve git dependencies, ignoring `ember.lock`
   -v, --verbose    say which modules were compiled and which were cached
       --fresh      recompile every module, ignoring cached object files
 ```
@@ -187,6 +189,64 @@ On a Collatz search over 300,000 starting points:
 
 The default is `-O0`, as it is for every C compiler: it compiles faster,
 and the IR it produces still reads like the source it came from.
+
+### Packages
+
+A package is a directory with an `ember.toml` and its modules in `src/`.
+Depending on one puts that `src/` on the module search path — which is
+all a dependency has ever been here.
+
+```toml
+[package]
+name = "myapp"
+version = "0.1.0"
+
+[dependencies]
+textkit = { path = "../textkit" }
+httpkit = { git = "https://example.invalid/httpkit", rev = "v1.2.0" }
+```
+
+`build`, `run` and `check` find the manifest by walking up from the
+source file, resolve it, and fetch anything missing. `ember fetch` does
+that and stops. A program with no manifest needs none: most of them are
+one file and depend on nothing.
+
+A `git` dependency is cloned once into `.ember/packages` and the commit
+it resolved to is written to `ember.lock`:
+
+```toml
+[httpkit]
+source = "git"
+location = "https://example.invalid/httpkit"
+rev = "9f2c1ab4e83d0715c6a2f4b8e1d093a75c6e4021"
+version = "1.2.0"
+```
+
+So a manifest that asks for a branch keeps building the same code until
+`--update` says otherwise. Check the lockfile in. After the first build
+nothing touches the network: a commit hash cannot move, so having it
+already is proof enough — which is why `rev` is required, and why a tag
+or a branch is re-checked every time.
+
+**Two things this is not.** There is **no registry**, so every
+dependency names a directory or a repository outright; `serde = "1.0"`
+is refused, with a note saying why. And there is **no version solving** —
+two packages wanting different revisions of a third is an error naming
+both, not a negotiation:
+
+```console
+error: two packages want different versions of `shared`
+ --> right/ember.toml:6:1
+  |
+6 | shared = { path = "../other/shared" }
+  | ^^^^^^ `right` wants path ../other/shared
+  = note: already resolved as path ../shared
+  = note: ember has no registry and does not solve versions; make the two agree
+```
+
+Note where that points: at the manifest of the package that disagreed,
+not at yours. Solving without an index to search would be pretending.
+[`examples/managed`](examples/managed) is a small one end to end.
 
 ### Incremental builds
 
@@ -768,9 +828,17 @@ v1 is deliberately small. These are the sharp edges worth knowing about.
   the numbers stop improving is the linker, not the compiler.
 - **There is no compiled-library format.** Building a module still needs
   the *source* of everything it imports, because there is no interface
-  file recording another module's types and signatures. That is what a
-  package manager distributing binaries would need; one distributing
-  source, the way Cargo does, would not.
+  file recording another module's types and signatures. Packages are
+  distributed as source, the way Cargo does it; distributing binaries
+  would need that interface file first.
+- **No registry, and no version solving.** A dependency names a
+  directory or a git repository outright, and `version` is recorded and
+  compared, never solved for. Two packages that want different revisions
+  of a third is an error, not a negotiation.
+- **A package's manifest is a subset of TOML.** Comments, `[section]`
+  headers, string values, and one level of `{ ... }`. No numbers, no
+  booleans, no arrays. Anything else is refused by name rather than
+  ignored, so nothing silently fails to take effect.
 - **Optimization stops at the module boundary.** A cross-module call
   used to be a direct call in one LLVM module and could be inlined; now
   it crosses an object-file boundary that `-O3` cannot see across.

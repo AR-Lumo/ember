@@ -905,6 +905,31 @@ EMBER_TEST(cli_parses_the_incremental_build_flags) {
     EMBER_CHECK(!plain.build.verbose);
 }
 
+EMBER_TEST(cli_parses_fetch) {
+    // The odd one out: it works on the manifest it finds, so it takes no
+    // input file.
+    const auto result = parse({"fetch"});
+    EMBER_CHECK(command_of(result).kind == ember::cli::CommandKind::Fetch);
+    EMBER_CHECK(!command_of(result).update);
+
+    const auto updating = parse({"fetch", "--update"});
+    EMBER_CHECK(command_of(updating).update);
+}
+
+EMBER_TEST(cli_fetch_rejects_an_input_file) {
+    EMBER_CHECK_EQ(usage_message(parse({"fetch", "main.em"})),
+                   std::string{"`fetch` takes no input file, only the manifest it finds"});
+}
+
+EMBER_TEST(cli_takes_update_on_everything_that_reads_a_program) {
+    // Including `check`: resolving dependencies is part of finding the
+    // modules, which `check` has to do.
+    for (const std::string_view subcommand : {"build", "run", "check"}) {
+        const auto result = parse({subcommand, "--update", "main.em"});
+        EMBER_CHECK_MSG(command_of(result).update, std::string{subcommand});
+    }
+}
+
 EMBER_TEST(cli_parses_a_module_path) {
     const auto result = parse({"build", "-L", "vendor", "--module-path", "more", "main.em"});
     const ember::cli::Command& command = command_of(result);

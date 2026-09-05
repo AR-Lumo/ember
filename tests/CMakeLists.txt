@@ -15,6 +15,7 @@ add_executable(ember_snapshot_tests
     separate_tests.cpp
     optimization_tests.cpp
     search_path_tests.cpp
+    package_tests.cpp
 )
 
 target_include_directories(ember_snapshot_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
@@ -36,6 +37,7 @@ target_link_libraries(ember_snapshot_tests
         ember::parser
         ember::typeck
         ember::codegen
+        ember::manifest
 )
 
 add_test(NAME snapshot_tests COMMAND ember_snapshot_tests)

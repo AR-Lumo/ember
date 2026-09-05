@@ -23,6 +23,7 @@
 
 #include <cstdlib>
 #include <filesystem>
+#include <random>
 #include <fstream>
 #include <string>
 #include <vector>
@@ -35,9 +36,12 @@ namespace {
 class Workspace {
 public:
     Workspace() {
+        // Unique per run as well as per test, so a directory a previous
+        // run failed to clean up cannot be mistaken for this one's.
+        static const unsigned run = std::random_device{}();
         static int counter = 0;
         root_ = fs::temp_directory_path() /
-                ("ember-search-path-" + std::to_string(++counter));
+                ("ember-search-path-" + std::to_string(run) + "-" + std::to_string(++counter));
         std::error_code ignored;
         fs::remove_all(root_, ignored);
         fs::create_directories(root_, ignored);

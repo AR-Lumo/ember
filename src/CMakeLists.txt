@@ -16,6 +16,7 @@ target_link_libraries(ember_driver
         ember::parser
         ember::typeck
         ember::codegen
+        ember::manifest
 )
 
 # The driver has to know where the runtime it links into every compiled
@@ -37,4 +38,5 @@ target_link_libraries(ember
         ember::parser
         ember::typeck
         ember::codegen
+        ember::manifest
 )

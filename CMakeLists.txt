@@ -61,6 +61,7 @@ add_subdirectory(libs/lexer)
 add_subdirectory(libs/parser)
 add_subdirectory(libs/typeck)
 add_subdirectory(libs/codegen)
+add_subdirectory(libs/manifest)
 add_subdirectory(libs/std)
 add_subdirectory(src)
 

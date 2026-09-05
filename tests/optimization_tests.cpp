@@ -153,9 +153,17 @@ std::vector<fs::path> example_programs() {
             programs.push_back(entry.path());
             continue;
         }
-        const fs::path main_file = entry.path() / "main.em";
-        if (entry.is_directory() && fs::exists(main_file)) {
-            programs.push_back(main_file);
+        if (!entry.is_directory()) {
+            continue;
+        }
+        // A plain multi-file example, or a package with its modules in
+        // `src` the way a manifest expects.
+        for (const fs::path& candidate : {entry.path() / "main.em",
+                                          entry.path() / "src" / "main.em"}) {
+            if (fs::exists(candidate)) {
+                programs.push_back(candidate);
+                break;
+            }
         }
     }
     return programs;

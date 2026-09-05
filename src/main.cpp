@@ -31,14 +31,20 @@ int run_command(const ember::cli::Command& command) {
             const std::filesystem::path output =
                 command.output.value_or(ember::cli::default_output_path(command.input));
             return ember::cli::build_file(command.input, output, command.build,
-                                          command.module_path);
+                                          command.module_path, command.update);
         }
 
         case CommandKind::Run:
-            return ember::cli::run_file(command.input, command.build, command.module_path);
+            return ember::cli::run_file(command.input, command.build, command.module_path,
+                                        command.update);
 
         case CommandKind::Check:
-            return ember::cli::check_file(command.input, command.module_path);
+            return ember::cli::check_file(command.input, command.module_path,
+                                          command.update);
+
+        case CommandKind::Fetch:
+            return ember::cli::fetch_packages(std::filesystem::current_path(),
+                                              command.update);
     }
 
     return ember::cli::kExitSuccess;

@@ -33,6 +33,9 @@ enum class CommandKind {
     Build,
     Run,
     Check,
+    /// Resolve and download what the manifest depends on, without
+    /// building anything.
+    Fetch,
     Help,
     Version,
 };
@@ -66,6 +69,9 @@ struct Command {
     /// options this belongs to `check` as well: finding a module is the
     /// front end's problem, not the back end's.
     std::vector<std::filesystem::path> module_path;
+    /// `--update`: re-resolve git dependencies instead of using the
+    /// revisions `ember.lock` pinned.
+    bool update = false;
 
     friend bool operator==(const Command&, const Command&) = default;
 };
@@ -102,12 +108,35 @@ std::string version_string();
 /// Assembles the directories an imported module is looked for in,
 /// after the directory of the file that imported it.
 ///
-/// In order: what `--module-path` asked for, then `EMBER_MODULE_PATH`
-/// from the environment, then an `ember_modules` directory beside the
-/// entry file if one exists. Explicit beats ambient beats conventional,
+/// In order: what `--module-path` asked for, then the packages the
+/// manifest resolved to, then `EMBER_MODULE_PATH` from the environment,
+/// then an `ember_modules` directory beside the entry file if one
+/// exists. Explicit beats declared beats ambient beats conventional,
 /// which is the order every toolchain settles on eventually.
 std::vector<std::filesystem::path> module_search_path(
-    const std::filesystem::path& entry, const std::vector<std::filesystem::path>& requested);
+    const std::filesystem::path& entry, const std::vector<std::filesystem::path>& requested,
+    const std::vector<std::filesystem::path>& packages = {});
+
+/// What resolving a manifest produced.
+struct PackageResolution {
+    /// One `src` directory per resolved package, in dependency order.
+    std::vector<std::filesystem::path> search_path;
+    /// False when a manifest was found but could not be used. A program
+    /// with no manifest at all succeeds with nothing resolved.
+    bool ok = true;
+};
+
+/// Find the manifest above `entry`, resolve what it depends on, fetch
+/// anything missing, and write `ember.lock`.
+///
+/// A program with no manifest is not an error: most of them are one
+/// file and depend on nothing. Diagnostics go to stderr.
+PackageResolution resolve_packages(const std::filesystem::path& entry, bool update,
+                                   bool verbose);
+
+/// `ember fetch` (§6): resolve and download, and stop there. Returns a
+/// process exit code.
+int fetch_packages(const std::filesystem::path& from, bool update);
 
 /// Run the front end over `input` - lex, parse, type-check - printing
 /// any diagnostics to stderr in the §7 format. Returns a process exit
@@ -116,7 +145,8 @@ std::vector<std::filesystem::path> module_search_path(
 /// This is `ember check` (§6). `ember build` runs the same front end and
 /// then hands the checked program to codegen.
 int check_file(const std::filesystem::path& input,
-               const std::vector<std::filesystem::path>& module_path = {});
+               const std::vector<std::filesystem::path>& module_path = {},
+               bool update = false);
 
 /// Compile `input` to a native executable at `output` (§6, `ember build`).
 ///
@@ -125,12 +155,14 @@ int check_file(const std::filesystem::path& input,
 /// changed. `options.fresh` skips the cache.
 int build_file(const std::filesystem::path& input, const std::filesystem::path& output,
                const BuildOptions& options = {},
-               const std::vector<std::filesystem::path>& module_path = {});
+               const std::vector<std::filesystem::path>& module_path = {},
+               bool update = false);
 
 /// Compile `input` to a temporary executable, run it, and return its
 /// exit code (§6, `ember run`).
 int run_file(const std::filesystem::path& input, const BuildOptions& options = {},
-             const std::vector<std::filesystem::path>& module_path = {});
+             const std::vector<std::filesystem::path>& module_path = {},
+             bool update = false);
 
 /// The linker command the build uses, for diagnostics and the README.
 std::string linker_command();
