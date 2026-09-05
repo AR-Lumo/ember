@@ -201,9 +201,13 @@ all a dependency has ever been here.
 name = "myapp"
 version = "0.1.0"
 
+[registry]
+index = "https://example.invalid/ember-index"
+
 [dependencies]
-textkit = { path = "../textkit" }
-httpkit = { git = "https://example.invalid/httpkit", rev = "v1.2.0" }
+serde = "1.0.0"                                              # from the registry
+textkit = { path = "../textkit" }                            # a directory
+httpkit = { git = "https://example.invalid/h", rev = "v1.2" } # a repository
 ```
 
 `build`, `run` and `check` find the manifest by walking up from the
@@ -228,25 +232,71 @@ nothing touches the network: a commit hash cannot move, so having it
 already is proof enough — which is why `rev` is required, and why a tag
 or a branch is re-checked every time.
 
-**Two things this is not.** There is **no registry**, so every
-dependency names a directory or a repository outright; `serde = "1.0"`
-is refused, with a note saying why. And there is **no version solving** —
-two packages wanting different revisions of a third is an error naming
-both, not a negotiation:
+#### The registry
 
-```console
-error: two packages want different versions of `shared`
- --> right/ember.toml:6:1
-  |
-6 | shared = { path = "../other/shared" }
-  | ^^^^^^ `right` wants path ../other/shared
-  = note: already resolved as path ../shared
-  = note: ember has no registry and does not solve versions; make the two agree
+A bare version string is a registry dependency. The registry is a
+directory of index files, one per package, saying where each published
+version lives:
+
+```toml
+# textkit.toml
+[1.0.0]
+git = "https://example.invalid/textkit"
+rev = "v1.0.0"
+
+[1.2.0]
+git = "https://example.invalid/textkit"
+rev = "v1.2.0"
 ```
 
-Note where that points: at the manifest of the package that disagreed,
-not at yours. Solving without an index to search would be pretending.
-[`examples/managed`](examples/managed) is a small one end to end.
+That directory can be a path or a git repository — which is how
+crates.io's index works, and means publishing a registry needs a git
+host rather than a server. Point `[registry] index` at it.
+
+A version resolves to a git dependency, so everything past that point is
+machinery that already existed; the index only decides *which* commit.
+
+**Requirements.** `"1.2.3"` is a caret: this version or anything
+compatible, where compatible stops at the next release that may break —
+`^1.2.3` allows `1.9.0` but not `2.0.0`, and `^0.2.3` allows `0.2.9` but
+not `0.3.0`, because before 1.0 the minor is where breakage lives.
+`"^1.2.3"` says the same thing out loud and `"=1.2.3"` pins exactly.
+There are no ranges, wildcards or pre-release tags; each is refused by
+name rather than misread.
+
+**How a version is chosen.** Each package gets one: the highest the
+index has that satisfies every requirement written against it. Finding
+that takes a fixpoint, because a package's own requirements are inside
+its manifest and reading that means picking a version first — so the
+graph is walked, the choices reconciled against everything the walk
+found, and walked again until nothing moves.
+
+**It does not backtrack.** It will not try a lower version of one
+package to make room for another. A graph that would need that is
+reported rather than solved:
+
+```console
+error: no version of `textkit` satisfies every requirement
+ --> left/ember.toml:6:1
+  |
+6 | textkit = "1.0.0"
+  | ^^^^^^^ `left` wants ^1.0.0
+  = note: `right` wants ^2.0.0
+  = note: the registry has 1.0.0, 1.2.0, 1.3.0, 2.0.0
+  = note: ember picks the highest version satisfying every requirement and does not backtrack, so the requirements have to agree
+```
+
+Every requirement is named, along with who wrote it and what has
+actually been published. In an ecosystem this size that is more useful
+than a solver that takes a minute to reach the same place.
+
+The lockfile pins the version as well as the commit, so publishing
+`1.3.0` does not move a build that settled on `1.2.0` until `--update`
+says so. And an index that claims a commit is `1.3.0` when the package
+there says `1.2.0` is refused — an index that can be wrong about that
+can serve anything for anything.
+
+[`examples/managed`](examples/managed) is a small project end to end.
 
 ### Incremental builds
 
@@ -865,10 +915,15 @@ v1 is deliberately small. These are the sharp edges worth knowing about.
   file recording another module's types and signatures. Packages are
   distributed as source, the way Cargo does it; distributing binaries
   would need that interface file first.
-- **No registry, and no version solving.** A dependency names a
-  directory or a git repository outright, and `version` is recorded and
-  compared, never solved for. Two packages that want different revisions
-  of a third is an error, not a negotiation.
+- **Version selection does not backtrack.** It takes the highest
+  version satisfying every requirement, iterated to a fixpoint. A graph
+  that could only be satisfied by choosing a *lower* version of one
+  package to make room for another is reported as a conflict rather than
+  solved. Requirements are carets and exact versions only — no ranges,
+  wildcards or pre-release tags.
+- **Nothing publishes to a registry.** An index is a directory of TOML
+  files; adding a version means committing one. There is no `ember
+  publish`, no ownership, no checksums, and no hosted index to point at.
 - **A package's manifest is a subset of TOML.** Comments, `[section]`
   headers, string values, and one level of `{ ... }`. No numbers, no
   booleans, no arrays. Anything else is refused by name rather than

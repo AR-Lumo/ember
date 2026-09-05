@@ -124,10 +124,19 @@ inline int run_all(std::string_view filter = {}) {
         }                                                                           \
     } while (false)
 
+/// Compares two values, reporting both when they differ.
+///
+/// The operands are taken **by value**, not by reference. Binding a
+/// reference here is a trap that has been sprung three times: an
+/// expression like `f().things.at(0)` reaches into a temporary that dies
+/// at the end of the declaration, and the comparison then reads freed
+/// memory - which shows up as a garbled failure message rather than as
+/// anything that points at the mistake. A copy costs nothing a test will
+/// notice.
 #define EMBER_CHECK_EQ(actual, expected)                                            \
     do {                                                                            \
-        const auto& ember_actual = (actual);                                        \
-        const auto& ember_expected = (expected);                                    \
+        const auto ember_actual = (actual);                                         \
+        const auto ember_expected = (expected);                                     \
         if (!(ember_actual == ember_expected)) {                                    \
             ::ember::test::fail(__FILE__, __LINE__,                                 \
                                 "expected `" #actual "` == `" #expected "`\n" \

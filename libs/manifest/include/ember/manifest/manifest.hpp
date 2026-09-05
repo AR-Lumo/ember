@@ -10,33 +10,47 @@
 //     name = "myapp"
 //     version = "0.1.0"
 //
+//     [registry]
+//     index = "https://example.invalid/ember-index"
+//
 //     [dependencies]
+//     serde = "1.0.0"
 //     textkit = { path = "../textkit" }
 //     httpkit = { git = "https://example.invalid/httpkit", rev = "v1.2.0" }
 //
-// Two kinds of dependency, and no third:
+// Three kinds of dependency:
 //
+//   * a bare version string is a **registry** dependency, looked up in
+//     the configured index and resolved to a published version.
 //   * `path` is a directory on this machine, resolved relative to the
 //     manifest that named it. Nothing is copied or fetched.
 //   * `git` is a repository and a revision — a tag, a branch or a commit.
 //     It is cloned once into a cache and reused after that.
 //
-// **There is no registry and no version solving.** `version` is recorded
-// and reported, never solved for: two packages that want different
-// revisions of the same dependency is an error naming both, not a
-// negotiation. That is the honest shape of a package manager with no
-// index to search, and it is the next thing to build rather than
-// something quietly half-done here.
+// **How versions are chosen.** Each package gets one version: the
+// highest the index has that satisfies every requirement written against
+// it, found by walking the graph to a fixpoint as requirements
+// accumulate. It does not backtrack — it will not try a lower version of
+// one package to make room for another — so a graph that would need that
+// is reported rather than solved, naming every requirement and who wrote
+// it. A small ecosystem is better served by being told than by a solver
+// that takes a minute to say the same thing.
 //
-// `ember.lock` records the exact commit each git dependency resolved to,
-// so a manifest that asks for a branch keeps building the same code
-// until somebody asks for it not to.
+// A path or git dependency has no version to choose: it is pinned by
+// where it came from. Wanting one package both ways is a conflict.
+//
+// `ember.lock` records the version and the exact commit each dependency
+// resolved to, so a manifest that asks for a branch — or for a range
+// somebody has since published into — keeps building the same code until
+// somebody asks for it not to.
 
 #ifndef EMBER_MANIFEST_MANIFEST_HPP
 #define EMBER_MANIFEST_MANIFEST_HPP
 
 #include "ember/ast/diagnostic.hpp"
 #include "ember/ast/span.hpp"
+#include "ember/manifest/registry.hpp"
+#include "ember/manifest/version.hpp"
 
 #include <filesystem>
 #include <functional>
@@ -62,6 +76,9 @@ enum class SourceKind {
     Path,
     /// A git repository, cloned into the build cache.
     Git,
+    /// A published version, looked up in the registry index. Resolves to
+    /// a git repository, so everything past resolution is the same.
+    Registry,
 };
 
 std::string_view source_kind_name(SourceKind kind) noexcept;
@@ -75,6 +92,8 @@ struct Dependency {
     /// dependency with no revision is a dependency on whatever somebody
     /// pushed this morning.
     std::string rev;
+    /// What versions are acceptable. Registry only.
+    Requirement requirement;
     /// Where it was written, so a conflict can point at both sides.
     ast::Span span;
 };
@@ -82,6 +101,10 @@ struct Dependency {
 struct Manifest {
     std::string name;
     std::string version;
+    /// `[registry] index = "..."`: a directory or a git repository
+    /// holding one index file per package. Empty when none is
+    /// configured, which is not an error until something needs one.
+    std::string registry_index;
     /// The `ember.toml` itself.
     std::filesystem::path path;
     /// Its directory: the package root.
@@ -127,6 +150,8 @@ struct ResolvedPackage {
     std::string resolved_rev;
     /// What the manifest asked for, before the lockfile pinned it.
     std::string requested_rev;
+    /// The published version chosen, for a registry dependency.
+    Version chosen;
 
     std::filesystem::path source_directory() const {
         return root / std::filesystem::path{kSourceDirectory};
@@ -156,6 +181,9 @@ struct LockEntry {
     SourceKind kind = SourceKind::Path;
     std::string location;
     std::string rev;
+    /// The published version, for a registry entry. Pinning this is what
+    /// keeps a new release from moving a build that did not ask for it.
+    std::string version;
 };
 
 struct Lock {
@@ -193,20 +221,28 @@ struct Resolution {
 
 /// Resolve `root`'s dependencies, transitively.
 ///
-/// Breadth-first, and each package is visited once, so two packages
-/// depending on the same third is ordinary and a cycle between packages
-/// terminates rather than spinning — the same bargain the module loader
-/// already strikes.
+/// The graph is walked breadth-first, and re-walked whenever a version
+/// choice changes, until nothing changes. Each package is visited once
+/// per round, so two packages depending on the same third is ordinary
+/// and a cycle between packages terminates rather than spinning — the
+/// same bargain the module loader already strikes. Requirements only
+/// accumulate, so the version chosen for a package never rises and the
+/// loop always settles.
 ///
-/// `lock` pins git revisions: an entry for a dependency is used in place
-/// of what the manifest asked for, which is what makes a build that says
-/// `rev = "main"` keep building the same commit. Pass an empty lock to
-/// resolve afresh.
+/// `lock` pins what a previous build settled on: a version for a
+/// registry dependency, a commit for a git one. A pin is honoured as
+/// long as it still satisfies every requirement, which is what keeps a
+/// build that says `rev = "main"` — or `"1.0.0"`, against an index that
+/// has since grown a `1.1.0` — building the same code. Pass an empty
+/// lock to resolve afresh.
+///
+/// `index` is only consulted for registry dependencies, so a program
+/// that has none never needs a registry configured.
 ///
 /// Manifests read along the way are added to `sources`, so a diagnostic
 /// about a dependency's own manifest renders against the right file.
 Resolution resolve(const Manifest& root, const Lock& lock, const Fetcher& fetch,
-                   ast::SourceMap& sources);
+                   const IndexReader& index, ast::SourceMap& sources);
 
 }  // namespace ember::manifest
 

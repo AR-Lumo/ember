@@ -4,6 +4,8 @@
 
 #include <algorithm>
 #include <deque>
+#include <map>
+#include <set>
 #include <system_error>
 
 namespace ember::manifest {
@@ -36,7 +38,15 @@ bool is_valid_package_name(std::string_view name) {
 }  // namespace
 
 std::string_view source_kind_name(SourceKind kind) noexcept {
-    return kind == SourceKind::Git ? "git" : "path";
+    switch (kind) {
+        case SourceKind::Git:
+            return "git";
+        case SourceKind::Registry:
+            return "registry";
+        case SourceKind::Path:
+            break;
+    }
+    return "path";
 }
 
 const LockEntry* Lock::find(std::string_view name) const {
@@ -66,14 +76,26 @@ namespace {
 /// Reads one `[dependencies]` entry into a Dependency.
 std::optional<Dependency> read_dependency(const toml::Entry& entry,
                                           std::vector<Diagnostic>& diagnostics) {
+    // A bare string is a version requirement, looked up in the registry.
     if (!entry.is_table) {
-        push(diagnostics, "dependency `" + entry.key + "` is not a table", entry.value_span,
-             "expected `{ ... }`")
-            .with_note("write `" + entry.key + " = { path = \"../" + entry.key +
-                       "\" }` or `{ git = \"...\", rev = \"...\" }`")
-            .with_note("a bare version string would need a registry to look it up in, and "
-                       "there is not one yet");
-        return std::nullopt;
+        const std::optional<Requirement> requirement = Requirement::parse(entry.value);
+        if (!requirement.has_value()) {
+            push(diagnostics, "`" + entry.value + "` is not a version requirement",
+                 entry.value_span, "expected something like `1.2.3`, `^1.2.3` or `=1.2.3`")
+                .with_note("ember has carets and exact versions; there are no ranges, "
+                           "wildcards or pre-release tags")
+                .with_note("for a dependency that is not published, write `" + entry.key +
+                           " = { path = \"../" + entry.key + "\" }` or `{ git = \"...\", "
+                           "rev = \"...\" }`");
+            return std::nullopt;
+        }
+
+        Dependency dependency;
+        dependency.name = entry.key;
+        dependency.kind = SourceKind::Registry;
+        dependency.requirement = *requirement;
+        dependency.span = entry.key_span;
+        return dependency;
     }
 
     const toml::Entry* path = entry.find("path");
@@ -189,6 +211,25 @@ ManifestResult parse_manifest(const ast::SourceFile& source) {
         }
     }
 
+    if (const toml::Table* registry = parsed.document.find("registry")) {
+        if (const toml::Entry* index = registry->find("index")) {
+            manifest.registry_index = index->value;
+            if (manifest.registry_index.empty()) {
+                push(result.diagnostics, "registry index is empty", index->value_span,
+                     "expected a directory or a git url");
+            }
+        } else {
+            push(result.diagnostics, "`[registry]` has no index", registry->span,
+                 "expected `index = \"...\"` in this section");
+        }
+        for (const toml::Entry& entry : registry->entries) {
+            if (entry.key != "index") {
+                push(result.diagnostics, "unknown key `" + entry.key + "` in `[registry]`",
+                     entry.key_span, "expected `index`");
+            }
+        }
+    }
+
     if (const toml::Table* dependencies = parsed.document.find("dependencies")) {
         for (const toml::Entry& entry : dependencies->entries) {
             if (entry.key == manifest.name) {
@@ -212,9 +253,10 @@ ManifestResult parse_manifest(const ast::SourceFile& source) {
     // Anything else is a section this version does not understand, and
     // saying so beats letting somebody believe it took effect.
     for (const toml::Table& table : parsed.document.tables) {
-        if (!table.name.empty() && table.name != "package" && table.name != "dependencies") {
+        if (!table.name.empty() && table.name != "package" && table.name != "dependencies" &&
+            table.name != "registry") {
             push(result.diagnostics, "unknown section `[" + table.name + "]`", table.span,
-                 "expected `[package]` or `[dependencies]`");
+                 "expected `[package]`, `[dependencies]` or `[registry]`");
         }
     }
 
@@ -277,15 +319,20 @@ LockResult parse_lock(const ast::SourceFile& source) {
             entry.kind = SourceKind::Git;
         } else if (source_field->value == "path") {
             entry.kind = SourceKind::Path;
+        } else if (source_field->value == "registry") {
+            entry.kind = SourceKind::Registry;
         } else {
             push(result.diagnostics, "unknown source `" + source_field->value + "`",
-                 source_field->value_span, "expected `path` or `git`");
+                 source_field->value_span, "expected `path`, `git` or `registry`");
             continue;
         }
 
         entry.location = location->value;
         if (const toml::Entry* rev = table.find("rev")) {
             entry.rev = rev->value;
+        }
+        if (const toml::Entry* version = table.find("version")) {
+            entry.version = version->value;
         }
         result.lock.entries.push_back(std::move(entry));
     }
@@ -341,7 +388,17 @@ struct Pending {
     std::filesystem::path requested_from;
 };
 
+/// One requirement written against a package, and who wrote it.
+struct Demand {
+    Requirement requirement;
+    std::string requested_by;
+    ast::Span span;
+};
+
 std::string describe(const Dependency& dependency) {
+    if (dependency.kind == SourceKind::Registry) {
+        return dependency.requirement.to_string();
+    }
     std::string out{source_kind_name(dependency.kind)};
     out += " " + dependency.location;
     if (!dependency.rev.empty()) {
@@ -351,6 +408,9 @@ std::string describe(const Dependency& dependency) {
 }
 
 std::string describe(const ResolvedPackage& package) {
+    if (package.kind == SourceKind::Registry) {
+        return "version " + package.chosen.to_string();
+    }
     std::string out{source_kind_name(package.kind)};
     out += " " + package.location;
     if (!package.requested_rev.empty()) {
@@ -359,105 +419,419 @@ std::string describe(const ResolvedPackage& package) {
     return out;
 }
 
-}  // namespace
+/// Everything one round of the walk needs to carry.
+class Resolver {
+public:
+    Resolver(const Manifest& root, const Lock& lock, const Fetcher& fetch,
+             const IndexReader& index, ast::SourceMap& sources)
+        : root_(root), lock_(lock), fetch_(fetch), index_(index), sources_(sources) {}
 
-Resolution resolve(const Manifest& root, const Lock& lock, const Fetcher& fetch,
-                   ast::SourceMap& sources) {
-    Resolution result;
-
-    std::deque<Pending> queue;
-    for (const Dependency& dependency : root.dependencies) {
-        queue.push_back(Pending{dependency, root.name, root.root});
-    }
-
-    while (!queue.empty()) {
-        const Pending pending = std::move(queue.front());
-        queue.pop_front();
-        const Dependency& dependency = pending.dependency;
-
-        // Already resolved? Then it either matches or it is a conflict.
-        const auto seen = std::find_if(
-            result.packages.begin(), result.packages.end(),
-            [&](const ResolvedPackage& package) { return package.name == dependency.name; });
-        if (seen != result.packages.end()) {
-            const bool same = seen->kind == dependency.kind &&
-                              seen->location == dependency.location &&
-                              seen->requested_rev == dependency.rev;
-            if (!same) {
-                // No registry to negotiate in, so this is as far as it
-                // goes. Both sides are named so the choice is the
-                // author's rather than whichever came first.
-                push(result.diagnostics,
-                     "two packages want different versions of `" + dependency.name + "`",
-                     dependency.span, "`" + pending.requested_by + "` wants " +
-                                          describe(dependency))
-                    .with_note("already resolved as " + describe(*seen))
-                    .with_note("ember has no registry and does not solve versions; make the "
-                               "two agree");
-            }
-            continue;
-        }
-
-        // Where does it actually live?
-        std::filesystem::path package_root;
-        std::string resolved_rev;
-
-        if (dependency.kind == SourceKind::Path) {
-            std::error_code code;
-            package_root = std::filesystem::weakly_canonical(
-                pending.requested_from / std::filesystem::path{dependency.location}, code);
-            if (code) {
-                package_root = pending.requested_from / std::filesystem::path{dependency.location};
-            }
-            if (!std::filesystem::is_directory(package_root, code)) {
-                push(result.diagnostics, "cannot find package `" + dependency.name + "`",
-                     dependency.span, "no directory at `" + package_root.string() + "`")
-                    .with_note("a path dependency is relative to the manifest that names it");
+    Resolution run() {
+        // A round walks the graph with the version choices it has,
+        // collecting every requirement it meets; then those choices are
+        // reconciled against the full set and the walk runs again if any
+        // of them moved. Which version a package needs cannot be known
+        // before the walk, because a package's requirements are in its
+        // own manifest and reading that means picking a version first.
+        //
+        // Diagnostics from a round that moved something are thrown away:
+        // a version chosen before all its requirements were known will
+        // fail in ways the next round fixes, and reporting those would
+        // be reporting the search rather than the answer.
+        //
+        // Requirements only accumulate and a chosen version never rises,
+        // so the loop walks down a finite ladder and settles. The cap is
+        // there for a bug in that reasoning, not for a graph.
+        constexpr int kMaxRounds = 64;
+        for (int round = 0; round < kMaxRounds; ++round) {
+            Resolution attempt = walk();
+            terminal_.clear();
+            if (reconcile()) {
                 continue;
             }
-        } else {
-            // A locked revision wins over what the manifest asked for:
-            // that is the whole point of locking one.
-            std::string wanted = dependency.rev;
-            if (const LockEntry* locked = lock.find(dependency.name)) {
-                if (locked->kind == SourceKind::Git && locked->location == dependency.location &&
-                    !locked->rev.empty()) {
-                    wanted = locked->rev;
+
+            // Settled. Walk once more so the result carries only the
+            // choices that stuck: the round that found them may have
+            // tried a version first and failed to read it, and that is
+            // the search talking, not the answer.
+            Resolution settled = walk();
+            // A requirement nothing satisfies is the headline, not a
+            // footnote to whatever else the walk tripped over.
+            settled.diagnostics.insert(settled.diagnostics.begin(), terminal_.begin(),
+                                       terminal_.end());
+            return settled;
+        }
+
+        Resolution give_up;
+        push(give_up.diagnostics, "dependency resolution did not settle",
+             root_.dependencies.empty() ? ast::Span{} : root_.dependencies.front().span,
+             "this is a bug in the Ember package resolver");
+        return give_up;
+    }
+
+private:
+    const Manifest& root_;
+    const Lock& lock_;
+    const Fetcher& fetch_;
+    const IndexReader& index_;
+    ast::SourceMap& sources_;
+
+    /// The version settled on for each registry package so far.
+    std::map<std::string, Version> pinned_;
+    /// Every requirement the last round met, by package.
+    std::map<std::string, std::vector<Demand>> demands_;
+    /// Errors that no further round could fix, kept across the final
+    /// clean walk.
+    std::vector<ast::Diagnostic> terminal_;
+    /// Packages with no version that satisfies everything asked of them.
+    /// Nothing more is attempted for these: picking one of the versions
+    /// that was rejected and then complaining about *it* would bury the
+    /// answer under a symptom.
+    std::set<std::string> unsatisfiable_;
+    /// Index entries already looked up, so a package in three manifests
+    /// is fetched once.
+    std::map<std::string, IndexLookup> index_cache_;
+
+    const IndexLookup& look_up(const std::string& name) {
+        const auto found = index_cache_.find(name);
+        if (found != index_cache_.end()) {
+            return found->second;
+        }
+        return index_cache_.emplace(name, index_ ? index_(name)
+                                                 : IndexLookup{std::nullopt,
+                                                               "no registry is configured"})
+            .first->second;
+    }
+
+    /// One pass over the graph. Returns what it resolved; `pinned_` is
+    /// updated as version choices are made.
+    Resolution walk() {
+        Resolution result;
+        demands_.clear();
+
+        std::deque<Pending> queue;
+        for (const Dependency& dependency : root_.dependencies) {
+            queue.push_back(Pending{dependency, root_.name, root_.root});
+        }
+
+        while (!queue.empty()) {
+            const Pending pending = std::move(queue.front());
+            queue.pop_front();
+            const Dependency& dependency = pending.dependency;
+
+            if (dependency.kind == SourceKind::Registry) {
+                demands_[dependency.name].push_back(
+                    Demand{dependency.requirement, pending.requested_by, dependency.span});
+                if (unsatisfiable_.count(dependency.name) != 0) {
+                    // The requirement is still recorded, because the
+                    // report names every one of them; there is just
+                    // nothing to fetch.
+                    continue;
                 }
             }
 
-            const Fetched fetched = fetch(dependency, wanted);
-            if (!fetched.ok()) {
-                push(result.diagnostics, "cannot fetch package `" + dependency.name + "`",
-                     dependency.span, describe(dependency))
-                    .with_note(fetched.error);
+            const auto seen = std::find_if(result.packages.begin(), result.packages.end(),
+                                           [&](const ResolvedPackage& package) {
+                                               return package.name == dependency.name;
+                                           });
+            if (seen != result.packages.end()) {
+                check_agrees(*seen, pending, result);
                 continue;
             }
-            package_root = fetched.root;
-            resolved_rev = fetched.rev;
+
+            std::optional<ResolvedPackage> package =
+                locate(pending, demands_[dependency.name], result);
+            if (!package.has_value()) {
+                continue;
+            }
+
+            const std::optional<Manifest> manifest = read_manifest(*package, pending, result);
+            if (!manifest.has_value()) {
+                continue;
+            }
+            package->version = manifest->version;
+
+            const std::filesystem::path root = package->root;
+            result.packages.push_back(std::move(*package));
+            for (const Dependency& next : manifest->dependencies) {
+                queue.push_back(Pending{next, dependency.name, root});
+            }
+        }
+        return result;
+    }
+
+    /// Settles each registry package against every requirement the walk
+    /// found, rather than the ones it happened to have met by the time
+    /// it needed an answer. Returns whether anything moved.
+    ///
+    /// A package with no satisfying version is reported here and nowhere
+    /// else: this is the only point at which all of its requirements are
+    /// known, so it is the only point at which giving up is honest.
+    bool reconcile() {
+        bool changed = false;
+
+        for (const auto& [name, demands] : demands_) {
+            const IndexLookup& lookup = look_up(name);
+            if (!lookup.ok() || !lookup.entry.has_value()) {
+                continue;  // already reported by the walk
+            }
+
+            const Release* release = select(name, demands, *lookup.entry);
+            if (release == nullptr) {
+                Resolution holder;
+                report_unsatisfiable(name, demands, holder);
+                terminal_.insert(terminal_.end(), holder.diagnostics.begin(),
+                                 holder.diagnostics.end());
+                unsatisfiable_.insert(name);
+                continue;
+            }
+            unsatisfiable_.erase(name);
+
+            const auto pin = pinned_.find(name);
+            if (pin == pinned_.end() || pin->second != release->version) {
+                pinned_[name] = release->version;
+                changed = true;
+            }
+        }
+        return changed;
+    }
+
+    /// Which version of `name` to use, given what is wanted of it.
+    ///
+    /// The lockfile first, because pinning is what it is for; then
+    /// whatever the last round settled on, so the walk agrees with
+    /// itself; then the highest version that fits. Each is only taken if
+    /// it satisfies every requirement in `demands` — a pin constrains
+    /// which acceptable version is chosen, it never makes an
+    /// unacceptable one acceptable.
+    const Release* select(const std::string& name, const std::vector<Demand>& demands,
+                          const IndexEntry& entry) const {
+        const auto allowed = [&](const Version& version) {
+            return std::all_of(demands.begin(), demands.end(), [&](const Demand& demand) {
+                return demand.requirement.allows(version);
+            });
+        };
+
+        const auto find = [&](const Version& wanted) -> const Release* {
+            if (!allowed(wanted)) {
+                return nullptr;
+            }
+            for (const Release& release : entry.releases) {
+                if (release.version == wanted) {
+                    return &release;
+                }
+            }
+            return nullptr;
+        };
+
+        if (const LockEntry* locked = lock_.find(name)) {
+            if (locked->kind == SourceKind::Registry) {
+                if (const std::optional<Version> version = Version::parse(locked->version)) {
+                    if (const Release* release = find(*version)) {
+                        return release;
+                    }
+                }
+            }
         }
 
-        // Read its manifest, which is also where its own dependencies
-        // come from.
+        const auto pin = pinned_.find(name);
+        if (pin != pinned_.end()) {
+            if (const Release* release = find(pin->second)) {
+                return release;
+            }
+        }
+        return entry.best(allowed);
+    }
+
+    /// A package reached twice has to be the same package both times.
+    void check_agrees(const ResolvedPackage& chosen, const Pending& pending,
+                      Resolution& result) {
+        const Dependency& dependency = pending.dependency;
+
+        if (chosen.kind != dependency.kind) {
+            push(result.diagnostics,
+                 "`" + dependency.name + "` is wanted two different ways", dependency.span,
+                 "`" + pending.requested_by + "` wants it as " + describe(dependency))
+                .with_note("already resolved as " + describe(chosen))
+                .with_note("a package comes from one place; a version and a path are not "
+                           "the same package");
+            return;
+        }
+
+        if (dependency.kind == SourceKind::Registry) {
+            // A requirement this version does not meet is not an error
+            // yet: it is one more constraint, and `reconcile` will pick
+            // again with it in hand.
+            return;
+        }
+
+        if (chosen.location != dependency.location || chosen.requested_rev != dependency.rev) {
+            push(result.diagnostics,
+                 "two packages want different versions of `" + dependency.name + "`",
+                 dependency.span,
+                 "`" + pending.requested_by + "` wants " + describe(dependency))
+                .with_note("already resolved as " + describe(chosen))
+                .with_note("neither is a published version, so there is nothing to choose "
+                           "between; make the two agree");
+        }
+    }
+
+    /// Turns a dependency into a directory on disk.
+    std::optional<ResolvedPackage> locate(const Pending& pending,
+                                          const std::vector<Demand>& demands,
+                                          Resolution& result) {
+        const Dependency& dependency = pending.dependency;
+
+        ResolvedPackage package;
+        package.name = dependency.name;
+        package.kind = dependency.kind;
+        package.location = dependency.location;
+        package.requested_rev = dependency.rev;
+
+        if (dependency.kind == SourceKind::Path) {
+            std::error_code code;
+            package.root = std::filesystem::weakly_canonical(
+                pending.requested_from / std::filesystem::path{dependency.location}, code);
+            if (code) {
+                package.root =
+                    pending.requested_from / std::filesystem::path{dependency.location};
+            }
+            if (!std::filesystem::is_directory(package.root, code)) {
+                push(result.diagnostics, "cannot find package `" + dependency.name + "`",
+                     dependency.span, "no directory at `" + package.root.string() + "`")
+                    .with_note("a path dependency is relative to the manifest that names it");
+                return std::nullopt;
+            }
+            return package;
+        }
+
+        Dependency fetchable = dependency;
+        if (dependency.kind == SourceKind::Registry) {
+            const std::optional<Release> release =
+                choose(dependency.name, demands, dependency.span, result);
+            if (!release.has_value()) {
+                return std::nullopt;
+            }
+            package.chosen = release->version;
+            package.location = release->git;
+            package.requested_rev = release->rev;
+            pinned_[dependency.name] = release->version;
+
+            fetchable.kind = SourceKind::Git;
+            fetchable.location = release->git;
+            fetchable.rev = release->rev;
+        }
+
+        // A locked commit wins over what the manifest asked for: that is
+        // the whole point of locking one.
+        std::string wanted = fetchable.rev;
+        if (const LockEntry* locked = lock_.find(dependency.name)) {
+            if (locked->kind == dependency.kind && !locked->rev.empty() &&
+                (dependency.kind == SourceKind::Registry
+                     ? locked->version == package.chosen.to_string()
+                     : locked->location == dependency.location)) {
+                wanted = locked->rev;
+            }
+        }
+
+        const Fetched fetched = fetch_(fetchable, wanted);
+        if (!fetched.ok()) {
+            push(result.diagnostics, "cannot fetch package `" + dependency.name + "`",
+                 dependency.span, describe(dependency))
+                .with_note(fetched.error);
+            return std::nullopt;
+        }
+        package.root = fetched.root;
+        package.resolved_rev = fetched.rev;
+        return package;
+    }
+
+    /// Picks the version a registry package should be.
+    std::optional<Release> choose(const std::string& name, const std::vector<Demand>& demands,
+                                  ast::Span span, Resolution& result) {
+        const IndexLookup& lookup = look_up(name);
+        if (!lookup.ok()) {
+            push(result.diagnostics, "cannot look up `" + name + "`", span, lookup.error)
+                .with_note("a bare version is a registry dependency; configure one with "
+                           "`[registry] index = \"...\"`");
+            return std::nullopt;
+        }
+        if (!lookup.entry.has_value()) {
+            push(result.diagnostics, "the registry has no package `" + name + "`", span,
+                 "nothing published under this name");
+            return std::nullopt;
+        }
+
+        if (const Release* release = select(name, demands, *lookup.entry)) {
+            return *release;
+        }
+        // Nothing fits what has been seen so far. Saying so is
+        // `reconcile`'s job, once it knows the whole set.
+        (void)result;
+        return std::nullopt;
+    }
+
+    void report_unsatisfiable(const std::string& name, const std::vector<Demand>& demands,
+                              Resolution& result) {
+        if (demands.empty()) {
+            return;
+        }
+        // Reported once however many rounds reach it.
+        for (const ast::Diagnostic& existing : result.diagnostics) {
+            if (existing.message.find("`" + name + "`") != std::string::npos) {
+                return;
+            }
+        }
+
+        ast::Diagnostic& diagnostic = push(
+            result.diagnostics, "no version of `" + name + "` satisfies every requirement",
+            demands.front().span,
+            "`" + demands.front().requested_by + "` wants " +
+                demands.front().requirement.to_string());
+
+        for (std::size_t i = 1; i < demands.size(); ++i) {
+            diagnostic.with_note("`" + demands[i].requested_by + "` wants " +
+                                 demands[i].requirement.to_string());
+        }
+
+        const IndexLookup& lookup = look_up(name);
+        if (lookup.ok() && lookup.entry.has_value()) {
+            std::string published;
+            for (const Release& release : lookup.entry->releases) {
+                published += (published.empty() ? "" : ", ") + release.version.to_string();
+            }
+            diagnostic.with_note("the registry has " + published);
+        }
+        diagnostic.with_note(
+            "ember picks the highest version satisfying every requirement and does not "
+            "backtrack, so the requirements have to agree");
+    }
+
+    /// Reads a resolved package's own manifest, which is also where its
+    /// dependencies come from.
+    std::optional<Manifest> read_manifest(const ResolvedPackage& package,
+                                          const Pending& pending, Resolution& result) {
+        const Dependency& dependency = pending.dependency;
         const std::filesystem::path manifest_path =
-            package_root / std::filesystem::path{kManifestName};
+            package.root / std::filesystem::path{kManifestName};
+
         const std::optional<ast::SourceFile> file = ast::SourceFile::load(manifest_path);
         if (!file.has_value()) {
             push(result.diagnostics, "package `" + dependency.name + "` has no manifest",
                  dependency.span, "no `" + std::string{kManifestName} + "` at `" +
-                                      package_root.string() + "`")
+                                      package.root.string() + "`")
                 .with_note("a package is a directory with a manifest and a `" +
                            std::string{kSourceDirectory} + "` directory");
-            continue;
+            return std::nullopt;
         }
 
-        const ast::FileId id = sources.add(manifest_path.string(), file->contents());
-        ManifestResult parsed = parse_manifest(sources.file(id));
+        const ast::FileId id = sources_.add(manifest_path.string(), file->contents());
+        ManifestResult parsed = parse_manifest(sources_.file(id));
         for (ast::Diagnostic& diagnostic : parsed.diagnostics) {
             result.diagnostics.push_back(std::move(diagnostic));
         }
-        if (!parsed.manifest.has_value()) {
-            continue;
+        if (!parsed.manifest.has_value() || !parsed.diagnostics.empty()) {
+            return std::nullopt;
         }
 
         // The directory it lives in has no authority over what it is
@@ -469,36 +843,40 @@ Resolution resolve(const Manifest& root, const Lock& lock, const Fetcher& fetch,
                      "`",
                  dependency.span, "the name here has to match its manifest")
                 .with_note("declared at `" + manifest_path.string() + "`");
-            continue;
+            return std::nullopt;
+        }
+
+        // An index that says 1.2.0 and a package that says 1.3.0 is an
+        // index nobody can trust; the version is what was chosen *by*.
+        if (dependency.kind == SourceKind::Registry &&
+            parsed.manifest->version != package.chosen.to_string()) {
+            push(result.diagnostics,
+                 "the registry says `" + dependency.name + "` " + package.chosen.to_string() +
+                     ", and it says " + parsed.manifest->version,
+                 dependency.span, "the index and the package disagree")
+                .with_note("declared at `" + manifest_path.string() + "`");
+            return std::nullopt;
         }
 
         std::error_code code;
         if (!std::filesystem::is_directory(parsed.manifest->source_directory(), code)) {
-            push(result.diagnostics, "package `" + dependency.name + "` has no source directory",
-                 dependency.span,
+            push(result.diagnostics,
+                 "package `" + dependency.name + "` has no source directory", dependency.span,
                  "expected `" + parsed.manifest->source_directory().string() + "`")
                 .with_note("a package keeps its modules in `" + std::string{kSourceDirectory} +
                            "`, so `import " + dependency.name + ";` finds `" +
                            std::string{kSourceDirectory} + "/" + dependency.name + ".em`");
-            continue;
+            return std::nullopt;
         }
-
-        ResolvedPackage package;
-        package.name = dependency.name;
-        package.version = parsed.manifest->version;
-        package.root = package_root;
-        package.kind = dependency.kind;
-        package.location = dependency.location;
-        package.resolved_rev = resolved_rev;
-        package.requested_rev = dependency.rev;
-        result.packages.push_back(std::move(package));
-
-        for (const Dependency& next : parsed.manifest->dependencies) {
-            queue.push_back(Pending{next, dependency.name, package_root});
-        }
+        return std::move(*parsed.manifest);
     }
+};
 
-    return result;
+}  // namespace
+
+Resolution resolve(const Manifest& root, const Lock& lock, const Fetcher& fetch,
+                   const IndexReader& index, ast::SourceMap& sources) {
+    return Resolver{root, lock, fetch, index, sources}.run();
 }
 
 }  // namespace ember::manifest

@@ -5,6 +5,7 @@
 #include "ember/ast/span.hpp"
 #include "ember/codegen/codegen.hpp"
 #include "ember/manifest/manifest.hpp"
+#include "ember/manifest/registry.hpp"
 #include "ember/parser/parser.hpp"
 #include "ember/typeck/typeck.hpp"
 
@@ -724,6 +725,21 @@ public:
 
     manifest::Fetched operator()(const manifest::Dependency& dependency,
                                  const std::string& rev) {
+        // Resolution walks the graph more than once while it settles on
+        // versions, and asks for the same commit each time. Cloning and
+        // checking out are cheap the second time; a `git fetch` over the
+        // network is not.
+        const std::string key = dependency.location + "@" + rev;
+        const auto done = already_.find(key);
+        if (done != already_.end()) {
+            return done->second;
+        }
+        return already_.emplace(key, materialize(dependency, rev)).first->second;
+    }
+
+private:
+    manifest::Fetched materialize(const manifest::Dependency& dependency,
+                                  const std::string& rev) {
         std::error_code code;
         std::filesystem::create_directories(cache_, code);
 
@@ -790,9 +806,11 @@ public:
         return fetched;
     }
 
-private:
     std::filesystem::path cache_;
     bool verbose_ = false;
+    /// What has already been fetched this run, by repository and
+    /// revision.
+    std::map<std::string, manifest::Fetched> already_;
 
     /// A revision or URL goes to a shell, so it is quoted like a path.
     /// The whole revspec has to be inside the quotes: `^` is cmd.exe's
@@ -816,6 +834,111 @@ private:
     static std::string git_failure(const std::string& what, const CapturedCommand& result) {
         const std::string said = trimmed(result.output);
         return "`git " + what + "` failed" + (said.empty() ? "" : ": " + said);
+    }
+};
+
+/// Looks packages up in the registry index the manifest configured.
+///
+/// The index is a directory of one file per package. It may be a
+/// directory on this machine, or a git repository - which is how
+/// crates.io's index works, and means publishing one needs a git host
+/// rather than a server.
+///
+/// A cloned index is refreshed only when asked, not on every build. A
+/// stale index cannot make a build wrong: the lockfile pins what was
+/// chosen, so the index only matters when something is being chosen for
+/// the first time or `--update` says to choose again.
+class RegistryIndex {
+public:
+    RegistryIndex(std::string configured, std::filesystem::path cache, GitFetcher& fetcher,
+                  bool update, ast::SourceMap& sources)
+        : configured_(std::move(configured)),
+          cache_(std::move(cache)),
+          fetcher_(fetcher),
+          update_(update),
+          sources_(sources) {}
+
+    manifest::IndexLookup operator()(const std::string& name) {
+        manifest::IndexLookup lookup;
+
+        const std::optional<std::filesystem::path> directory = locate();
+        if (!directory.has_value()) {
+            lookup.error = error_;
+            return lookup;
+        }
+
+        const std::filesystem::path file =
+            *directory / (name + std::string{manifest::kIndexExtension});
+        const std::optional<ast::SourceFile> source = ast::SourceFile::load(file);
+        if (!source.has_value()) {
+            return lookup;  // no entry is not an error; the caller says so better
+        }
+
+        const ast::FileId id = sources_.add(file.string(), source->contents());
+        manifest::IndexResult parsed =
+            manifest::parse_index_entry(sources_.file(id), name);
+        if (!parsed.diagnostics.empty()) {
+            std::cerr << ast::render_all(parsed.diagnostics, sources_);
+            lookup.error = "the index entry for `" + name + "` could not be read";
+            return lookup;
+        }
+        lookup.entry = std::move(parsed.entry);
+        return lookup;
+    }
+
+private:
+    std::string configured_;
+    std::filesystem::path cache_;
+    GitFetcher& fetcher_;
+    bool update_ = false;
+    ast::SourceMap& sources_;
+
+    std::optional<std::filesystem::path> resolved_;
+    std::string error_;
+    bool tried_ = false;
+
+    /// Materializes the index once, whatever kind it is.
+    std::optional<std::filesystem::path> locate() {
+        if (tried_) {
+            return resolved_;
+        }
+        tried_ = true;
+
+        if (configured_.empty()) {
+            error_ = "no registry is configured";
+            return std::nullopt;
+        }
+
+        // A directory that exists is used as it is; anything else is a
+        // repository to clone. That is the whole rule.
+        std::error_code code;
+        const std::filesystem::path as_directory{configured_};
+        if (std::filesystem::is_directory(as_directory, code)) {
+            resolved_ = as_directory;
+            return resolved_;
+        }
+
+        const std::filesystem::path checkout =
+            cache_ / ("index-" + hex(hash_into(kHashSeed, configured_), 16));
+        if (std::filesystem::is_directory(checkout / ".git", code) && !update_) {
+            resolved_ = checkout;
+            return resolved_;
+        }
+
+        manifest::Dependency index;
+        index.name = "index";
+        index.kind = manifest::SourceKind::Git;
+        index.location = configured_;
+        index.rev = "HEAD";
+
+        std::cerr << "fetching the registry index (" << configured_ << ")\n";
+        const manifest::Fetched fetched = fetcher_(index, "HEAD");
+        if (!fetched.ok()) {
+            error_ = "cannot read the registry index: " + fetched.error;
+            return std::nullopt;
+        }
+        resolved_ = fetched.root;
+        return resolved_;
     }
 };
 
@@ -1023,9 +1146,13 @@ PackageResolution resolve_packages(const std::filesystem::path& entry, bool upda
         }
     }
 
-    GitFetcher fetcher{root / ".ember" / "packages", verbose};
-    manifest::Resolution resolution =
-        manifest::resolve(*parsed.manifest, lock, std::ref(fetcher), sources);
+    const std::filesystem::path cache = root / ".ember" / "packages";
+    GitFetcher fetcher{cache, verbose};
+    RegistryIndex index{parsed.manifest->registry_index, cache, fetcher, update, sources};
+
+    manifest::Resolution resolution = manifest::resolve(*parsed.manifest, lock,
+                                                        std::ref(fetcher), std::ref(index),
+                                                        sources);
     if (!resolution.ok()) {
         std::cerr << ast::render_all(resolution.diagnostics, sources);
         result.ok = false;

@@ -7,6 +7,8 @@
 
 add_library(ember_manifest STATIC
     src/toml.cpp
+    src/version.cpp
+    src/registry.cpp
     src/manifest.cpp
 )
 add_library(ember::manifest ALIAS ember_manifest)

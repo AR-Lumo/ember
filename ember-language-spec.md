@@ -349,13 +349,14 @@ moving to the next. Don't let phases blend together.
   module does not re-lower the rest.
 - A module search path, so a program can import code that does not sit
   beside it.
-- Package manager: `ember.toml`, path and git dependencies, and an
-  `ember.lock` pinning the commit each git dependency resolved to.
-  Packages are distributed as source. Still to come: a registry, and the
-  version solving that only makes sense once there is one. Distributing
-  compiled libraries would additionally need an interface file recording
-  a module's types and signatures, so a dependent can be built without
-  the dependency's source.
+- Package manager: `ember.toml`, path, git and registry dependencies,
+  semver requirements, and an `ember.lock` pinning the version and
+  commit each dependency resolved to. A registry is a directory of index
+  files, hosted as a directory or a git repository. Packages are
+  distributed as source. Still to come: publishing to a registry, and
+  distributing compiled libraries, which would additionally need an
+  interface file recording a module's types and signatures so a
+  dependent can be built without the dependency's source.
 
 ---
 
