@@ -3104,20 +3104,22 @@ private:
         closures_.pop_back();
         scopes_.pop();
 
-        // A closure frees its environment when it is dropped, but has
-        // no per-closure code to drop what is *inside* it, so a capture
-        // that owns memory would be leaked. Refused rather than lost.
+        // A capture that owns memory moves into the closure, which
+        // owns it from then on. Codegen gives such a closure a drop
+        // function of its own, since what is in an environment cannot be
+        // worked out from the closure's type - two closures of the same
+        // `fn(int) -> int` may capture quite different things.
         std::vector<TypePtr> capture_types;
         for (const ast::Capture& capture : closure.captures) {
-            const Binding* binding = scopes_.lookup(capture.name);
+            Binding* binding = scopes_.lookup_mutable(capture.name);
             const TypePtr captured = binding != nullptr ? binding->type : types().error_type();
             capture_types.push_back(captured);
 
-            if (is_owned(captured)) {
-                report("cannot capture `" + capture.name + "` in a closure", capture.span,
-                       "`" + to_string(captured) + "` owns heap memory")
-                    .with_note("a closure frees its captures as one block and cannot drop "
-                               "them individually; pass it as an argument instead");
+            // Taking it by value means taking it: the enclosing scope
+            // gives it up, exactly as if it had been passed by value.
+            if (binding != nullptr && is_owned(captured)) {
+                binding->moved = true;
+                binding->moved_at = capture.span;
             }
         }
 

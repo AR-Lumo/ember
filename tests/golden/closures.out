@@ -7,3 +7,5 @@ doubled:    2 4 6 8 10 12
 over six:   3
 answer:     42
 closures are values
+owned capture: held by the closure
+owned capture: and still held

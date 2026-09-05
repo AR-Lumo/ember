@@ -942,7 +942,7 @@ println(shift(5));                   // 105
 Parameter and return types are written out, as they are everywhere else
 in Ember. `||` with nothing between the bars is an empty parameter list.
 
-**Captures are by value.** A closure copies what it mentions from the
+**Captures are by value.** A closure takes what it mentions from the
 surrounding scope into its own storage, which is why one can be returned
 and still work:
 
@@ -964,6 +964,25 @@ pub fn map_in_place(values: &Vec<int>, f: &fn(int) -> int) { ... }
 
 A closure that captures nothing has a null environment and allocates
 nothing at all.
+
+**A capture may own memory.** Taking one by value means taking it: the
+closure owns it from then on, and the scope that had it does not.
+
+```ember
+let mut greeting: String = new_string();
+push_str(greeting, "hello");
+
+let speak = |name: string| { print(greeting); println(name); };
+speak("ada");
+speak("grace");                      // still there; calling is a use
+println(greeting);                   // error: use of moved value
+```
+
+Such a closure carries **its own drop function**, because what is inside
+an environment cannot be worked out from the closure's type — two
+closures of the same `fn() -> int` may have captured quite different
+things. A closure with nothing owned in it carries none, and a million
+closures each holding a `String` and a `Vec` hold flat memory.
 
 ### Standard library
 
@@ -1086,10 +1105,6 @@ v1 is deliberately small. These are the sharp edges worth knowing about.
   `slice` takes a sub-range of text, but `+` on strings is still not a
   thing — allocation stays visible, as it is in Rust — and only text can
   be sliced. Index a `Vec` instead.
-- **A closure cannot capture an owned value.** It frees its captures as
-  one block and has no per-closure code to drop them individually, so
-  capturing a `Vec` or a `String` is refused rather than leaked. Pass it
-  as an argument instead.
 - **Closure parameter types are never inferred.** `|x| x + 1` is not
   valid; write `|x: int| -> int { return x + 1; }`.
 - **The front end is still whole-program.** Codegen is incremental, but

@@ -188,17 +188,52 @@ EMBER_TEST(closures_capture_through_nesting) {
                    "    println(outer(5));"));
 }
 
-EMBER_TEST(closures_reject_capturing_an_owned_value) {
-    // A closure frees its environment as one block and has no per-
-    // closure code to drop what is inside it, so an owned capture would
-    // leak. Refused rather than lost.
-    const std::vector<ember::ast::Diagnostic> errors =
-        reject(in_main("let mut v: Vec<int> = new_vec();\n"
-                       "    let f = || -> int { return len(v); };\n"
-                       "    println(f());"));
-    EMBER_CHECK_EQ(errors.at(0).message, std::string{"cannot capture `v` in a closure"});
-    EMBER_CHECK_MSG(errors.at(0).notes.at(0).find("as one block") != std::string::npos,
-                    "note was: " + errors.at(0).notes.at(0));
+EMBER_TEST(closures_capture_an_owned_value_by_taking_it) {
+    accept(in_main("let mut v: Vec<int> = new_vec();\n"
+                   "    push(v, 1);\n"
+                   "    let f = || -> int { return len(v); };\n"
+                   "    println(f());\n"
+                   "    println(f());"));
+}
+
+EMBER_TEST(closures_move_an_owned_capture_out_of_the_enclosing_scope) {
+    // Capturing by value means taking it. The closure owns it now, so
+    // the scope that had it does not.
+    EMBER_CHECK_EQ(first_error(in_main("let mut v: Vec<int> = new_vec();\n"
+                                       "    let f = || -> int { return len(v); };\n"
+                                       "    println(len(v));")),
+                   std::string{"use of moved value `v`"});
+}
+
+EMBER_TEST(closures_do_not_move_a_capture_that_copies) {
+    // An `int` is copied into the environment, so the original is still
+    // there afterwards.
+    accept(in_main("let n = 5;\n"
+                   "    let f = || -> int { return n; };\n"
+                   "    println(f());\n"
+                   "    println(n);"));
+}
+
+EMBER_TEST(closures_with_owned_captures_carry_a_drop_function) {
+    if (!ember::codegen::is_available()) {
+        return;
+    }
+    // What is inside an environment cannot be worked out from the
+    // closure's type - two closures of the same `fn() -> int` may
+    // capture quite different things - so the closure carries its own
+    // way of taking the environment apart.
+    const std::string owned = compile_ir(in_main("let mut v: Vec<int> = new_vec();\n"
+                                                 "    let f = || -> int { return len(v); };\n"
+                                                 "    println(f());"));
+    EMBER_CHECK_MSG(owned.find("ember_closure_drop_") != std::string::npos,
+                    "no drop function for an owned capture:\n" + owned);
+
+    // And a closure with nothing to drop carries none.
+    const std::string plain = compile_ir(in_main("let n = 5;\n"
+                                                 "    let f = || -> int { return n; };\n"
+                                                 "    println(f());"));
+    EMBER_CHECK_MSG(plain.find("ember_closure_drop_") == std::string::npos,
+                    "a copyable capture needs no drop function:\n" + plain);
 }
 
 // ---------------------------------------------------------------------

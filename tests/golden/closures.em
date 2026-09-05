@@ -13,6 +13,13 @@
 /// one holds a heap block. Calling it is a *use*, not a move, so it can
 /// be called as often as you like; passing it by value moves it, and
 /// `&fn(...)` borrows it.
+///
+/// A capture may own memory of its own. Taking one by value means taking
+/// it: the closure owns it from then on, and the scope that had it does
+/// not. A closure holding anything owned carries its own drop function,
+/// because what is inside an environment cannot be worked out from the
+/// closure's type — two closures of the same `fn() -> int` may have
+/// captured quite different things.
 
 /// Takes a closure by reference, so the caller keeps it.
 pub fn apply(f: &fn(int) -> int, value: int) -> int {
@@ -101,4 +108,18 @@ pub fn main() {
 
     let announce = |text: string| { println(text); };
     announce("closures are values");
+
+    // An owned capture. `greeting` moves into the closure, which frees
+    // it when the closure itself is dropped. Naming `greeting` again
+    // after this line would be a compile error, not a use-after-free.
+    let mut greeting: String = new_string();
+    push_str(greeting, "owned capture");
+
+    let speak = |name: string| {
+        print(greeting);
+        print(": ");
+        println(name);
+    };
+    speak("held by the closure");
+    speak("and still held");
 }

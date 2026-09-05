@@ -106,11 +106,18 @@ public:
         // size is known at each use site rather than carried at runtime.
         buffer_type_ = llvm::StructType::create(
             *context_, {ptr_type(), int_type(), int_type()}, "ember.buffer");
-        // A closure is a pair: the lifted function, and the heap block
-        // holding what it captured. A closure that captured nothing has
-        // a null environment, so the pair is uniform either way.
-        closure_type_ =
-            llvm::StructType::create(*context_, {ptr_type(), ptr_type()}, "ember.closure");
+        // A closure is the lifted function, the heap block holding what
+        // it captured, and how to take that block apart.
+        //
+        // The third field is there because what is inside an environment
+        // cannot be recovered from the closure's type: two closures of
+        // the same `fn(int) -> int` may capture different things, and
+        // only one of them may need its captures dropped. It is null
+        // unless something in the environment owns memory, which is the
+        // usual case.
+        closure_type_ = llvm::StructType::create(*context_,
+                                                 {ptr_type(), ptr_type(), ptr_type()},
+                                                 "ember.closure");
 
         // Set before anything is emitted: a `Vec<T>` push needs the size
         // of T, and asking a module with no layout gives nonsense.
@@ -500,13 +507,42 @@ private:
 
         switch (type->kind) {
             case TypeKind::Function: {
-                // Only the environment block. Captures are required to
-                // be copyable, so there is nothing inside it to drop.
                 llvm::Value* env = builder_.CreateLoad(
                     ptr_type(), builder_.CreateStructGEP(closure_type_, address, 1), "env");
+                llvm::Value* dropper = builder_.CreateLoad(
+                    ptr_type(), builder_.CreateStructGEP(closure_type_, address, 2), "dropper");
+
+                // With a drop function, that function knows what is in
+                // the block and frees it too. Without one, nothing in
+                // there owns anything and the block itself is all there
+                // is to release.
+                llvm::BasicBlock* has = llvm::BasicBlock::Create(*context_, "drop.captures");
+                llvm::BasicBlock* plain = llvm::BasicBlock::Create(*context_, "drop.env");
+                llvm::BasicBlock* done = llvm::BasicBlock::Create(*context_, "drop.closure.end");
+
+                builder_.CreateCondBr(
+                    builder_.CreateICmpNE(dropper,
+                                          llvm::ConstantPointerNull::get(ptr_type())),
+                    has, plain);
+
+                has->insertInto(current_function_);
+                builder_.SetInsertPoint(has);
+                builder_.CreateCall(
+                    llvm::FunctionType::get(void_type(), {ptr_type()}, false), dropper, {env});
+                builder_.CreateBr(done);
+
+                plain->insertInto(current_function_);
+                builder_.SetInsertPoint(plain);
                 builder_.CreateCall(runtime("ember_free", void_type(), {ptr_type()}), {env});
+                builder_.CreateBr(done);
+
+                done->insertInto(current_function_);
+                builder_.SetInsertPoint(done);
+
                 builder_.CreateStore(llvm::ConstantPointerNull::get(ptr_type()),
                                      builder_.CreateStructGEP(closure_type_, address, 1));
+                builder_.CreateStore(llvm::ConstantPointerNull::get(ptr_type()),
+                                     builder_.CreateStructGEP(closure_type_, address, 2));
                 return;
             }
 
@@ -1687,10 +1723,70 @@ private:
             }
         }
 
+        // Whatever the closure took ownership of is no longer the
+        // enclosing scope's to free.
+        for (std::size_t i = 0; i < expr.captures.size(); ++i) {
+            if (!typeck::is_owned(capture_types[i])) {
+                continue;
+            }
+            if (const Slot* slot = lookup(expr.captures[i].name)) {
+                if (slot->drop_flag != nullptr) {
+                    builder_.CreateStore(builder_.getInt1(false), slot->drop_flag);
+                }
+            }
+        }
+
         llvm::Value* value = llvm::UndefValue::get(closure_type_);
         value = builder_.CreateInsertValue(value, lifted, {0});
         value = builder_.CreateInsertValue(value, env, {1});
+        value = builder_.CreateInsertValue(
+            value, emit_closure_dropper(expr, capture_types, env_type), {2});
         return value;
+    }
+
+    /// The function that takes a closure's environment apart, or null
+    /// when nothing in it owns anything.
+    ///
+    /// It has to be a function rather than code at the drop site,
+    /// because the drop site knows only the closure's *type* and every
+    /// closure of that type may have captured something different.
+    llvm::Value* emit_closure_dropper(const ast::ClosureExpr& expr,
+                                      const std::vector<TypePtr>& capture_types,
+                                      llvm::StructType* env_type) {
+        bool anything_owned = false;
+        for (const TypePtr captured : capture_types) {
+            anything_owned = anything_owned || typeck::is_owned(captured);
+        }
+        if (!anything_owned) {
+            return llvm::ConstantPointerNull::get(ptr_type());
+        }
+
+        llvm::Function* dropper = llvm::Function::Create(
+            llvm::FunctionType::get(void_type(), {ptr_type()}, false),
+            llvm::Function::InternalLinkage, "ember_closure_drop_" + std::to_string(expr.id),
+            module_.get());
+
+        // Save whatever the outer emission is in the middle of, the same
+        // way lifting the body does.
+        llvm::Function* saved_function = current_function_;
+        llvm::IRBuilder<>::InsertPoint saved_point = builder_.saveIP();
+
+        current_function_ = dropper;
+        builder_.SetInsertPoint(llvm::BasicBlock::Create(*context_, "entry", dropper));
+
+        llvm::Value* env = dropper->getArg(0);
+        for (std::size_t i = 0; i < capture_types.size(); ++i) {
+            if (typeck::is_owned(capture_types[i])) {
+                emit_drop(capture_types[i],
+                          builder_.CreateStructGEP(env_type, env, static_cast<unsigned>(i)));
+            }
+        }
+        builder_.CreateCall(runtime("ember_free", void_type(), {ptr_type()}), {env});
+        builder_.CreateRetVoid();
+
+        builder_.restoreIP(saved_point);
+        current_function_ = saved_function;
+        return dropper;
     }
 
     const std::vector<TypePtr>& capture_types_of(const ast::ClosureExpr& expr) {

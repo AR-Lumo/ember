@@ -1,278 +1,306 @@
 (program
-  (fn @18:1 pub apply
+  (fn @25:1 pub apply
     (params
-      (param @18:14 f
-        (ref @18:17
-          (fn-type @18:18
-            (int @18:21)
+      (param @25:14 f
+        (ref @25:17
+          (fn-type @25:18
+            (int @25:21)
             (returns
-              (int @18:29)))))
-      (param @18:34 value
-        (int @18:41)))
+              (int @25:29)))))
+      (param @25:34 value
+        (int @25:41)))
     (returns
-      (int @18:49))
-    (block @18:53
-      (return @19:5
-        (call @19:12 f
-          (name @19:14 value)))))
-  (fn @23:1 pub map_in_place
+      (int @25:49))
+    (block @25:53
+      (return @26:5
+        (call @26:12 f
+          (name @26:14 value)))))
+  (fn @30:1 pub map_in_place
     (params
-      (param @23:21 values
-        (ref @23:29
-          (named @23:30 Vec)))
-      (param @23:40 f
-        (ref @23:43
-          (fn-type @23:44
-            (int @23:47)
+      (param @30:21 values
+        (ref @30:29
+          (named @30:30 Vec)))
+      (param @30:40 f
+        (ref @30:43
+          (fn-type @30:44
+            (int @30:47)
             (returns
-              (int @23:55))))))
-    (block @23:60
-      (let @24:5 mut i
-        (int-lit @24:17 0))
-      (while @25:5
-        (binary @25:11 lt
-          (name @25:11 i)
-          (call @25:15 len
-            (name @25:19 values)))
-        (block @25:27
-          (assign @26:9
-            (index @26:9
-              (name @26:9 values)
-              (name @26:16 i))
-            (call @26:21 f
-              (index @26:23
-                (name @26:23 values)
-                (name @26:30 i))))
-          (assign @27:9
-            (name @27:9 i)
-            (binary @27:13 add
-              (name @27:13 i)
-              (int-lit @27:17 1)))))))
-  (fn @32:1 pub count_where
+              (int @30:55))))))
+    (block @30:60
+      (let @31:5 mut i
+        (int-lit @31:17 0))
+      (while @32:5
+        (binary @32:11 lt
+          (name @32:11 i)
+          (call @32:15 len
+            (name @32:19 values)))
+        (block @32:27
+          (assign @33:9
+            (index @33:9
+              (name @33:9 values)
+              (name @33:16 i))
+            (call @33:21 f
+              (index @33:23
+                (name @33:23 values)
+                (name @33:30 i))))
+          (assign @34:9
+            (name @34:9 i)
+            (binary @34:13 add
+              (name @34:13 i)
+              (int-lit @34:17 1)))))))
+  (fn @39:1 pub count_where
     (params
-      (param @32:20 values
-        (ref @32:28
-          (named @32:29 Vec)))
-      (param @32:39 keep
-        (ref @32:45
-          (fn-type @32:46
-            (int @32:49)
+      (param @39:20 values
+        (ref @39:28
+          (named @39:29 Vec)))
+      (param @39:39 keep
+        (ref @39:45
+          (fn-type @39:46
+            (int @39:49)
             (returns
-              (bool @32:57))))))
+              (bool @39:57))))))
     (returns
-      (int @32:66))
-    (block @32:70
-      (let @33:5 mut found
-        (int-lit @33:21 0))
-      (let @34:5 mut i
-        (int-lit @34:17 0))
-      (while @35:5
-        (binary @35:11 lt
-          (name @35:11 i)
-          (call @35:15 len
-            (name @35:19 values)))
-        (block @35:27
-          (if @36:9
-            (call @36:12 keep
-              (index @36:17
-                (name @36:17 values)
-                (name @36:24 i)))
-            (block @36:28
-              (assign @37:13
-                (name @37:13 found)
-                (binary @37:21 add
-                  (name @37:21 found)
-                  (int-lit @37:29 1)))))
-          (assign @39:9
-            (name @39:9 i)
-            (binary @39:13 add
-              (name @39:13 i)
-              (int-lit @39:17 1)))))
-      (return @41:5
-        (name @41:12 found))))
-  (fn @46:1 pub scaler
+      (int @39:66))
+    (block @39:70
+      (let @40:5 mut found
+        (int-lit @40:21 0))
+      (let @41:5 mut i
+        (int-lit @41:17 0))
+      (while @42:5
+        (binary @42:11 lt
+          (name @42:11 i)
+          (call @42:15 len
+            (name @42:19 values)))
+        (block @42:27
+          (if @43:9
+            (call @43:12 keep
+              (index @43:17
+                (name @43:17 values)
+                (name @43:24 i)))
+            (block @43:28
+              (assign @44:13
+                (name @44:13 found)
+                (binary @44:21 add
+                  (name @44:21 found)
+                  (int-lit @44:29 1)))))
+          (assign @46:9
+            (name @46:9 i)
+            (binary @46:13 add
+              (name @46:13 i)
+              (int-lit @46:17 1)))))
+      (return @48:5
+        (name @48:12 found))))
+  (fn @53:1 pub scaler
     (params
-      (param @46:15 factor
-        (int @46:23)))
+      (param @53:15 factor
+        (int @53:23)))
     (returns
-      (fn-type @46:31
-        (int @46:34)
+      (fn-type @53:31
+        (int @53:34)
         (returns
-          (int @46:42))))
-    (block @46:46
-      (return @47:5
-        (closure @47:12
+          (int @53:42))))
+    (block @53:46
+      (return @54:5
+        (closure @54:12
           (params
-            (param @47:13 x
-              (int @47:16)))
+            (param @54:13 x
+              (int @54:16)))
           (returns
-            (int @47:24))
-          (block @47:28
-            (return @47:30
-              (binary @47:37 mul
-                (name @47:37 x)
-                (name @47:41 factor))))))))
-  (fn @50:1 pub main
+            (int @54:24))
+          (block @54:28
+            (return @54:30
+              (binary @54:37 mul
+                (name @54:37 x)
+                (name @54:41 factor))))))))
+  (fn @57:1 pub main
     (params)
-    (block @50:15
-      (let @52:5 double
-        (closure @52:18
+    (block @57:15
+      (let @59:5 double
+        (closure @59:18
           (params
-            (param @52:19 x
-              (int @52:22)))
+            (param @59:19 x
+              (int @59:22)))
           (returns
-            (int @52:30))
-          (block @52:34
-            (return @52:36
-              (binary @52:43 mul
-                (name @52:43 x)
-                (int-lit @52:47 2))))))
-      (expr-stmt @53:5
-        (call @53:5 print
-          (string-lit @53:11 "double(21): ")))
-      (expr-stmt @54:5
-        (call @54:5 println
-          (call @54:13 double
-            (int-lit @54:20 21))))
-      (expr-stmt @57:5
-        (call @57:5 print
-          (string-lit @57:11 "again:      ")))
-      (expr-stmt @58:5
-        (call @58:5 println
-          (call @58:13 double
-            (int-lit @58:20 50))))
-      (let @61:5 offset
-        (int-lit @61:18 1000))
-      (let @62:5 shift
-        (closure @62:17
-          (params
-            (param @62:18 x
-              (int @62:21)))
-          (returns
-            (int @62:29))
-          (block @62:33
-            (return @62:35
-              (binary @62:42 add
-                (name @62:42 x)
-                (name @62:46 offset))))))
-      (expr-stmt @63:5
-        (call @63:5 print
-          (string-lit @63:11 "shift(5):   ")))
+            (int @59:30))
+          (block @59:34
+            (return @59:36
+              (binary @59:43 mul
+                (name @59:43 x)
+                (int-lit @59:47 2))))))
+      (expr-stmt @60:5
+        (call @60:5 print
+          (string-lit @60:11 "double(21): ")))
+      (expr-stmt @61:5
+        (call @61:5 println
+          (call @61:13 double
+            (int-lit @61:20 21))))
       (expr-stmt @64:5
-        (call @64:5 println
-          (call @64:13 shift
-            (int-lit @64:19 5))))
-      (expr-stmt @67:5
-        (call @67:5 print
-          (string-lit @67:11 "apply:      ")))
-      (expr-stmt @68:5
-        (call @68:5 println
-          (call @68:13 apply
-            (name @68:19 double)
-            (int-lit @68:27 7))))
-      (let @71:5 triple
-        (call @71:18 scaler
-          (int-lit @71:25 3)))
-      (expr-stmt @72:5
-        (call @72:5 print
-          (string-lit @72:11 "triple(14): ")))
-      (expr-stmt @73:5
-        (call @73:5 println
-          (call @73:13 triple
-            (int-lit @73:20 14))))
-      (let @76:5 mut values
-        (named @76:21 Vec)
-        (call @76:32 new_vec))
-      (let @77:5 mut i
-        (int-lit @77:17 1))
-      (while @78:5
-        (binary @78:11 le
-          (name @78:11 i)
-          (int-lit @78:16 6))
-        (block @78:18
-          (expr-stmt @79:9
-            (call @79:9 push
-              (name @79:14 values)
-              (name @79:22 i)))
-          (assign @80:9
-            (name @80:9 i)
-            (binary @80:13 add
-              (name @80:13 i)
-              (int-lit @80:17 1)))))
-      (expr-stmt @83:5
-        (call @83:5 map_in_place
-          (name @83:18 values)
-          (name @83:26 double)))
-      (expr-stmt @84:5
-        (call @84:5 print
-          (string-lit @84:11 "doubled:   ")))
-      (let @85:5 mut j
-        (int-lit @85:17 0))
-      (while @86:5
-        (binary @86:11 lt
-          (name @86:11 j)
-          (call @86:15 len
-            (name @86:19 values)))
-        (block @86:27
-          (expr-stmt @87:9
-            (call @87:9 print
-              (string-lit @87:15 " ")))
-          (expr-stmt @88:9
-            (call @88:9 print
-              (index @88:15
-                (name @88:15 values)
-                (name @88:22 j))))
-          (assign @89:9
-            (name @89:9 j)
-            (binary @89:13 add
-              (name @89:13 j)
-              (int-lit @89:17 1)))))
-      (expr-stmt @91:5
-        (call @91:5 println
-          (string-lit @91:13 "")))
-      (let @93:5 big
-        (closure @93:15
+        (call @64:5 print
+          (string-lit @64:11 "again:      ")))
+      (expr-stmt @65:5
+        (call @65:5 println
+          (call @65:13 double
+            (int-lit @65:20 50))))
+      (let @68:5 offset
+        (int-lit @68:18 1000))
+      (let @69:5 shift
+        (closure @69:17
           (params
-            (param @93:16 x
-              (int @93:19)))
+            (param @69:18 x
+              (int @69:21)))
           (returns
-            (bool @93:27))
-          (block @93:32
-            (return @93:34
-              (binary @93:41 gt
-                (name @93:41 x)
-                (int-lit @93:45 6))))))
-      (expr-stmt @94:5
-        (call @94:5 print
-          (string-lit @94:11 "over six:   ")))
-      (expr-stmt @95:5
-        (call @95:5 println
-          (call @95:13 count_where
-            (name @95:25 values)
-            (name @95:33 big))))
-      (let @98:5 answer
-        (closure @98:18
+            (int @69:29))
+          (block @69:33
+            (return @69:35
+              (binary @69:42 add
+                (name @69:42 x)
+                (name @69:46 offset))))))
+      (expr-stmt @70:5
+        (call @70:5 print
+          (string-lit @70:11 "shift(5):   ")))
+      (expr-stmt @71:5
+        (call @71:5 println
+          (call @71:13 shift
+            (int-lit @71:19 5))))
+      (expr-stmt @74:5
+        (call @74:5 print
+          (string-lit @74:11 "apply:      ")))
+      (expr-stmt @75:5
+        (call @75:5 println
+          (call @75:13 apply
+            (name @75:19 double)
+            (int-lit @75:27 7))))
+      (let @78:5 triple
+        (call @78:18 scaler
+          (int-lit @78:25 3)))
+      (expr-stmt @79:5
+        (call @79:5 print
+          (string-lit @79:11 "triple(14): ")))
+      (expr-stmt @80:5
+        (call @80:5 println
+          (call @80:13 triple
+            (int-lit @80:20 14))))
+      (let @83:5 mut values
+        (named @83:21 Vec)
+        (call @83:32 new_vec))
+      (let @84:5 mut i
+        (int-lit @84:17 1))
+      (while @85:5
+        (binary @85:11 le
+          (name @85:11 i)
+          (int-lit @85:16 6))
+        (block @85:18
+          (expr-stmt @86:9
+            (call @86:9 push
+              (name @86:14 values)
+              (name @86:22 i)))
+          (assign @87:9
+            (name @87:9 i)
+            (binary @87:13 add
+              (name @87:13 i)
+              (int-lit @87:17 1)))))
+      (expr-stmt @90:5
+        (call @90:5 map_in_place
+          (name @90:18 values)
+          (name @90:26 double)))
+      (expr-stmt @91:5
+        (call @91:5 print
+          (string-lit @91:11 "doubled:   ")))
+      (let @92:5 mut j
+        (int-lit @92:17 0))
+      (while @93:5
+        (binary @93:11 lt
+          (name @93:11 j)
+          (call @93:15 len
+            (name @93:19 values)))
+        (block @93:27
+          (expr-stmt @94:9
+            (call @94:9 print
+              (string-lit @94:15 " ")))
+          (expr-stmt @95:9
+            (call @95:9 print
+              (index @95:15
+                (name @95:15 values)
+                (name @95:22 j))))
+          (assign @96:9
+            (name @96:9 j)
+            (binary @96:13 add
+              (name @96:13 j)
+              (int-lit @96:17 1)))))
+      (expr-stmt @98:5
+        (call @98:5 println
+          (string-lit @98:13 "")))
+      (let @100:5 big
+        (closure @100:15
+          (params
+            (param @100:16 x
+              (int @100:19)))
+          (returns
+            (bool @100:27))
+          (block @100:32
+            (return @100:34
+              (binary @100:41 gt
+                (name @100:41 x)
+                (int-lit @100:45 6))))))
+      (expr-stmt @101:5
+        (call @101:5 print
+          (string-lit @101:11 "over six:   ")))
+      (expr-stmt @102:5
+        (call @102:5 println
+          (call @102:13 count_where
+            (name @102:25 values)
+            (name @102:33 big))))
+      (let @105:5 answer
+        (closure @105:18
           (params)
           (returns
-            (int @98:24))
-          (block @98:28
-            (return @98:30
-              (int-lit @98:37 42)))))
-      (expr-stmt @99:5
-        (call @99:5 print
-          (string-lit @99:11 "answer:     ")))
-      (expr-stmt @100:5
-        (call @100:5 println
-          (call @100:13 answer)))
-      (let @102:5 announce
-        (closure @102:20
+            (int @105:24))
+          (block @105:28
+            (return @105:30
+              (int-lit @105:37 42)))))
+      (expr-stmt @106:5
+        (call @106:5 print
+          (string-lit @106:11 "answer:     ")))
+      (expr-stmt @107:5
+        (call @107:5 println
+          (call @107:13 answer)))
+      (let @109:5 announce
+        (closure @109:20
           (params
-            (param @102:21 text
-              (string @102:27)))
-          (block @102:35
-            (expr-stmt @102:37
-              (call @102:37 println
-                (name @102:45 text))))))
-      (expr-stmt @103:5
-        (call @103:5 announce
-          (string-lit @103:14 "closures are values"))))))
+            (param @109:21 text
+              (string @109:27)))
+          (block @109:35
+            (expr-stmt @109:37
+              (call @109:37 println
+                (name @109:45 text))))))
+      (expr-stmt @110:5
+        (call @110:5 announce
+          (string-lit @110:14 "closures are values")))
+      (let @115:5 mut greeting
+        (named @115:23 String)
+        (call @115:32 new_string))
+      (expr-stmt @116:5
+        (call @116:5 push_str
+          (name @116:14 greeting)
+          (string-lit @116:24 "owned capture")))
+      (let @118:5 speak
+        (closure @118:17
+          (params
+            (param @118:18 name
+              (string @118:24)))
+          (block @118:32
+            (expr-stmt @119:9
+              (call @119:9 print
+                (name @119:15 greeting)))
+            (expr-stmt @120:9
+              (call @120:9 print
+                (string-lit @120:15 ": ")))
+            (expr-stmt @121:9
+              (call @121:9 println
+                (name @121:17 name))))))
+      (expr-stmt @123:5
+        (call @123:5 speak
+          (string-lit @123:11 "held by the closure")))
+      (expr-stmt @124:5
+        (call @124:5 speak
+          (string-lit @124:11 "and still held"))))))
