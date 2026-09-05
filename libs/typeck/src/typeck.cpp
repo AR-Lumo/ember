@@ -703,6 +703,20 @@ private:
         }
     }
 
+    /// A module path as a linker-safe prefix: `a::b` becomes `a__b`.
+    static std::string symbol_prefix(const std::string& module) {
+        std::string out;
+        for (std::size_t i = 0; i < module.size(); ++i) {
+            if (module[i] == ':' && i + 1 < module.size() && module[i + 1] == ':') {
+                out += "__";
+                ++i;
+                continue;
+            }
+            out.push_back(module[i]);
+        }
+        return out;
+    }
+
     /// The symbol a function links as.
     ///
     /// `main` is left alone: the linker has to find it under that exact
@@ -712,7 +726,7 @@ private:
         if (current_module_.empty()) {
             return base;
         }
-        return current_module_ + "__" + base;
+        return symbol_prefix(current_module_) + "__" + base;
     }
 
     /// Builds the signature. The mangled name is where §4's "methods are
@@ -1170,7 +1184,7 @@ private:
             base = tmpl.owner_type + "_" + base;
         }
         if (!tmpl.module.empty()) {
-            base = tmpl.module + "__" + base;
+            base = symbol_prefix(tmpl.module) + "__" + base;
         }
         info.mangled_name = mangle_instance(base, args);
         info.span = tmpl.span;

@@ -93,7 +93,11 @@ program        = { item } ;
 item           = function_decl | struct_decl | impl_block | const_decl
                | import_decl ;
 
-import_decl    = "import" identifier ";" ;                 (* v2 *)
+import_decl    = "import" module_path ";" ;                (* v2 *)
+module_path    = identifier { "::" identifier } ;          (* v2 *)
+qualified      = { identifier "::" } identifier ;          (* an item, with
+                                                              the module path
+                                                              it lives in *)
 
 visibility     = [ "pub" ] ;
 
@@ -116,8 +120,7 @@ type           = "int" | "float" | "bool" | "string"
                                            (* function value, v2 *)
                | "Vec" "<" type ">"        (* growable array, v2 *)
                | "String"                  (* growable string, v2 *)
-               | [ identifier "::" ] identifier [ type_args ]
-                                           (* struct type, optionally
+               | qualified [ type_args ]   (* struct type, optionally
                                               from another module *)
                | "&" type                  (* reference *)
                | "[" type ";" int_lit "]"  (* fixed-size array *) ;
@@ -145,12 +148,12 @@ cast_expr      = expression "as" type ;      (* explicit conversion, see 4 *)
 closure        = "|" [ param { "," param } ] "|" [ "->" type ] block ;   (* v2 *)
 array_literal  = "[" [ expression { "," expression } ] "]" ;
 
-call_expr      = [ identifier "::" ] identifier "(" [ arg_list ] ")" ;
+call_expr      = qualified "(" [ arg_list ] ")" ;
 method_call    = expression "." identifier "(" [ arg_list ] ")" ;
 arg_list       = expression { "," expression } ;
 field_access   = expression "." identifier ;
 index_expr     = expression "[" expression "]" ;
-struct_literal = [ identifier "::" ] identifier "{" [ field_init_list ] "}" ;
+struct_literal = qualified "{" [ field_init_list ] "}" ;
 field_init_list = identifier ":" expression { "," identifier ":" expression } ;
 
 literal        = int_lit | float_lit | bool_lit | string_lit ;

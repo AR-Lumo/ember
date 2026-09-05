@@ -419,12 +419,28 @@ private:
     }
 
     /// `import geometry;`
+    /// `import shapes::geometry;`
+    ///
+    /// The module's name is the whole path, joined back up with `::`.
+    /// Nesting is a naming device and nothing more: `shapes::geometry`
+    /// has no relationship to `shapes`, which need not even exist.
     ast::ItemPtr parse_import(Span start) {
         expect(TokenKind::KwImport);
-        const Token& name = expect(TokenKind::Identifier);
+
+        const Token& first = expect(TokenKind::Identifier);
+        std::string path{first.text};
+        Span path_span = first.span;
+
+        while (match(TokenKind::ColonColon)) {
+            const Token& segment = expect(TokenKind::Identifier);
+            path += "::";
+            path += segment.text;
+            path_span = path_span.merge(segment.span);
+        }
+
         const Token& semi = expect(TokenKind::Semicolon);
-        return std::make_unique<ast::ImportDecl>(start.merge(semi.span),
-                                                 std::string{name.text}, name.span);
+        return std::make_unique<ast::ImportDecl>(start.merge(semi.span), std::move(path),
+                                                 path_span);
     }
 
     ast::ItemPtr parse_const(Span start, bool is_public) {
@@ -474,9 +490,13 @@ private:
                 const Token* name = &advance();
                 type->kind = ast::TypeKind::Named;
 
-                // `geometry::Point`: the first identifier is the module.
-                if (match(TokenKind::ColonColon)) {
-                    type->module = std::string{name->text};
+                // `shapes::geometry::Point`: the last segment is the
+                // item, everything before it is the module it lives in.
+                while (match(TokenKind::ColonColon)) {
+                    if (!type->module.empty()) {
+                        type->module += "::";
+                    }
+                    type->module += name->text;
                     name = &expect(TokenKind::Identifier);
                 }
                 type->name = std::string{name->text};
@@ -874,18 +894,16 @@ private:
             case TokenKind::Identifier: {
                 advance();
 
-                // `module::item`. Only one level deep: there are no
-                // nested modules in v2, so a second `::` is an error
-                // rather than a path to somewhere.
+                // `shapes::geometry::distance`: however many segments,
+                // the last one is the item and the rest name the module.
                 std::string module;
                 const Token* name = &token;
-                if (match(TokenKind::ColonColon)) {
-                    module = std::string{token.text};
-                    name = &expect(TokenKind::Identifier);
-                    if (check(TokenKind::ColonColon)) {
-                        throw error_at(peek().span, "nested module paths are not supported",
-                                       "a path is `module::item`, one level deep");
+                while (match(TokenKind::ColonColon)) {
+                    if (!module.empty()) {
+                        module += "::";
                     }
+                    module += name->text;
+                    name = &expect(TokenKind::Identifier);
                 }
 
                 const Span name_span = name->span;
@@ -989,28 +1007,79 @@ std::optional<std::string> read_file(const std::filesystem::path& path) {
     return buffer.str();
 }
 
+/// Splits `a::b::c` into its segments.
+std::vector<std::string> segments_of(const std::string& path) {
+    std::vector<std::string> out;
+    std::size_t start = 0;
+    while (true) {
+        const std::size_t at = path.find("::", start);
+        if (at == std::string::npos) {
+            out.push_back(path.substr(start));
+            return out;
+        }
+        out.push_back(path.substr(start, at - start));
+        start = at + 2;
+    }
+}
+
+/// `a::b::c` as the relative file `a/b/c.em`.
+std::filesystem::path file_for(const std::vector<std::string>& segments) {
+    std::filesystem::path relative;
+    for (std::size_t i = 0; i + 1 < segments.size(); ++i) {
+        relative /= segments[i];
+    }
+    return relative / (segments.back() + "." + std::string{ast::kFileExtension});
+}
+
+/// One place a module might be, and the root it would be relative to.
+///
+/// The root travels with the module: whatever a module was found under
+/// is what *its* imports resolve against. That is what makes a path
+/// absolute rather than relative — `shapes::detail::math` means the same
+/// thing written in `main.em` and in `shapes/geometry.em`, and a package
+/// keeps resolving its own modules against its own directory.
+struct Candidate {
+    std::filesystem::path path;
+    std::filesystem::path root;
+};
+
 /// Every place a module named `name` could live, in the order tried.
 ///
-/// The importer's own directory comes first, so a program's modules are
-/// never shadowed by something on the search path. Each search directory
-/// then gets two chances: the module as one file, and the module as a
-/// directory holding a file of the same name.
-std::vector<std::filesystem::path> candidates_for(const std::string& name,
-                                                  const std::filesystem::path& importer,
-                                                  const ModulePath& search) {
-    const std::string filename = name + "." + std::string{ast::kFileExtension};
+/// A module path is a directory path: `shapes::geometry` is the file
+/// `shapes/geometry.em`, under the importing module's own root first and
+/// then under each search directory. The importer's root coming first is
+/// what keeps a program's own modules from being shadowed by a
+/// dependency.
+///
+/// A single-segment name gets one extra chance per search directory:
+/// `<dir>/name/name.em`, a package directory whose root module carries
+/// the package's own name. Anything that package then imports resolves
+/// against `<dir>/name`, which is why the root is carried and not
+/// recomputed. The form only makes sense for a root module, so it is not
+/// offered for a path with more segments.
+std::vector<Candidate> candidates_for(const std::string& name,
+                                      const std::filesystem::path& importer_root,
+                                      const ModulePath& search) {
+    const std::vector<std::string> segments = segments_of(name);
+    const std::filesystem::path relative = file_for(segments);
 
-    std::vector<std::filesystem::path> candidates{importer / filename};
+    std::vector<Candidate> candidates{Candidate{importer_root / relative, importer_root}};
     for (const std::filesystem::path& directory : search) {
-        candidates.push_back(directory / filename);
-        candidates.push_back(directory / name / filename);
+        candidates.push_back(Candidate{directory / relative, directory});
+        if (segments.size() == 1) {
+            candidates.push_back(Candidate{directory / name / relative, directory / name});
+        }
     }
 
-    // The importer's directory may also be on the search path; looking
-    // in it twice would say so twice in a diagnostic.
-    std::vector<std::filesystem::path> unique;
-    for (const std::filesystem::path& candidate : candidates) {
-        if (std::find(unique.begin(), unique.end(), candidate) == unique.end()) {
+    // The importing module's root may also be on the search path;
+    // looking there twice would say so twice in a diagnostic.
+    std::vector<Candidate> unique;
+    for (const Candidate& candidate : candidates) {
+        const auto seen = std::find_if(unique.begin(), unique.end(),
+                                       [&](const Candidate& other) {
+                                           return other.path == candidate.path;
+                                       });
+        if (seen == unique.end()) {
             unique.push_back(candidate);
         }
     }
@@ -1031,15 +1100,17 @@ LoadResult load_program(const std::filesystem::path& entry, ast::SourceMap& sour
         /// Resolved for the entry file, which was named outright. Empty
         /// for an imported module, which has to be looked for.
         std::filesystem::path path;
-        /// The directory of the file that asked for it.
-        std::filesystem::path from;
+        /// The root the asking module was found under. Module paths are
+        /// relative to this, which is what makes them mean the same
+        /// thing wherever they are written.
+        std::filesystem::path root;
         /// Where the `import` was written, so a missing file can be
         /// reported against it rather than against nothing.
         std::optional<ast::Span> requested_at;
     };
 
     std::deque<Pending> queue;
-    queue.push_back(Pending{{}, entry, {}, std::nullopt});
+    queue.push_back(Pending{{}, entry, entry.parent_path(), std::nullopt});
     /// Module name -> the file it was loaded from, so a second file
     /// claiming the name is caught rather than silently ignored.
     std::vector<std::pair<std::string, std::filesystem::path>> loaded;
@@ -1051,18 +1122,20 @@ LoadResult load_program(const std::filesystem::path& entry, ast::SourceMap& sour
         // Resolve first, so that a name already loaded from a
         // *different* file is reported instead of quietly skipped.
         std::filesystem::path path = pending.path;
+        std::filesystem::path root = pending.root;
         std::optional<std::string> contents;
         std::vector<std::filesystem::path> tried;
 
         if (!path.empty()) {
             contents = read_file(path);
         } else {
-            for (const std::filesystem::path& candidate :
-                 candidates_for(pending.name, pending.from, search)) {
-                tried.push_back(candidate);
-                contents = read_file(candidate);
+            for (const Candidate& candidate :
+                 candidates_for(pending.name, pending.root, search)) {
+                tried.push_back(candidate.path);
+                contents = read_file(candidate.path);
                 if (contents.has_value()) {
-                    path = candidate;
+                    path = candidate.path;
+                    root = candidate.root;
                     break;
                 }
             }
@@ -1121,7 +1194,6 @@ LoadResult load_program(const std::filesystem::path& entry, ast::SourceMap& sour
         module.program = std::move(parsed.program);
         module.program->module = pending.name;
 
-        const std::filesystem::path directory = path.parent_path();
         for (const auto& [name, span] : imports_of(*module.program)) {
             if (name == pending.name) {
                 result.diagnostics.push_back(ast::Diagnostic::error(
@@ -1129,7 +1201,9 @@ LoadResult load_program(const std::filesystem::path& entry, ast::SourceMap& sour
                 continue;
             }
             module.imports.push_back(name);
-            queue.push_back(Pending{name, {}, directory, span});
+            // Whatever root this module was found under is the root its
+            // own imports resolve against.
+            queue.push_back(Pending{name, {}, root, span});
         }
 
         loaded.emplace_back(pending.name, path);

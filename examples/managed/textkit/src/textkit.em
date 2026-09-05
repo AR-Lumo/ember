@@ -1,8 +1,12 @@
-/// The package's public face. Everything a program using `textkit` can
-/// reach has to be `pub` and has to be in this file, since a module
-/// name is what an `import` names.
+/// The package's root module: what `import textkit;` gets you.
+///
+/// Its internals live under its own name — `textkit::casing` — so they
+/// cannot collide with a `casing` belonging to the program or to
+/// another package. Nothing seals them off, though: a determined caller
+/// can `import textkit::casing;` too. Nesting makes names unambiguous,
+/// not private.
 
-import casing;
+import textkit::casing;
 
 /// Copies a borrowed view into an owned buffer.
 pub fn owned(text: string) -> String {
@@ -27,5 +31,5 @@ pub fn join(words: &Vec<String>, separator: string) -> String {
 
 /// Uses the package's own private module.
 pub fn shout(text: string) -> String {
-    return casing::emphatic(text);
+    return textkit::casing::emphatic(text);
 }

@@ -505,11 +505,44 @@ Two rules worth knowing:
 Modules may import each other in a cycle. Every module is collected
 before any body is checked, so neither has to come first.
 
+#### Nested paths
+
+A module path is a file path. `shapes::geometry` is `shapes/geometry.em`,
+as deep as you care to go:
+
+```ember
+import shapes::geometry;
+import shapes::detail::math;
+
+pub fn main() {
+    let p = shapes::geometry::Point { x: 3, y: 4 };
+    println(shapes::detail::math::square(p.x));
+}
+```
+
+The last segment names the item; everything before it names the module.
+The path is resolved against the root the *importing module* was found
+under, not against the directory it happens to sit in — so
+`shapes::detail::math` means the same file written in `main.em` and in
+`shapes/geometry.em`, and a package keeps resolving its own modules
+against its own directory.
+
+**Nesting is a naming device and nothing more.** `shapes::geometry` has
+no relationship to `shapes`, which need not exist and gets no special
+access if it does. What it buys is that a leaf name can repeat: a
+package's internal `casing` can live at `textkit::casing` and stop
+colliding with yours. It does not make anything private — `pub` still
+decides that, and a caller who knows the name can import it.
+
+Paths become `__` in symbols, so `shapes::detail::math::square` links as
+`shapes__detail__math__square`.
+
 #### Where modules come from
 
-`import geometry;` looks for `geometry.em` beside the file that wrote
-the import. If it is not there, each directory on the module search path
-is tried twice — as `geometry.em`, and as `geometry/geometry.em`:
+`import geometry;` looks for `geometry.em` under the root the importing
+module was found under — for the entry file, the directory it sits in.
+If it is not there, each directory on the module search path is tried
+twice — as `geometry.em`, and as `geometry/geometry.em`:
 
 | | |
 |---|---|
@@ -517,13 +550,13 @@ is tried twice — as `geometry.em`, and as `geometry/geometry.em`:
 | `EMBER_MODULE_PATH` | `PATH`-style list, `;` on Windows and `:` elsewhere |
 | `ember_modules/` beside the entry file | used automatically if it exists |
 
-Explicit beats ambient beats conventional. **The importer's own
-directory always wins**, so adding a dependency can never quietly take
-over a name a program was already using for a module of its own.
+Explicit beats ambient beats conventional. **The importing module's own
+root always wins**, so adding a dependency can never quietly take over a
+name a program was already using for a module of its own.
 
 The `geometry/geometry.em` form is what lets a package be more than one
-file: its own modules are then siblings, and resolve by the first rule
-without being on any search path themselves.
+file: that directory becomes the package's root, so everything it
+imports resolves inside it.
 [`examples/packages`](examples/packages) is a whole one, and needs no
 flags — it just puts `textkit` in `ember_modules/`.
 
@@ -540,8 +573,9 @@ error: cannot find module `textkit`
   = note: looked at `vendor\textkit\textkit.em`
 ```
 
-Module names are global, so two files claiming one name is an error
-rather than a coin toss — the compiler names both files.
+Module names are global — a path is what makes one unique, not the
+directory it sits in — so two files claiming one path is an error rather
+than a coin toss, and the compiler names both.
 
 ### Dynamic arrays and strings
 
@@ -843,16 +877,15 @@ v1 is deliberately small. These are the sharp edges worth knowing about.
   used to be a direct call in one LLVM module and could be inlined; now
   it crosses an object-file boundary that `-O3` cannot see across.
   There is no LTO to win that back.
-- **The module namespace is flat and global.** `geometry::Point` works;
-  `shapes::geometry::Point` does not. One consequence now that modules
-  can come from elsewhere: a package's own private module can collide
-  with one of yours, since both are just `casing`. That is reported
-  rather than resolved — the compiler says which two files claim the
-  name — but the fix is nested paths, which do not exist yet.
+- **Nesting names modules; it does not scope them.** `shapes::geometry`
+  gets no access to `shapes` and gives none, and there is no `super` or
+  `self` to shorten a path with — every path is written in full from the
+  root. Two files claiming one path is still an error rather than
+  something resolved.
 - **A package cannot seal anything off.** `pub` controls what another
   module may reach, not which modules may be imported, so nothing stops
   a program importing a package's internals directly if it knows the
-  name.
+  path. Nesting makes that unlikely by accident rather than impossible.
 
 The spec's §6 sketches where these go next.
 

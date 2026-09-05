@@ -392,3 +392,115 @@ EMBER_TEST(module_search_path_puts_the_explicit_flag_first) {
     EMBER_CHECK_EQ(search.at(1), fs::path{"/from-the-environment"});
     EMBER_CHECK_EQ(search.at(2), workspace.path("ember_modules"));
 }
+
+// ---------------------------------------------------------------------
+// Nested module paths
+//
+// `shapes::geometry` is the file `shapes/geometry.em`. The path is
+// resolved against the root the *importing module* was found under, not
+// against the directory it happens to sit in, so it means the same thing
+// written anywhere — which is what makes it a name rather than a
+// direction.
+// ---------------------------------------------------------------------
+
+EMBER_TEST(nested_paths_are_directory_paths) {
+    const Workspace workspace;
+    workspace.write("main.em",
+                    "import shapes::geometry;\n"
+                    "pub fn main() { println(shapes::geometry::value()); }\n");
+    workspace.write("shapes/geometry.em", "pub fn value() -> int { return 1; }\n");
+
+    const ember::parser::LoadResult loaded = load(workspace, "main.em");
+    EMBER_CHECK_EQ(source_of(loaded, "shapes::geometry"),
+                   workspace.path("shapes/geometry.em"));
+}
+
+EMBER_TEST(nested_paths_go_as_deep_as_they_like) {
+    const Workspace workspace;
+    workspace.write("main.em",
+                    "import a::b::c::d;\npub fn main() { println(a::b::c::d::value()); }\n");
+    workspace.write("a/b/c/d.em", "pub fn value() -> int { return 1; }\n");
+
+    const ember::parser::LoadResult loaded = load(workspace, "main.em");
+    EMBER_CHECK_EQ(source_of(loaded, "a::b::c::d"), workspace.path("a/b/c/d.em"));
+}
+
+EMBER_TEST(nested_paths_mean_the_same_thing_from_a_nested_file) {
+    // The one that decides the design. `shapes/geometry.em` writes the
+    // full path, exactly as `main.em` does, and gets the same file -
+    // rather than `shapes/shapes/detail/math.em`, which is what a path
+    // relative to the importer would have meant.
+    const Workspace workspace;
+    workspace.write("main.em",
+                    "import shapes::geometry;\n"
+                    "pub fn main() { println(shapes::geometry::value()); }\n");
+    workspace.write("shapes/geometry.em",
+                    "import shapes::detail::math;\n"
+                    "pub fn value() -> int { return shapes::detail::math::square(3); }\n");
+    workspace.write("shapes/detail/math.em", "pub fn square(n: int) -> int { return n * n; }\n");
+
+    const ember::parser::LoadResult loaded = load(workspace, "main.em");
+    EMBER_CHECK_EQ(source_of(loaded, "shapes::detail::math"),
+                   workspace.path("shapes/detail/math.em"));
+}
+
+EMBER_TEST(nested_paths_let_a_leaf_name_repeat) {
+    // The whole reason for having them: two modules called `math` that
+    // are not the same module.
+    const Workspace workspace;
+    workspace.write("main.em",
+                    "import math;\n"
+                    "import shapes::math;\n"
+                    "pub fn main() { println(math::value() + shapes::math::value()); }\n");
+    workspace.write("math.em", "pub fn value() -> int { return 1; }\n");
+    workspace.write("shapes/math.em", "pub fn value() -> int { return 2; }\n");
+
+    const ember::parser::LoadResult loaded = load(workspace, "main.em");
+    EMBER_CHECK_EQ(loaded.modules.size(), std::size_t{3});
+    EMBER_CHECK_EQ(source_of(loaded, "math"), workspace.path("math.em"));
+    EMBER_CHECK_EQ(source_of(loaded, "shapes::math"), workspace.path("shapes/math.em"));
+}
+
+EMBER_TEST(nested_paths_do_not_need_their_prefix_to_exist) {
+    // Nesting is a naming device. `shapes` is not a module, is not
+    // imported, and does not have to be anything at all.
+    const Workspace workspace;
+    workspace.write("main.em",
+                    "import shapes::geometry;\n"
+                    "pub fn main() { println(shapes::geometry::value()); }\n");
+    workspace.write("shapes/geometry.em", "pub fn value() -> int { return 1; }\n");
+
+    const ember::parser::LoadResult loaded = load(workspace, "main.em");
+    EMBER_CHECK_EQ(loaded.modules.size(), std::size_t{2});
+}
+
+EMBER_TEST(nested_paths_resolve_against_a_package_root) {
+    // A package found as `<dir>/name/name.em` keeps resolving its own
+    // modules against `<dir>/name`, so it can name its internals after
+    // itself without them landing outside the package.
+    const Workspace workspace;
+    workspace.write("main.em",
+                    "import greeter;\npub fn main() { println(greeter::value()); }\n");
+    workspace.write("vendor/greeter/greeter.em",
+                    "import greeter::casing;\n"
+                    "pub fn value() -> int { return greeter::casing::shout(); }\n");
+    workspace.write("vendor/greeter/greeter/casing.em",
+                    "pub fn shout() -> int { return 7; }\n");
+
+    const ember::parser::LoadResult loaded =
+        load(workspace, "main.em", {workspace.path("vendor")});
+    EMBER_CHECK_EQ(source_of(loaded, "greeter::casing"),
+                   workspace.path("vendor/greeter/greeter/casing.em"));
+}
+
+EMBER_TEST(nested_paths_say_where_they_looked) {
+    const Workspace workspace;
+    workspace.write("main.em",
+                    "import shapes::nowhere;\npub fn main() { println(1); }\n");
+
+    const std::vector<ember::ast::Diagnostic> errors = load_failure(workspace, "main.em");
+    EMBER_CHECK_EQ(errors.at(0).message,
+                   std::string{"cannot find module `shapes::nowhere`"});
+    EMBER_CHECK_MSG(errors.at(0).notes.at(0).find("nowhere") != std::string::npos,
+                    errors.at(0).notes.at(0));
+}

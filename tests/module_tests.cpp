@@ -9,6 +9,7 @@
 
 #include "ember/ast/diagnostic.hpp"
 #include "ember/ast/nodes.hpp"
+#include "ember/codegen/codegen.hpp"
 #include "ember/parser/parser.hpp"
 #include "ember/typeck/typeck.hpp"
 
@@ -103,6 +104,33 @@ std::vector<ember::ast::Diagnostic> reject(const std::vector<Source>& modules) {
 
 std::string first_error(const std::vector<Source>& modules) {
     return reject(modules).at(0).message;
+}
+
+/// Lowers a checked multi-module program to LLVM IR text, for the tests
+/// that are about what a module name becomes at the symbol level.
+std::string compile_modules(const std::vector<Source>& modules) {
+    Program program = check_modules(modules, all_import_all(modules));
+    if (!program.checked.ok()) {
+        ::ember::test::fail(__FILE__, __LINE__,
+                            "expected these modules to check, but:\n" +
+                                ember::ast::render_all(program.checked.diagnostics,
+                                                       program.sources));
+    }
+
+    std::vector<ember::codegen::ModuleInput> inputs;
+    for (std::size_t i = 0; i < modules.size(); ++i) {
+        inputs.push_back(
+            ember::codegen::ModuleInput{modules[i].name, program.parsed[i].program.get()});
+    }
+
+    const ember::codegen::CompileResult compiled =
+        ember::codegen::compile_to_string(inputs, program.checked, {});
+    if (!compiled.ok()) {
+        ::ember::test::fail(__FILE__, __LINE__,
+                            "codegen failed:\n" +
+                                ember::ast::render_all(compiled.diagnostics, program.sources));
+    }
+    return compiled.assembly;
 }
 
 const char* const kGeometry =
@@ -387,4 +415,77 @@ EMBER_TEST(modules_leave_a_single_file_program_unchanged) {
     EMBER_CHECK(checked.ok());
     EMBER_CHECK_EQ(checked.functions.at("helper").mangled_name, std::string{"helper"});
     EMBER_CHECK_EQ(checked.functions.at("helper").module, std::string{});
+}
+
+// ---------------------------------------------------------------------
+// Nested module paths
+//
+// A module's name is its whole path, and everything downstream treats
+// that as one opaque name: `shapes::geometry::Point` resolves, checks
+// and mangles exactly as `geometry::Point` does. Nesting buys
+// unambiguous names and nothing else - it is not a privacy model, and
+// `shapes::geometry` has no special relationship to `shapes`.
+// ---------------------------------------------------------------------
+
+EMBER_TEST(nested_modules_qualify_their_items_by_the_whole_path) {
+    accept({
+        Source{"shapes::geometry",
+               "pub struct Point { pub x: int, }\n"
+               "pub fn origin() -> Point { return Point { x: 0 }; }\n"},
+        Source{"", "pub fn main() {\n"
+                   "    let p = shapes::geometry::origin();\n"
+                   "    println(p.x);\n"
+                   "}\n"},
+    });
+}
+
+EMBER_TEST(nested_modules_keep_two_leaves_of_the_same_name_apart) {
+    accept({
+        Source{"math", "pub fn value() -> int { return 1; }\n"},
+        Source{"shapes::math", "pub fn value() -> int { return 2; }\n"},
+        Source{"", "pub fn main() { println(math::value() + shapes::math::value()); }\n"},
+    });
+}
+
+EMBER_TEST(nested_modules_enforce_pub_the_same_way) {
+    // Nesting changes how a module is named, not who may reach into it.
+    const std::vector<ember::ast::Diagnostic> errors = reject({
+        Source{"shapes::geometry", "fn hidden() -> int { return 1; }\n"},
+        Source{"", "pub fn main() { println(shapes::geometry::hidden()); }\n"},
+    });
+    EMBER_CHECK_EQ(errors.at(0).message,
+                   std::string{"function `shapes::geometry::hidden` is private"});
+}
+
+EMBER_TEST(nested_modules_give_a_parent_no_special_access) {
+    // `shapes` is not a module here, and even if it were it would get
+    // nothing extra. There is no nesting *semantics*, only nesting
+    // names.
+    const std::vector<ember::ast::Diagnostic> errors = reject({
+        Source{"shapes", "pub fn peek() -> int { return shapes::detail::hidden(); }\n"},
+        Source{"shapes::detail", "fn hidden() -> int { return 1; }\n"},
+        Source{"", "pub fn main() { println(shapes::peek()); }\n"},
+    });
+    EMBER_CHECK_EQ(errors.at(0).message,
+                   std::string{"function `shapes::detail::hidden` is private"});
+}
+
+EMBER_TEST(nested_modules_mangle_to_linker_safe_symbols) {
+    if (!ember::codegen::is_available()) {
+        return;
+    }
+    // `::` is not something a linker will accept, so the path becomes
+    // `__` - and the two `square`s stay distinct.
+    const std::string ir = compile_modules({
+        Source{"math", "pub fn square(n: int) -> int { return -1; }\n"},
+        Source{"shapes::detail::math", "pub fn square(n: int) -> int { return n * n; }\n"},
+        Source{"", "pub fn main() {\n"
+                   "    println(math::square(5));\n"
+                   "    println(shapes::detail::math::square(5));\n"
+                   "}\n"},
+    });
+    EMBER_CHECK_MSG(ir.find("@math__square(") != std::string::npos, ir);
+    EMBER_CHECK_MSG(ir.find("@shapes__detail__math__square(") != std::string::npos, ir);
+    EMBER_CHECK_MSG(ir.find("::") == std::string::npos,
+                    "a module path leaked into a symbol name:\n" + ir);
 }
