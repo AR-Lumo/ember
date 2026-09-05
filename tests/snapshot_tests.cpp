@@ -905,6 +905,30 @@ EMBER_TEST(cli_parses_the_incremental_build_flags) {
     EMBER_CHECK(!plain.build.verbose);
 }
 
+EMBER_TEST(cli_parses_a_module_path) {
+    const auto result = parse({"build", "-L", "vendor", "--module-path", "more", "main.em"});
+    const ember::cli::Command& command = command_of(result);
+    EMBER_CHECK_EQ(command.module_path.size(), std::size_t{2});
+    EMBER_CHECK_EQ(command.module_path.at(0).string(), std::string{"vendor"});
+    EMBER_CHECK_EQ(command.module_path.at(1).string(), std::string{"more"});
+}
+
+EMBER_TEST(cli_check_takes_a_module_path_even_though_it_takes_no_build_flags) {
+    // Finding a module is the front end's problem, and `check` runs the
+    // front end. `--fresh` is a back-end flag and stays refused.
+    const auto result = parse({"check", "-L", "vendor", "main.em"});
+    EMBER_CHECK_EQ(command_of(result).module_path.size(), std::size_t{1});
+    EMBER_CHECK_EQ(usage_message(parse({"check", "--fresh", "main.em"})),
+                   std::string{"unknown option `--fresh`"});
+}
+
+EMBER_TEST(cli_rejects_a_dangling_module_path) {
+    EMBER_CHECK_EQ(usage_message(parse({"build", "main.em", "-L"})),
+                   std::string{"`-L` requires a directory argument"});
+    EMBER_CHECK_EQ(usage_message(parse({"run", "main.em", "--module-path"})),
+                   std::string{"`--module-path` requires a directory argument"});
+}
+
 EMBER_TEST(cli_parses_an_optimization_level) {
     const auto result = parse({"build", "-O2", "main.em"});
     EMBER_CHECK_EQ(command_of(result).build.optimization_level, 2u);

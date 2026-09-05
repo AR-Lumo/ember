@@ -239,6 +239,7 @@ ember build file.em -o output      # compile to native executable
 ember run file.em                  # compile + run in one step
 ember check file.em                # type-check only, no codegen
 
+  -L, --module-path <dir>          # extra place to find modules       (v2)
   -O0 .. -O3                       # optimization level, default -O0   (v2)
   -v, --verbose                    # report per-module compile/cache decisions
       --fresh                      # ignore cached object files       (v2)
@@ -341,6 +342,8 @@ moving to the next. Don't let phases blend together.
 - Module system (`import`) for multi-file programs.
 - Separate compilation: one object file per module, so editing one
   module does not re-lower the rest.
+- A module search path, so a program can import code that does not sit
+  beside it.
 - Package manager. Distributing *source*, the way Cargo does, needs
   nothing beyond separate compilation. Distributing compiled libraries
   additionally needs an interface file recording a module's types and

@@ -85,13 +85,27 @@ struct LoadResult {
     bool ok() const noexcept { return diagnostics.empty(); }
 };
 
+/// Where an imported module may be found, beyond the directory of the
+/// file that imported it. Searched in order.
+using ModulePath = std::vector<std::filesystem::path>;
+
 /// Read, lex and parse `entry` and everything it imports, transitively.
 ///
-/// A module named `geometry` lives in `geometry.em` beside the file that
-/// imported it. Each file is loaded once however many modules import it,
-/// so a cycle between two modules terminates and is legal: names are
-/// resolved after every module is parsed, so neither has to come first.
-LoadResult load_program(const std::filesystem::path& entry, ast::SourceMap& sources);
+/// A module named `geometry` is looked for first as `geometry.em` beside
+/// the file that imported it, so a program's own modules always win: a
+/// vendored package can never quietly take over a name already in use.
+/// Then each directory of `search` is tried two ways - `geometry.em` for
+/// a module that is one file, and `geometry/geometry.em` for one that
+/// ships as a directory. The second form is what lets a package be more
+/// than a single file, since its own private modules are then siblings
+/// and resolve by the first rule.
+///
+/// Each module is loaded once however many modules import it, so a cycle
+/// between two modules terminates and is legal: names are resolved after
+/// every module is parsed, so neither has to come first. Two different
+/// files claiming the same module name is an error rather than a race.
+LoadResult load_program(const std::filesystem::path& entry, ast::SourceMap& sources,
+                        const ModulePath& search = {});
 
 }  // namespace ember::parser
 

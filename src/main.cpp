@@ -30,14 +30,15 @@ int run_command(const ember::cli::Command& command) {
         case CommandKind::Build: {
             const std::filesystem::path output =
                 command.output.value_or(ember::cli::default_output_path(command.input));
-            return ember::cli::build_file(command.input, output, command.build);
+            return ember::cli::build_file(command.input, output, command.build,
+                                          command.module_path);
         }
 
         case CommandKind::Run:
-            return ember::cli::run_file(command.input, command.build);
+            return ember::cli::run_file(command.input, command.build, command.module_path);
 
         case CommandKind::Check:
-            return ember::cli::check_file(command.input);
+            return ember::cli::check_file(command.input, command.module_path);
     }
 
     return ember::cli::kExitSuccess;

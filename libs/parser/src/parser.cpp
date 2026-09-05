@@ -989,9 +989,38 @@ std::optional<std::string> read_file(const std::filesystem::path& path) {
     return buffer.str();
 }
 
+/// Every place a module named `name` could live, in the order tried.
+///
+/// The importer's own directory comes first, so a program's modules are
+/// never shadowed by something on the search path. Each search directory
+/// then gets two chances: the module as one file, and the module as a
+/// directory holding a file of the same name.
+std::vector<std::filesystem::path> candidates_for(const std::string& name,
+                                                  const std::filesystem::path& importer,
+                                                  const ModulePath& search) {
+    const std::string filename = name + "." + std::string{ast::kFileExtension};
+
+    std::vector<std::filesystem::path> candidates{importer / filename};
+    for (const std::filesystem::path& directory : search) {
+        candidates.push_back(directory / filename);
+        candidates.push_back(directory / name / filename);
+    }
+
+    // The importer's directory may also be on the search path; looking
+    // in it twice would say so twice in a diagnostic.
+    std::vector<std::filesystem::path> unique;
+    for (const std::filesystem::path& candidate : candidates) {
+        if (std::find(unique.begin(), unique.end(), candidate) == unique.end()) {
+            unique.push_back(candidate);
+        }
+    }
+    return unique;
+}
+
 }  // namespace
 
-LoadResult load_program(const std::filesystem::path& entry, ast::SourceMap& sources) {
+LoadResult load_program(const std::filesystem::path& entry, ast::SourceMap& sources,
+                        const ModulePath& search) {
     LoadResult result;
 
     // Breadth-first from the entry file. Each module is loaded once, so
@@ -999,30 +1028,59 @@ LoadResult load_program(const std::filesystem::path& entry, ast::SourceMap& sour
     // in `loaded` the second time round.
     struct Pending {
         std::string name;
+        /// Resolved for the entry file, which was named outright. Empty
+        /// for an imported module, which has to be looked for.
         std::filesystem::path path;
+        /// The directory of the file that asked for it.
+        std::filesystem::path from;
         /// Where the `import` was written, so a missing file can be
         /// reported against it rather than against nothing.
         std::optional<ast::Span> requested_at;
     };
 
     std::deque<Pending> queue;
-    queue.push_back(Pending{{}, entry, std::nullopt});
-    std::vector<std::string> loaded;
+    queue.push_back(Pending{{}, entry, {}, std::nullopt});
+    /// Module name -> the file it was loaded from, so a second file
+    /// claiming the name is caught rather than silently ignored.
+    std::vector<std::pair<std::string, std::filesystem::path>> loaded;
 
     while (!queue.empty()) {
         const Pending pending = std::move(queue.front());
         queue.pop_front();
 
-        if (std::find(loaded.begin(), loaded.end(), pending.name) != loaded.end()) {
-            continue;
+        // Resolve first, so that a name already loaded from a
+        // *different* file is reported instead of quietly skipped.
+        std::filesystem::path path = pending.path;
+        std::optional<std::string> contents;
+        std::vector<std::filesystem::path> tried;
+
+        if (!path.empty()) {
+            contents = read_file(path);
+        } else {
+            for (const std::filesystem::path& candidate :
+                 candidates_for(pending.name, pending.from, search)) {
+                tried.push_back(candidate);
+                contents = read_file(candidate);
+                if (contents.has_value()) {
+                    path = candidate;
+                    break;
+                }
+            }
         }
 
-        const std::optional<std::string> contents = read_file(pending.path);
         if (!contents.has_value()) {
             if (pending.requested_at.has_value()) {
-                result.diagnostics.push_back(ast::Diagnostic::error(
+                ast::Diagnostic diagnostic = ast::Diagnostic::error(
                     "cannot find module `" + pending.name + "`", *pending.requested_at,
-                    "no file at `" + pending.path.string() + "`"));
+                    "no file for this module");
+                for (const std::filesystem::path& candidate : tried) {
+                    diagnostic.with_note("looked at `" + candidate.string() + "`");
+                }
+                if (search.empty()) {
+                    diagnostic.with_note(
+                        "add a directory to look in with `--module-path <dir>`");
+                }
+                result.diagnostics.push_back(std::move(diagnostic));
             } else {
                 result.diagnostics.push_back(ast::Diagnostic::error(
                     "cannot read `" + pending.path.string() + "`", ast::Span::at(0),
@@ -1031,7 +1089,25 @@ LoadResult load_program(const std::filesystem::path& entry, ast::SourceMap& sour
             continue;
         }
 
-        const ast::FileId file = sources.add(pending.path.string(), *contents);
+        const auto already = std::find_if(
+            loaded.begin(), loaded.end(),
+            [&](const auto& entry_) { return entry_.first == pending.name; });
+        if (already != loaded.end()) {
+            // Loading it twice would be harmless; two *different* files
+            // under one name would not - the second's items would
+            // silently never exist.
+            if (already->second != path && pending.requested_at.has_value()) {
+                result.diagnostics.push_back(
+                    ast::Diagnostic::error("two files claim the module `" + pending.name + "`",
+                                           *pending.requested_at,
+                                           "this import resolves to a different file")
+                        .with_note("already loaded from `" + already->second.string() + "`")
+                        .with_note("this one resolves to `" + path.string() + "`"));
+            }
+            continue;
+        }
+
+        const ast::FileId file = sources.add(path.string(), *contents);
         ParseResult parsed = parse_source(sources.file(file));
 
         for (ast::Diagnostic& diagnostic : parsed.diagnostics) {
@@ -1040,12 +1116,12 @@ LoadResult load_program(const std::filesystem::path& entry, ast::SourceMap& sour
 
         Module module;
         module.name = pending.name;
-        module.path = pending.path;
+        module.path = path;
         module.file = file;
         module.program = std::move(parsed.program);
         module.program->module = pending.name;
 
-        const std::filesystem::path directory = pending.path.parent_path();
+        const std::filesystem::path directory = path.parent_path();
         for (const auto& [name, span] : imports_of(*module.program)) {
             if (name == pending.name) {
                 result.diagnostics.push_back(ast::Diagnostic::error(
@@ -1053,11 +1129,10 @@ LoadResult load_program(const std::filesystem::path& entry, ast::SourceMap& sour
                 continue;
             }
             module.imports.push_back(name);
-            queue.push_back(Pending{
-                name, directory / (name + "." + std::string{ast::kFileExtension}), span});
+            queue.push_back(Pending{name, {}, directory, span});
         }
 
-        loaded.push_back(pending.name);
+        loaded.emplace_back(pending.name, path);
         result.modules.push_back(std::move(module));
     }
 

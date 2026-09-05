@@ -47,6 +47,26 @@ std::variant<std::filesystem::path, UsageError> check_extension(std::string_view
 
 bool is_flag(std::string_view arg) { return !arg.empty() && arg.front() == '-'; }
 
+/// `--module-path <dir>`, spelled `-L` as well because that is what
+/// every other toolchain calls it. Consumes two arguments when it
+/// matches, so it reports how many it took.
+///
+/// Recognized by `check` too: where a module lives is a question the
+/// front end asks, and `ember check` runs the front end.
+std::optional<std::variant<std::size_t, UsageError>> parse_module_path_flag(
+    std::span<const std::string_view> args, std::size_t at,
+    std::vector<std::filesystem::path>& into) {
+    const std::string_view arg = args[at];
+    if (arg != "-L" && arg != "--module-path") {
+        return std::nullopt;
+    }
+    if (at + 1 >= args.size()) {
+        return usage_error("`" + std::string{arg} + "` requires a directory argument");
+    }
+    into.emplace_back(std::string{args[at + 1]});
+    return std::size_t{2};
+}
+
 /// What the shared build-flag parser made of one argument.
 struct FlagOutcome {
     /// Whether this argument was one of the build flags at all.
@@ -97,14 +117,25 @@ ParseResult parse_single_input(CommandKind kind, std::string_view subcommand,
                                std::span<const std::string_view> args) {
     std::optional<std::filesystem::path> input;
     BuildOptions options;
+    std::vector<std::filesystem::path> module_path;
 
-    for (const std::string_view arg : args) {
+    for (std::size_t i = 0; i < args.size();) {
+        const std::string_view arg = args[i];
+
+        if (const auto taken = parse_module_path_flag(args, i, module_path)) {
+            if (const auto* error = std::get_if<UsageError>(&*taken)) {
+                return *error;
+            }
+            i += std::get<std::size_t>(*taken);
+            continue;
+        }
         if (kind == CommandKind::Run) {
             const FlagOutcome outcome = parse_build_flag(arg, options);
             if (outcome.error.has_value()) {
                 return usage_error(*outcome.error);
             }
             if (outcome.recognized) {
+                i += 1;
                 continue;
             }
         }
@@ -119,6 +150,7 @@ ParseResult parse_single_input(CommandKind kind, std::string_view subcommand,
             return *error;
         }
         input = std::get<std::filesystem::path>(checked);
+        i += 1;
     }
 
     if (!input.has_value()) {
@@ -129,6 +161,7 @@ ParseResult parse_single_input(CommandKind kind, std::string_view subcommand,
     command.kind = kind;
     command.input = *input;
     command.build = options;
+    command.module_path = std::move(module_path);
     return command;
 }
 
@@ -136,9 +169,19 @@ ParseResult parse_build(std::span<const std::string_view> args) {
     std::optional<std::filesystem::path> input;
     std::optional<std::filesystem::path> output;
     BuildOptions options;
+    std::vector<std::filesystem::path> module_path;
 
     for (std::size_t i = 0; i < args.size();) {
         const std::string_view arg = args[i];
+
+        if (const auto taken = parse_module_path_flag(args, i, module_path)) {
+            if (const auto* error = std::get_if<UsageError>(&*taken)) {
+                return *error;
+            }
+            i += std::get<std::size_t>(*taken);
+            continue;
+        }
+
         const FlagOutcome outcome = parse_build_flag(arg, options);
         if (outcome.error.has_value()) {
             return usage_error(*outcome.error);
@@ -178,6 +221,7 @@ ParseResult parse_build(std::span<const std::string_view> args) {
     command.input = *input;
     command.output = output;
     command.build = options;
+    command.module_path = std::move(module_path);
     return command;
 }
 
@@ -193,6 +237,8 @@ const std::string_view kUsage =
     "\n"
     "OPTIONS:\n"
     "    -o, --output <path>   output path for `build` (default: input stem)\n"
+    "    -L, --module-path <dir>\n"
+    "                          also look here for imported modules (repeatable)\n"
     "    -O0 .. -O3            optimization level (default: -O0)\n"
     "    -v, --verbose         report which modules were compiled and which were cached\n"
     "        --fresh           recompile every module, ignoring cached object files\n"
@@ -206,10 +252,10 @@ ParseResult parse_args(std::span<const std::string_view> args) {
 
     const std::string_view first = args.front();
     if (first == "-h" || first == "--help" || first == "help") {
-        return Command{CommandKind::Help, {}, std::nullopt, {}};
+        return Command{CommandKind::Help, {}, std::nullopt, {}, {}};
     }
     if (first == "-V" || first == "--version" || first == "version") {
-        return Command{CommandKind::Version, {}, std::nullopt, {}};
+        return Command{CommandKind::Version, {}, std::nullopt, {}, {}};
     }
 
     const std::span<const std::string_view> rest = args.subspan(1);
@@ -251,6 +297,15 @@ std::string version_string() { return "ember " + std::string{ember::ast::version
 
 namespace {
 
+/// The separator `EMBER_MODULE_PATH` uses, which is whatever the
+/// platform already uses for `PATH`.
+constexpr char kPathSeparator =
+#ifdef _WIN32
+    ';';
+#else
+    ':';
+#endif
+
 /// Everything the back end needs from a successful front-end run.
 struct FrontEnd {
     /// Every file the program is made of, so a diagnostic from any
@@ -274,11 +329,13 @@ struct FrontEnd {
 /// stopping at the first stage that fails: a bad token stream makes the
 /// parse meaningless, and a bad tree makes the types meaningless, so
 /// continuing would only bury the real error.
-FrontEnd run_front_end(const std::filesystem::path& input) {
+FrontEnd run_front_end(const std::filesystem::path& input,
+                       const std::vector<std::filesystem::path>& module_path) {
     FrontEnd result;
 
     // Loading pulls in every module the entry file imports, transitively.
-    result.loaded = parser::load_program(input, result.sources);
+    result.loaded =
+        parser::load_program(input, result.sources, module_search_path(input, module_path));
     if (!result.loaded.ok()) {
         std::cerr << ast::render_all(result.loaded.diagnostics, result.sources);
         return result;
@@ -629,21 +686,55 @@ int emit_executable(const FrontEnd& front_end, const std::filesystem::path& outp
 
 std::string linker_command() { return EMBER_LINKER; }
 
-int check_file(const std::filesystem::path& input) {
-    return run_front_end(input).ok ? kExitSuccess : kExitCompileError;
+std::vector<std::filesystem::path> module_search_path(
+    const std::filesystem::path& entry, const std::vector<std::filesystem::path>& requested) {
+    std::vector<std::filesystem::path> search = requested;
+
+    if (const char* environment = std::getenv("EMBER_MODULE_PATH")) {
+        const std::string text{environment};
+        std::size_t start = 0;
+        while (start <= text.size()) {
+            const std::size_t end = text.find(kPathSeparator, start);
+            const std::string piece =
+                text.substr(start, end == std::string::npos ? std::string::npos : end - start);
+            if (!piece.empty()) {
+                search.emplace_back(piece);
+            }
+            if (end == std::string::npos) {
+                break;
+            }
+            start = end + 1;
+        }
+    }
+
+    // The conventional place, so a vendored dependency needs no flag at
+    // all: drop it in and `import` finds it.
+    std::error_code ignored;
+    const std::filesystem::path vendored = entry.parent_path() / "ember_modules";
+    if (std::filesystem::is_directory(vendored, ignored)) {
+        search.push_back(vendored);
+    }
+    return search;
+}
+
+int check_file(const std::filesystem::path& input,
+               const std::vector<std::filesystem::path>& module_path) {
+    return run_front_end(input, module_path).ok ? kExitSuccess : kExitCompileError;
 }
 
 int build_file(const std::filesystem::path& input, const std::filesystem::path& output,
-               const BuildOptions& options) {
-    const FrontEnd front_end = run_front_end(input);
+               const BuildOptions& options,
+               const std::vector<std::filesystem::path>& module_path) {
+    const FrontEnd front_end = run_front_end(input, module_path);
     if (!front_end.ok) {
         return kExitCompileError;
     }
     return emit_executable(front_end, output, options);
 }
 
-int run_file(const std::filesystem::path& input, const BuildOptions& options) {
-    const FrontEnd front_end = run_front_end(input);
+int run_file(const std::filesystem::path& input, const BuildOptions& options,
+             const std::vector<std::filesystem::path>& module_path) {
+    const FrontEnd front_end = run_front_end(input, module_path);
     if (!front_end.ok) {
         return kExitCompileError;
     }

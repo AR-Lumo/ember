@@ -137,19 +137,26 @@ ProcessResult run_process(const std::string& command) {
 
 std::string quoted(const fs::path& path) { return "\"" + path.string() + "\""; }
 
-/// Every example program, plus the multi-file one.
+/// Every example program: the single-file ones, and the `main.em` of
+/// each directory that holds one.
+///
+/// Discovered rather than listed, so adding an example puts it under
+/// this comparison automatically - a list here would go stale the first
+/// time somebody forgot it.
 std::vector<fs::path> example_programs() {
     std::vector<fs::path> programs;
     std::error_code code;
     const fs::path examples = fs::path{EMBER_GOLDEN_DIR}.parent_path().parent_path() / "examples";
+
     for (const fs::directory_entry& entry : fs::directory_iterator(examples, code)) {
         if (entry.path().extension() == ".em") {
             programs.push_back(entry.path());
+            continue;
         }
-    }
-    const fs::path multi = examples / "modules" / "main.em";
-    if (fs::exists(multi)) {
-        programs.push_back(multi);
+        const fs::path main_file = entry.path() / "main.em";
+        if (entry.is_directory() && fs::exists(main_file)) {
+            programs.push_back(main_file);
+        }
     }
     return programs;
 }

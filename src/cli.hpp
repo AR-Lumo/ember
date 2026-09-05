@@ -16,6 +16,7 @@
 #include <string>
 #include <string_view>
 #include <variant>
+#include <vector>
 
 namespace ember::cli {
 
@@ -61,6 +62,10 @@ struct Command {
     std::optional<std::filesystem::path> output;
     /// Ignored by Check, Help and Version.
     BuildOptions build;
+    /// `--module-path` arguments, in the order given. Unlike the build
+    /// options this belongs to `check` as well: finding a module is the
+    /// front end's problem, not the back end's.
+    std::vector<std::filesystem::path> module_path;
 
     friend bool operator==(const Command&, const Command&) = default;
 };
@@ -94,13 +99,24 @@ void set_compiler_path(const std::filesystem::path& path);
 /// e.g. "ember 0.1.0".
 std::string version_string();
 
+/// Assembles the directories an imported module is looked for in,
+/// after the directory of the file that imported it.
+///
+/// In order: what `--module-path` asked for, then `EMBER_MODULE_PATH`
+/// from the environment, then an `ember_modules` directory beside the
+/// entry file if one exists. Explicit beats ambient beats conventional,
+/// which is the order every toolchain settles on eventually.
+std::vector<std::filesystem::path> module_search_path(
+    const std::filesystem::path& entry, const std::vector<std::filesystem::path>& requested);
+
 /// Run the front end over `input` - lex, parse, type-check - printing
 /// any diagnostics to stderr in the §7 format. Returns a process exit
 /// code: 0 when the program is clean, kExitCompileError otherwise.
 ///
 /// This is `ember check` (§6). `ember build` runs the same front end and
 /// then hands the checked program to codegen.
-int check_file(const std::filesystem::path& input);
+int check_file(const std::filesystem::path& input,
+               const std::vector<std::filesystem::path>& module_path = {});
 
 /// Compile `input` to a native executable at `output` (§6, `ember build`).
 ///
@@ -108,11 +124,13 @@ int check_file(const std::filesystem::path& input);
 /// beside the entry source and reused when nothing it depends on has
 /// changed. `options.fresh` skips the cache.
 int build_file(const std::filesystem::path& input, const std::filesystem::path& output,
-               const BuildOptions& options = {});
+               const BuildOptions& options = {},
+               const std::vector<std::filesystem::path>& module_path = {});
 
 /// Compile `input` to a temporary executable, run it, and return its
 /// exit code (§6, `ember run`).
-int run_file(const std::filesystem::path& input, const BuildOptions& options = {});
+int run_file(const std::filesystem::path& input, const BuildOptions& options = {},
+             const std::vector<std::filesystem::path>& module_path = {});
 
 /// The linker command the build uses, for diagnostics and the README.
 std::string linker_command();

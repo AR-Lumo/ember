@@ -153,10 +153,16 @@ ember build <file.em> [-o <output>]   compile to a native executable
 ember run <file.em>                   compile and run in one step
 ember check <file.em>                 type-check only, no codegen
 
+  -L, --module-path <dir>
+                   also look here for imported modules (repeatable)
   -O0 .. -O3       optimization level (default: -O0)
   -v, --verbose    say which modules were compiled and which were cached
       --fresh      recompile every module, ignoring cached object files
 ```
+
+`--module-path` works on `check` too — finding a module is a question
+the front end asks, and `check` runs the front end. The build flags do
+not, since `check` never reaches the back end.
 
 Exit codes are `0` on success, `1` when the program failed to compile,
 and `2` when the command line itself was wrong. A compiled program that
@@ -438,6 +444,44 @@ Two rules worth knowing:
 
 Modules may import each other in a cycle. Every module is collected
 before any body is checked, so neither has to come first.
+
+#### Where modules come from
+
+`import geometry;` looks for `geometry.em` beside the file that wrote
+the import. If it is not there, each directory on the module search path
+is tried twice — as `geometry.em`, and as `geometry/geometry.em`:
+
+| | |
+|---|---|
+| `--module-path <dir>`, or `-L <dir>` | repeatable, tried in order |
+| `EMBER_MODULE_PATH` | `PATH`-style list, `;` on Windows and `:` elsewhere |
+| `ember_modules/` beside the entry file | used automatically if it exists |
+
+Explicit beats ambient beats conventional. **The importer's own
+directory always wins**, so adding a dependency can never quietly take
+over a name a program was already using for a module of its own.
+
+The `geometry/geometry.em` form is what lets a package be more than one
+file: its own modules are then siblings, and resolve by the first rule
+without being on any search path themselves.
+[`examples/packages`](examples/packages) is a whole one, and needs no
+flags — it just puts `textkit` in `ember_modules/`.
+
+When nothing turns up, the error is a list of where it looked:
+
+```console
+error: cannot find module `textkit`
+ --> main.em:1:8
+  |
+1 | import textkit;
+  |        ^^^^^^^ no file for this module
+  = note: looked at `textkit.em`
+  = note: looked at `vendor\textkit.em`
+  = note: looked at `vendor\textkit\textkit.em`
+```
+
+Module names are global, so two files claiming one name is an error
+rather than a coin toss — the compiler names both files.
 
 ### Dynamic arrays and strings
 
@@ -731,9 +775,16 @@ v1 is deliberately small. These are the sharp edges worth knowing about.
   used to be a direct call in one LLVM module and could be inlined; now
   it crosses an object-file boundary that `-O3` cannot see across.
   There is no LTO to win that back.
-- **Module paths are one level deep.** `geometry::Point` works;
-  `shapes::geometry::Point` does not. There are no nested modules and no
-  search path — an imported module is a file beside the importer.
+- **The module namespace is flat and global.** `geometry::Point` works;
+  `shapes::geometry::Point` does not. One consequence now that modules
+  can come from elsewhere: a package's own private module can collide
+  with one of yours, since both are just `casing`. That is reported
+  rather than resolved — the compiler says which two files claim the
+  name — but the fix is nested paths, which do not exist yet.
+- **A package cannot seal anything off.** `pub` controls what another
+  module may reach, not which modules may be imported, so nothing stops
+  a program importing a package's internals directly if it knows the
+  name.
 
 The spec's §6 sketches where these go next.
 
