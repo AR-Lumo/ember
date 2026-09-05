@@ -939,8 +939,20 @@ let shift = |x: int| -> int { return x + offset; };
 println(shift(5));                   // 105
 ```
 
-Parameter and return types are written out, as they are everywhere else
-in Ember. `||` with nothing between the bars is an empty parameter list.
+`||` with nothing between the bars is an empty parameter list.
+
+**Parameter types may be left out** when there is something to take them
+from — which for a closure there usually is, since it is being passed to
+something:
+
+```ember
+map_in_place(values, |x| { return x * 2; });
+```
+
+The `&fn(int) -> int` the function expects says what `x` is and what the
+body must return. A *function's* parameters are never inferred this way,
+because a function has no context to take them from. Where a closure has
+none either, it says so and asks for the type.
 
 **Captures are by value.** A closure takes what it mentions from the
 surrounding scope into its own storage, which is why one can be returned
@@ -1088,10 +1100,12 @@ $ EMBER_UPDATE_GOLDEN=1 ./build/bin/ember_snapshot_tests
 
 v1 is deliberately small. These are the sharp edges worth knowing about.
 
-- **`as` converts between `int` and `float` only.** There is no cast to
-  or from `bool`, `string` or a struct, and no reinterpreting cast.
-  `float as int` truncates toward zero, and a value too large for an
-  `int` is undefined — both as in C.
+- **`as` converts between `int`, `float` and `bool` only.** There is no
+  cast to or from `string` or a struct, and no reinterpreting cast.
+  `float as int` truncates toward zero and a value too large for an
+  `int` is undefined, both as in C; `bool as int` is 0 or 1 and
+  `int as bool` is whether it is not zero, also as in C. `float` has no
+  such convention with `bool`, so that pair is refused.
 - **References are unchecked.** `&T` is a raw non-owning pointer with no
   borrow checker and no lifetimes. Returning a reference to a local, or
   holding one past the drop of what it points at, will compile and then
@@ -1105,8 +1119,6 @@ v1 is deliberately small. These are the sharp edges worth knowing about.
   `slice` takes a sub-range of text, but `+` on strings is still not a
   thing — allocation stays visible, as it is in Rust — and only text can
   be sliced. Index a `Vec` instead.
-- **Closure parameter types are never inferred.** `|x| x + 1` is not
-  valid; write `|x: int| -> int { return x + 1; }`.
 - **The front end is still whole-program.** Codegen is incremental, but
   every build re-reads, re-parses and re-type-checks every module whose
   source it has. Interfaces make it *possible* to check a module against

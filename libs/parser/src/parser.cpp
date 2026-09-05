@@ -861,9 +861,17 @@ private:
                     ast::Param param;
                     param.name = std::string{name.text};
                     param.name_span = name.span;
-                    expect(TokenKind::Colon);
-                    param.type = parse_type();
-                    param.span = name.span.merge(param.type->span);
+                    param.span = name.span;
+
+                    // The type may be left out, and then comes from
+                    // whatever the closure is being handed to. A
+                    // function's parameters are never inferred this way,
+                    // because a function has no context to take them
+                    // from; a closure always has one.
+                    if (match(TokenKind::Colon)) {
+                        param.type = parse_type();
+                        param.span = name.span.merge(param.type->span);
+                    }
                     closure->params.push_back(std::move(param));
                 } while (match(TokenKind::Comma));
             }

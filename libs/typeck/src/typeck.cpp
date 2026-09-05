@@ -2073,7 +2073,7 @@ private:
             case ast::ExprKind::Index:
                 return check_index(static_cast<const ast::IndexExpr&>(expr));
             case ast::ExprKind::Closure:
-                return check_closure(static_cast<const ast::ClosureExpr&>(expr));
+                return check_closure(static_cast<const ast::ClosureExpr&>(expr), hint);
             case ast::ExprKind::Cast:
                 return check_cast(static_cast<const ast::CastExpr&>(expr));
             case ast::ExprKind::StructLit:
@@ -2646,8 +2646,11 @@ private:
         const std::size_t count = std::min(args.size(), expected);
         for (std::size_t i = 0; i < count; ++i) {
             const TypePtr parameter = info.param_types[i + offset];
-            const TypePtr argument =
-                already_checked(*args[i]) ? recorded_type(*args[i]) : check_expr(*args[i]);
+            // The parameter type is handed down as a hint, which is what
+            // lets `map(xs, |x| x * 2)` know what `x` is.
+            const TypePtr argument = already_checked(*args[i])
+                                         ? recorded_type(*args[i])
+                                         : check_expr(*args[i], parameter);
             if (!assignable(parameter, argument)) {
                 report_mismatch(args[i]->span, parameter, argument);
             }
@@ -3045,11 +3048,24 @@ private:
         if (is_numeric(source) && is_numeric(target)) {
             return record(expr, target);
         }
+        // `bool as int` is 0 or 1, and `int as bool` is "not zero" -
+        // which is what C means by both, and §9 says follow C on the
+        // low-level questions. `float` has no such convention, so it is
+        // left out rather than guessed at.
+        if ((source->kind == TypeKind::Bool && target->kind == TypeKind::Int) ||
+            (source->kind == TypeKind::Int && target->kind == TypeKind::Bool)) {
+            return record(expr, target);
+        }
 
         Diagnostic& diagnostic =
             report("cannot cast `" + to_string(source) + "` to `" + to_string(target) + "`",
                    expr.span, "no conversion exists between these types");
-        diagnostic.with_note("`as` converts between `int` and `float` only");
+        diagnostic.with_note("`as` converts between `int` and `float`, and between `int` and "
+                             "`bool`");
+        if (source->kind == TypeKind::Bool || target->kind == TypeKind::Bool) {
+            diagnostic.with_note("a `bool` becomes 0 or 1, and an `int` becomes whether it is "
+                                 "not zero; there is no such convention for `float`");
+        }
         return record(expr, target);
     }
 
@@ -3058,18 +3074,48 @@ private:
     /// The body is checked in its own scope with the parameters bound.
     /// Anything it mentions from further out becomes a capture, which is
     /// what turns a plain function into a closure.
-    TypePtr check_closure(const ast::ClosureExpr& expr) {
+    TypePtr check_closure(const ast::ClosureExpr& expr, TypePtr hint = nullptr) {
         // The node is mutated to record what was captured, which is only
         // knowable once the body has been resolved.
         auto& closure = const_cast<ast::ClosureExpr&>(expr);
         closure.id = next_closure_id_++;
 
+        // What the closure is being handed to, when that is a function
+        // type. A `&fn(int) -> int` parameter says as much about the
+        // closure as writing the types out would.
+        const TypePtr expected =
+            hint != nullptr && strip_reference(hint)->kind == TypeKind::Function
+                ? strip_reference(hint)
+                : nullptr;
+
         std::vector<TypePtr> params;
-        for (const ast::Param& param : closure.params) {
-            params.push_back(param.type ? resolve_type(*param.type) : types().error_type());
+        for (std::size_t i = 0; i < closure.params.size(); ++i) {
+            const ast::Param& param = closure.params[i];
+            if (param.type) {
+                params.push_back(resolve_type(*param.type));
+                continue;
+            }
+            if (expected != nullptr && i < expected->args.size()) {
+                params.push_back(expected->args[i]);
+                continue;
+            }
+            report("cannot work out the type of `" + param.name + "`", param.span,
+                   "nothing here says what it is")
+                .with_note("a closure's parameter types come from what it is passed to; "
+                           "write `" + param.name + ": <type>` when there is nothing to "
+                           "take them from");
+            params.push_back(types().error_type());
         }
-        const TypePtr result =
-            closure.return_type ? resolve_type(*closure.return_type) : types().void_type();
+
+        // The return type follows the same rule, and falls back to
+        // nothing rather than to an error: a closure that returns
+        // nothing is ordinary.
+        TypePtr result = types().void_type();
+        if (closure.return_type) {
+            result = resolve_type(*closure.return_type);
+        } else if (expected != nullptr && expected->result != nullptr) {
+            result = expected->result;
+        }
 
         scopes_.push();
         closures_.push_back(ClosureContext{scopes_.size() - 1, &closure, {}});

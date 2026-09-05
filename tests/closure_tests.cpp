@@ -237,6 +237,65 @@ EMBER_TEST(closures_with_owned_captures_carry_a_drop_function) {
 }
 
 // ---------------------------------------------------------------------
+// Parameter types that write themselves
+//
+// A function's parameters are never inferred, because a function has no
+// context to take them from. A closure always has one: it is being
+// passed to something, or bound to something, and that says what its
+// parameters are.
+// ---------------------------------------------------------------------
+
+namespace {
+
+const char* const kMap =
+    "pub fn map_in_place(values: &Vec<int>, f: &fn(int) -> int) {\n"
+    "    let mut i = 0;\n"
+    "    while i < len(values) {\n"
+    "        values[i] = f(values[i]);\n"
+    "        i = i + 1;\n"
+    "    }\n"
+    "}\n";
+
+}  // namespace
+
+EMBER_TEST(closures_take_their_parameter_types_from_what_they_are_passed_to) {
+    accept(std::string{kMap} +
+           in_main("let mut v: Vec<int> = new_vec();\n"
+                   "    push(v, 1);\n"
+                   "    map_in_place(v, |x| { return x * 2; });"));
+}
+
+EMBER_TEST(closures_take_their_return_type_the_same_way) {
+    // No `-> int` written, and the body returns one because the
+    // parameter type said it must.
+    accept("pub fn apply(f: &fn(int) -> int, value: int) -> int { return f(value); }\n" +
+           in_main("println(apply(|x| { return x + 1; }, 41));"));
+}
+
+EMBER_TEST(closures_still_accept_types_written_out) {
+    accept(std::string{kMap} +
+           in_main("let mut v: Vec<int> = new_vec();\n"
+                   "    map_in_place(v, |x: int| -> int { return x * 2; });"));
+}
+
+EMBER_TEST(closures_check_an_inferred_body_against_the_expected_type) {
+    // The types came from the context, so the body has to honour them.
+    const std::vector<ember::ast::Diagnostic> errors =
+        reject(std::string{kMap} +
+               in_main("let mut v: Vec<int> = new_vec();\n"
+                       "    map_in_place(v, |x| { return true; });"));
+    EMBER_CHECK_EQ(errors.at(0).label, std::string{"expected `int`, found `bool`"});
+}
+
+EMBER_TEST(closures_report_a_parameter_with_nothing_to_infer_from) {
+    const std::vector<ember::ast::Diagnostic> errors =
+        reject(in_main("let f = |x| { println(x); };\n    f(1);"));
+    EMBER_CHECK_EQ(errors.at(0).message, std::string{"cannot work out the type of `x`"});
+    EMBER_CHECK_MSG(errors.at(0).notes.at(0).find("what it is passed to") != std::string::npos,
+                    errors.at(0).notes.at(0));
+}
+
+// ---------------------------------------------------------------------
 // Errors
 // ---------------------------------------------------------------------
 

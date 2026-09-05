@@ -97,9 +97,10 @@ pub fn main() {
     }
     println("");
 
-    let big = |x: int| -> bool { return x > 6; };
+    // Written inline, with no types: they come from what
+    // `count_where` takes.
     print("over six:   ");
-    println(count_where(values, big));
+    println(count_where(values, |x| { return x > 6; }));
 
     // No parameters, and one that returns nothing.
     let answer = || -> int { return 42; };

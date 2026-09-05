@@ -1504,6 +1504,13 @@ private:
         if (source->kind == TypeKind::Float && target->kind == TypeKind::Int) {
             return builder_.CreateFPToSI(value, int_type(), "cast");
         }
+        if (source->kind == TypeKind::Bool && target->kind == TypeKind::Int) {
+            return builder_.CreateZExt(value, int_type(), "cast");
+        }
+        if (source->kind == TypeKind::Int && target->kind == TypeKind::Bool) {
+            // "Not zero", as C reads it.
+            return builder_.CreateICmpNE(value, builder_.getInt64(0), "cast");
+        }
         return value;
     }
 

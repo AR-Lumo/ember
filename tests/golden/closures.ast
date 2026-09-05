@@ -230,77 +230,73 @@
       (expr-stmt @98:5
         (call @98:5 println
           (string-lit @98:13 "")))
-      (let @100:5 big
-        (closure @100:15
-          (params
-            (param @100:16 x
-              (int @100:19)))
-          (returns
-            (bool @100:27))
-          (block @100:32
-            (return @100:34
-              (binary @100:41 gt
-                (name @100:41 x)
-                (int-lit @100:45 6))))))
-      (expr-stmt @101:5
-        (call @101:5 print
-          (string-lit @101:11 "over six:   ")))
       (expr-stmt @102:5
-        (call @102:5 println
-          (call @102:13 count_where
-            (name @102:25 values)
-            (name @102:33 big))))
-      (let @105:5 answer
-        (closure @105:18
+        (call @102:5 print
+          (string-lit @102:11 "over six:   ")))
+      (expr-stmt @103:5
+        (call @103:5 println
+          (call @103:13 count_where
+            (name @103:25 values)
+            (closure @103:33
+              (params
+                (param @103:34 x
+                  (inferred)))
+              (block @103:37
+                (return @103:39
+                  (binary @103:46 gt
+                    (name @103:46 x)
+                    (int-lit @103:50 6))))))))
+      (let @106:5 answer
+        (closure @106:18
           (params)
           (returns
-            (int @105:24))
-          (block @105:28
-            (return @105:30
-              (int-lit @105:37 42)))))
-      (expr-stmt @106:5
-        (call @106:5 print
-          (string-lit @106:11 "answer:     ")))
+            (int @106:24))
+          (block @106:28
+            (return @106:30
+              (int-lit @106:37 42)))))
       (expr-stmt @107:5
-        (call @107:5 println
-          (call @107:13 answer)))
-      (let @109:5 announce
-        (closure @109:20
+        (call @107:5 print
+          (string-lit @107:11 "answer:     ")))
+      (expr-stmt @108:5
+        (call @108:5 println
+          (call @108:13 answer)))
+      (let @110:5 announce
+        (closure @110:20
           (params
-            (param @109:21 text
-              (string @109:27)))
-          (block @109:35
-            (expr-stmt @109:37
-              (call @109:37 println
-                (name @109:45 text))))))
-      (expr-stmt @110:5
-        (call @110:5 announce
-          (string-lit @110:14 "closures are values")))
-      (let @115:5 mut greeting
-        (named @115:23 String)
-        (call @115:32 new_string))
-      (expr-stmt @116:5
-        (call @116:5 push_str
-          (name @116:14 greeting)
-          (string-lit @116:24 "owned capture")))
-      (let @118:5 speak
-        (closure @118:17
+            (param @110:21 text
+              (string @110:27)))
+          (block @110:35
+            (expr-stmt @110:37
+              (call @110:37 println
+                (name @110:45 text))))))
+      (expr-stmt @111:5
+        (call @111:5 announce
+          (string-lit @111:14 "closures are values")))
+      (let @116:5 mut greeting
+        (named @116:23 String)
+        (call @116:32 new_string))
+      (expr-stmt @117:5
+        (call @117:5 push_str
+          (name @117:14 greeting)
+          (string-lit @117:24 "owned capture")))
+      (let @119:5 speak
+        (closure @119:17
           (params
-            (param @118:18 name
-              (string @118:24)))
-          (block @118:32
-            (expr-stmt @119:9
-              (call @119:9 print
-                (name @119:15 greeting)))
+            (param @119:18 name
+              (string @119:24)))
+          (block @119:32
             (expr-stmt @120:9
               (call @120:9 print
-                (string-lit @120:15 ": ")))
+                (name @120:15 greeting)))
             (expr-stmt @121:9
-              (call @121:9 println
-                (name @121:17 name))))))
-      (expr-stmt @123:5
-        (call @123:5 speak
-          (string-lit @123:11 "held by the closure")))
+              (call @121:9 print
+                (string-lit @121:15 ": ")))
+            (expr-stmt @122:9
+              (call @122:9 println
+                (name @122:17 name))))))
       (expr-stmt @124:5
         (call @124:5 speak
-          (string-lit @124:11 "and still held"))))))
+          (string-lit @124:11 "held by the closure")))
+      (expr-stmt @125:5
+        (call @125:5 speak
+          (string-lit @125:11 "and still held"))))))

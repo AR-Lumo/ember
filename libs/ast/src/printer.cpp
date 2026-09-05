@@ -167,7 +167,14 @@ public:
                     open("params", std::nullopt);
                     for (const Param& param : closure.params) {
                         open("param", param.span, param.name);
-                        print_type(*param.type);
+                        // A closure parameter may have no written type,
+                        // and take it from what the closure is passed
+                        // to. The tree shows what was written.
+                        if (param.type) {
+                            print_type(*param.type);
+                        } else {
+                            empty_group("inferred");
+                        }
                         close();
                     }
                     close();

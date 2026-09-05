@@ -277,11 +277,24 @@ EMBER_TEST(typeck_gives_a_cast_the_target_type) {
     EMBER_CHECK_EQ(errors.at(0).label, std::string{"expected `int`, found `float`"});
 }
 
+EMBER_TEST(typeck_accepts_casts_between_int_and_bool) {
+    // C's conventions, which §9 says to follow on the low-level
+    // questions: a `bool` is 0 or 1, and an `int` is whether it is not
+    // zero.
+    accept(in_main("let n = true as int;\n"
+                   "    let b = 0 as bool;\n"
+                   "    println(n);\n"
+                   "    println(b);"));
+}
+
 EMBER_TEST(typeck_rejects_casts_between_unrelated_types) {
-    const std::vector<ember::ast::Diagnostic> errors = reject(in_main("let x = true as int;"));
-    EMBER_CHECK_EQ(errors.at(0).message, std::string{"cannot cast `bool` to `int`"});
+    // `float` has no such convention, so it is left out rather than
+    // guessed at.
+    const std::vector<ember::ast::Diagnostic> errors = reject(in_main("let x = 1.5 as bool;"));
+    EMBER_CHECK_EQ(errors.at(0).message, std::string{"cannot cast `float` to `bool`"});
     EMBER_CHECK_EQ(errors.at(0).notes.at(0),
-                   std::string{"`as` converts between `int` and `float` only"});
+                   std::string{"`as` converts between `int` and `float`, and between `int` "
+                               "and `bool`"});
 }
 
 EMBER_TEST(typeck_rejects_casting_a_struct) {

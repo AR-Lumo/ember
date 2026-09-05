@@ -151,7 +151,11 @@ expression     = literal | identifier | unary_expr | binary_expr
                | "(" expression ")" ;
 
 cast_expr      = expression "as" type ;      (* explicit conversion, see 4 *)
-closure        = "|" [ param { "," param } ] "|" [ "->" type ] block ;   (* v2 *)
+closure        = "|" [ closure_param { "," closure_param } ] "|"
+                 [ "->" type ] block ;                      (* v2 *)
+closure_param  = identifier [ ":" type ] ;  (* the type may be left out
+                                               and taken from what the
+                                               closure is passed to *)
 array_literal  = "[" [ expression { "," expression } ] "]" ;
 
 call_expr      = qualified "(" [ arg_list ] ")" ;
