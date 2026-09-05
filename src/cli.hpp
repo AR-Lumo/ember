@@ -64,6 +64,11 @@ struct BuildOptions {
     /// do not ask for a `main`. This is the other half of shipping a
     /// library - the object that an interface describes.
     bool library = false;
+    /// `--whole-program`: fold every module into one object instead of
+    /// compiling them separately. Gives up incremental builds and gets
+    /// back what separate compilation cost - a cross-module call becomes
+    /// a direct call in one LLVM module, which `-O` can then inline.
+    bool whole_program = false;
 
     friend bool operator==(const BuildOptions&, const BuildOptions&) = default;
 };

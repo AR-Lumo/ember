@@ -162,6 +162,8 @@ ember interface <file.em>             write the module's public interface
       --update     re-resolve git dependencies, ignoring `ember.lock`
       --dry-run    for `publish`: say what it would record, record nothing
       --lib        compile to an object file, with no `main` required
+      --whole-program
+                   compile as one unit, so `-O` can inline across modules
       --link <path> an object or library to link in as well
   -v, --verbose    say which modules were compiled and which were cached
       --fresh      recompile every module, ignoring cached object files
@@ -194,6 +196,13 @@ On a Collatz search over 300,000 starting points:
 
 The default is `-O0`, as it is for every C compiler: it compiles faster,
 and the IR it produces still reads like the source it came from.
+
+`--whole-program` folds every module into one before optimizing, so a
+cross-module call is a direct call that `-O` can inline. It gives up
+incremental builds to do it — there is nothing smaller than the whole
+thing to cache. The win is real but modest: on the Collatz search with
+its inner call moved into another module, best-of-7 goes from 0.054s to
+0.051s. Worth reaching for on a release build, not on every build.
 
 ### Packages
 
@@ -1153,10 +1162,11 @@ v1 is deliberately small. These are the sharp edges worth knowing about.
   headers, string values, and one level of `{ ... }`. No numbers, no
   booleans, no arrays. Anything else is refused by name rather than
   ignored, so nothing silently fails to take effect.
-- **Optimization stops at the module boundary.** A cross-module call
-  used to be a direct call in one LLVM module and could be inlined; now
-  it crosses an object-file boundary that `-O3` cannot see across.
-  There is no LTO to win that back.
+- **Optimization stops at the module boundary by default.** A
+  cross-module call crosses an object-file boundary that `-O3` cannot
+  see across. `--whole-program` compiles everything as one unit and gets
+  that back, at the cost of incremental builds; there is still no LTO,
+  which would give both.
 - **Nesting names modules; it does not scope them.** `shapes::geometry`
   gets no access to `shapes` and gives none, and there is no `super` or
   `self` to shorten a path with — every path is written in full from the

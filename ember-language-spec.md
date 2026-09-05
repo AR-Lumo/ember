@@ -268,6 +268,7 @@ ember interface file.em            # write the module's interface      (v2)
       --update                     # re-resolve git dependencies       (v2)
       --dry-run                    # `publish`: report, write nothing  (v2)
       --lib                        # compile to an object, no `main`   (v2)
+      --whole-program              # one unit, so -O inlines across    (v2)
       --link <path>                # link this object in as well       (v2)
   -O0 .. -O3                       # optimization level, default -O0   (v2)
   -v, --verbose                    # report per-module compile/cache decisions

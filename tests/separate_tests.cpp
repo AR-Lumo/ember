@@ -604,3 +604,42 @@ EMBER_TEST(incremental_build_keeps_one_object_per_module) {
     }
     EMBER_CHECK_EQ(objects, 3);
 }
+
+EMBER_TEST(whole_program_builds_one_object_and_caches_nothing) {
+    if (!ember::codegen::is_available()) {
+        return;
+    }
+    // The trade separate compilation made, offered back: no per-module
+    // objects and no cache, and in exchange a cross-module call is a
+    // direct call inside one LLVM module for `-O` to inline.
+    const Workspace workspace;
+    write_program(workspace);
+
+    const ProcessResult built = workspace.run("main.em", "--whole-program");
+    EMBER_CHECK_MSG(built.exit_code == 0, "build failed:\n" + built.output);
+    EMBER_CHECK_MSG(built.output.find("as one unit") != std::string::npos, built.output);
+    EMBER_CHECK_MSG(!fs::exists(workspace.path(".ember")),
+                    "a whole-program build should cache nothing");
+
+    // And the program it produces is the same program.
+    EMBER_CHECK_MSG(built.output.find("7") != std::string::npos, built.output);
+    EMBER_CHECK_MSG(built.output.find("42") != std::string::npos, built.output);
+}
+
+EMBER_TEST(whole_program_and_separate_builds_agree) {
+    if (!ember::codegen::is_available()) {
+        return;
+    }
+    const Workspace workspace;
+    write_program(workspace);
+
+    const ProcessResult separate = workspace.run("main.em", "-O2");
+    const ProcessResult together = workspace.run("main.em", "-O2 --whole-program");
+
+    // Compare only what the program printed: the progress reporting
+    // differs between the two by design.
+    EMBER_CHECK_MSG(separate.output.find("7") != std::string::npos, separate.output);
+    EMBER_CHECK_MSG(together.output.find("7") != std::string::npos, together.output);
+    EMBER_CHECK_MSG(separate.output.find("42") != std::string::npos, separate.output);
+    EMBER_CHECK_MSG(together.output.find("42") != std::string::npos, together.output);
+}

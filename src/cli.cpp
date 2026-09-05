@@ -107,6 +107,10 @@ FlagOutcome parse_build_flag(std::string_view arg, BuildOptions& options) {
         options.library = true;
         return FlagOutcome{true, std::nullopt};
     }
+    if (arg == "--whole-program") {
+        options.whole_program = true;
+        return FlagOutcome{true, std::nullopt};
+    }
 
     // `--link <path>` is handled where the arguments are walked, since
     // it consumes two of them.
@@ -339,6 +343,7 @@ const std::string_view kUsage =
     "        --update          re-resolve git dependencies, ignoring `ember.lock`\n"
     "        --dry-run         for `publish`: say what it would record, record nothing\n"
     "        --lib             compile to an object file, with no `main` required\n"
+    "        --whole-program   compile as one unit, so `-O` can inline across modules\n"
     "        --link <path>     an object or library to link in as well\n"
     "    -O0 .. -O3            optimization level (default: -O0)\n"
     "    -v, --verbose         report which modules were compiled and which were cached\n"
@@ -1117,6 +1122,41 @@ int emit_executable(const FrontEnd& front_end, const std::filesystem::path& outp
     if (!entry.empty()) {
         std::cerr << ast::render_all(entry, front_end.sources);
         return kExitCompileError;
+    }
+
+    // One object for the whole program. Nothing is cached, because
+    // there is nothing smaller than the whole thing to cache - which is
+    // the trade: no incremental builds, and in exchange a cross-module
+    // call is a direct call in one LLVM module for `-O` to inline.
+    if (build.whole_program) {
+        std::filesystem::path object = output;
+        object += ".o";
+        const ScratchFile scratch{object};
+
+        codegen::CompileOptions options;
+        options.output = codegen::OutputKind::Object;
+        options.optimization_level = build.optimization_level;
+        options.module_name = front_end.loaded.modules.front().path.string();
+
+        if (build.verbose) {
+            std::cerr << "compiling " << front_end.loaded.modules.size()
+                      << " modules as one unit\n";
+        }
+        const codegen::CompileResult compiled = codegen::compile(
+            front_end.codegen_modules(), front_end.checked, scratch.path(), options);
+        if (!compiled.ok()) {
+            std::cerr << ast::render_all(compiled.diagnostics, front_end.sources);
+            return kExitCompileError;
+        }
+
+        std::vector<std::filesystem::path> objects{scratch.path()};
+        for (const std::filesystem::path& extra : build.link) {
+            objects.push_back(extra);
+        }
+        if (build.verbose) {
+            std::cerr << " linking  " << output.filename().string() << "\n";
+        }
+        return link_executable(objects, output);
     }
 
     codegen::CompileOptions options;

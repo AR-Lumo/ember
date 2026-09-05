@@ -954,6 +954,14 @@ EMBER_TEST(cli_rejects_a_dangling_module_path) {
                    std::string{"`--module-path` requires a directory argument"});
 }
 
+EMBER_TEST(cli_parses_the_whole_program_flag) {
+    const auto result = parse({"build", "--whole-program", "main.em"});
+    EMBER_CHECK(command_of(result).build.whole_program);
+
+    const auto bare = parse({"build", "main.em"});
+    EMBER_CHECK(!command_of(bare).build.whole_program);
+}
+
 EMBER_TEST(cli_parses_an_optimization_level) {
     const auto result = parse({"build", "-O2", "main.em"});
     EMBER_CHECK_EQ(command_of(result).build.optimization_level, 2u);
