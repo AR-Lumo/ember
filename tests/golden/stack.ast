@@ -1,0 +1,146 @@
+(program
+  (struct @13:1 Stack
+    (field @14:5 pub items
+      (named @14:16 Vec)))
+  (impl @17:1 Stack
+    (fn @21:5 pub with
+      (params
+        (self @21:17)
+        (param @21:23 value
+          (named @21:30 T)))
+      (returns
+        (named @21:36 Stack))
+      (block @21:45
+        (let @22:9 mut grown
+          (name @22:25 self))
+        (expr-stmt @23:9
+          (call @23:9 push
+            (field-get @23:14 items
+              (name @23:14 grown))
+            (name @23:27 value)))
+        (return @24:9
+          (name @24:16 grown))))
+    (fn @27:5 pub height
+      (params
+        (self-ref @27:19))
+      (returns
+        (int @27:29))
+      (block @27:33
+        (return @28:9
+          (call @28:16 len
+            (field-get @28:20 items
+              (name @28:20 self))))))
+    (fn @31:5 pub is_empty
+      (params
+        (self-ref @31:21))
+      (returns
+        (bool @31:31))
+      (block @31:36
+        (return @32:9
+          (binary @32:16 eq
+            (call @32:16 len
+              (field-get @32:20 items
+                (name @32:20 self)))
+            (int-lit @32:35 0)))))
+    (fn @38:5 pub described_by
+      (params
+        (self-ref @38:28)
+        (param @38:35 label
+          (named @38:42 L)))
+      (returns
+        (named @38:48 L))
+      (block @38:50
+        (return @39:9
+          (name @39:16 label)))))
+  (fn @43:1 pub new_stack
+    (params)
+    (returns
+      (named @43:26 Stack))
+    (block @43:35
+      (let @44:5 items
+        (named @44:16 Vec)
+        (call @44:25 new_vec))
+      (return @45:5
+        (struct-lit @45:12 Stack
+          (init @45:20 items
+            (name @45:27 items))))))
+  (fn @48:1 pub main
+    (params)
+    (block @48:15
+      (let @50:5 mut numbers
+        (named @50:22 Stack)
+        (call @50:35 new_stack))
+      (assign @51:5
+        (name @51:5 numbers)
+        (method-call @51:15 with
+          (name @51:15 numbers)
+          (int-lit @51:28 1)))
+      (assign @52:5
+        (name @52:5 numbers)
+        (method-call @52:15 with
+          (name @52:15 numbers)
+          (int-lit @52:28 2)))
+      (assign @53:5
+        (name @53:5 numbers)
+        (method-call @53:15 with
+          (name @53:15 numbers)
+          (int-lit @53:28 3)))
+      (expr-stmt @55:5
+        (call @55:5 print
+          (string-lit @55:11 "numbers:   ")))
+      (expr-stmt @56:5
+        (call @56:5 println
+          (method-call @56:13 height
+            (name @56:13 numbers))))
+      (expr-stmt @57:5
+        (call @57:5 print
+          (string-lit @57:11 "empty:     ")))
+      (expr-stmt @58:5
+        (call @58:5 println
+          (method-call @58:13 is_empty
+            (name @58:13 numbers))))
+      (let @60:5 mut names
+        (named @60:20 Stack)
+        (call @60:36 new_stack))
+      (let @61:5 mut first
+        (named @61:20 String)
+        (call @61:29 new_string))
+      (expr-stmt @62:5
+        (call @62:5 push_str
+          (name @62:14 first)
+          (string-lit @62:21 "ada")))
+      (assign @63:5
+        (name @63:5 names)
+        (method-call @63:13 with
+          (name @63:13 names)
+          (name @63:24 first)))
+      (expr-stmt @65:5
+        (call @65:5 print
+          (string-lit @65:11 "names:     ")))
+      (expr-stmt @66:5
+        (call @66:5 println
+          (method-call @66:13 height
+            (name @66:13 names))))
+      (expr-stmt @67:5
+        (call @67:5 print
+          (string-lit @67:11 "label:     ")))
+      (expr-stmt @68:5
+        (call @68:5 println
+          (method-call @68:13 described_by
+            (name @68:13 names)
+            (string-lit @68:32 "a stack of strings"))))
+      (expr-stmt @71:5
+        (call @71:5 print
+          (string-lit @71:11 "popped:    ")))
+      (expr-stmt @72:5
+        (call @72:5 println
+          (call @72:13 pop
+            (field-get @72:17 items
+              (name @72:17 numbers)))))
+      (expr-stmt @73:5
+        (call @73:5 print
+          (string-lit @73:11 "remaining: ")))
+      (expr-stmt @74:5
+        (call @74:5 println
+          (method-call @74:13 height
+            (name @74:13 numbers)))))))

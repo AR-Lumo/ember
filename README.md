@@ -594,6 +594,53 @@ Struct literals infer their type arguments from the field values —
 out in an expression, where `Pair<int> { }` would be ambiguous with a
 chain of comparisons; in type position they are explicit.
 
+#### Generic types with methods
+
+`impl<T> Stack<T>` declares the parameters and applies them to the type,
+and every method inside is generic over them:
+
+```ember
+struct Stack<T> {
+    pub items: Vec<T>,
+}
+
+impl<T> Stack<T> {
+    pub fn with(self, value: T) -> Stack<T> {
+        let mut grown = self;
+        push(grown.items, value);
+        return grown;
+    }
+
+    pub fn height(&self) -> int { return len(self.items); }
+
+    /// A parameter of the method's own, inferred from the argument.
+    pub fn described_by<L>(&self, label: L) -> L { return label; }
+}
+```
+
+**Nothing is inferred for the block's parameters** — the receiver says.
+A `Stack<int>` makes `T` into `int`, and there is nothing left to work
+out. A method's own parameters are a different matter, and come from the
+arguments the way a free function's do.
+
+A type parameter used only in the **return type** is settled by what the
+result is bound to, which is the only way to write a constructor for a
+generic type:
+
+```ember
+pub fn new_stack<T>() -> Stack<T> {
+    let items: Vec<T> = new_vec();
+    return Stack { items: items };
+}
+
+let s: Stack<int> = new_stack();   // the annotation says what T is
+```
+
+Arguments are unified first, so the binding only fills in what the call
+left open — it can never override what was actually passed. Without an
+annotation there is nothing to go on, and the error says so.
+[`examples/stack.em`](examples/stack.em) is the whole thing.
+
 ### Modules
 
 A program may span several files. `import` names a module, and a module
@@ -1039,10 +1086,6 @@ v1 is deliberately small. These are the sharp edges worth knowing about.
   `slice` takes a sub-range of text, but `+` on strings is still not a
   thing — allocation stays visible, as it is in Rust — and only text can
   be sliced. Index a `Vec` instead.
-- **Generic methods and `impl<T>` blocks are not implemented.** Generic
-  free functions and generic structs work; a method with its own type
-  parameters, or an `impl` block over a generic type, is reported as
-  unsupported rather than mis-compiled.
 - **A closure cannot capture an owned value.** It frees its captures as
   one block and has no per-closure code to drop them individually, so
   capturing a `Vec` or a `String` is refused rather than leaked. Pass it

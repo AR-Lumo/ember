@@ -1,0 +1,6 @@
+numbers:   3
+empty:     false
+names:     1
+label:     a stack of strings
+popped:    3
+remaining: 2

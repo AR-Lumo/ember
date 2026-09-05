@@ -268,6 +268,21 @@ private:
     /// placeholders where its type parameters appear. Instantiating
     /// substitutes into this rather than re-walking the AST.
     std::map<std::string, FunctionInfo> template_signatures_;
+    /// Generic methods, by (owning type, method name). Kept apart from
+    /// the free-function templates because `Pair::first` and a function
+    /// `first` in a module called `Pair` would otherwise be the same
+    /// key.
+    std::map<std::pair<std::string, std::string>, FunctionTemplate> method_templates_;
+    std::map<std::pair<std::string, std::string>, FunctionInfo> method_template_signatures_;
+
+    /// The resolved signature a template was declared with, whichever
+    /// kind of template it is.
+    const FunctionInfo& signature_for(const FunctionTemplate& tmpl) const {
+        if (tmpl.owner_type.empty()) {
+            return template_signatures_.at(tmpl.name);
+        }
+        return method_template_signatures_.at({tmpl.owner_type, tmpl.simple_name});
+    }
     /// Instantiations created but not yet checked.
     std::vector<std::size_t> pending_instances_;
     /// Which instantiations each instantiation's body demands. Kept
@@ -652,24 +667,145 @@ private:
         FunctionInfo signature = signature_of(function, owner);
         generic_scope_ = saved;
 
-        // A parameter that appears nowhere in the parameter list can
-        // never be inferred, and there is no turbofish to supply it.
+        // A parameter has to be findable somewhere: in an argument, or -
+        // for a constructor, which has no arguments to go on - in the
+        // return type, where the context supplies it. Appearing in
+        // neither means no call could ever determine it, and there is no
+        // turbofish to say so by hand.
         for (const std::string& parameter : tmpl.generic_params) {
-            bool mentioned = false;
+            bool mentioned = mentions_parameter(signature.return_type, parameter);
             for (const TypePtr type : signature.param_types) {
                 mentioned = mentioned || mentions_parameter(type, parameter);
             }
             if (!mentioned) {
                 report("type parameter `" + parameter + "` cannot be inferred",
                        function.name_span,
-                       "`" + parameter + "` does not appear in any parameter type")
-                    .with_note("type arguments are inferred from the call, so every "
-                               "parameter must be used by one");
+                       "`" + parameter + "` appears in no parameter and no return type")
+                    .with_note("type arguments come from the call: from an argument, or from "
+                               "what the result is bound to");
             }
         }
 
         template_signatures_.emplace(qualified, std::move(signature));
         result_.function_templates.emplace(qualified, std::move(tmpl));
+    }
+
+    /// `impl<T> Pair<T> { ... }`.
+    ///
+    /// Every method becomes a template over the block's parameters plus
+    /// any of its own. Which types those stand for is settled at the
+    /// call: the receiver is a `Pair<int>`, so `T` is `int` - no
+    /// inference needed for the block's share of them.
+    void declare_generic_impl(const ast::ImplBlock& block, const std::string& owner) {
+        const auto declared = result_.struct_templates.find(owner);
+        if (declared == result_.struct_templates.end()) {
+            Diagnostic& diagnostic =
+                report(result_.structs.count(owner) != 0
+                           ? "`" + block.type_name + "` is not generic"
+                           : "cannot find type `" + block.type_name + "`",
+                       block.type_name_span,
+                       result_.structs.count(owner) != 0 ? "it takes no type parameters"
+                                                         : "not found in this scope");
+            if (result_.structs.count(owner) != 0) {
+                diagnostic.with_note("write `impl " + block.type_name + " { ... }`");
+            } else {
+                suggest(diagnostic, block.type_name, struct_names());
+            }
+            return;
+        }
+
+        if (declared->second.generic_params.size() != block.generic_params.size()) {
+            report("`" + block.type_name + "` takes " +
+                       std::to_string(declared->second.generic_params.size()) +
+                       " type parameter" +
+                       (declared->second.generic_params.size() == 1 ? "" : "s") + " but this "
+                       "`impl` declares " + std::to_string(block.generic_params.size()),
+                   block.type_name_span, "the counts have to match")
+                .with_note("every parameter of the type has to be named, because the `impl` "
+                           "applies to all of them");
+            return;
+        }
+
+        check_generic_params(block.generic_params);
+
+        // `self` is `Pair<T>` here, with the block's own placeholders
+        // standing in for the arguments.
+        std::vector<std::string> block_params;
+        std::vector<TypePtr> placeholders;
+        for (const ast::GenericParam& parameter : block.generic_params) {
+            block_params.push_back(parameter.name);
+            placeholders.push_back(types().generic_type(parameter.name));
+        }
+        const TypePtr self_type = types().struct_type(owner, placeholders);
+
+        for (const std::unique_ptr<ast::FunctionDecl>& method : block.methods) {
+            declare_method_template(block, *method, owner, self_type, block_params);
+        }
+    }
+
+    /// Records one method as a template, over `block_params` (from the
+    /// `impl`) followed by its own.
+    void declare_method_template(const ast::ImplBlock& block, const ast::FunctionDecl& method,
+                                 const std::string& owner, TypePtr self_type,
+                                 const std::vector<std::string>& block_params) {
+        const auto key = std::make_pair(owner, method.name);
+        if (method_templates_.count(key) != 0 || result_.methods.count(key) != 0) {
+            Diagnostic& diagnostic =
+                report("duplicate definition of method `" + method.name + "`",
+                       method.name_span,
+                       "`" + method.name + "` is already defined on `" + block.type_name + "`");
+            const auto existing = method_templates_.find(key);
+            if (existing != method_templates_.end()) {
+                note_previous(diagnostic, existing->second.span);
+            }
+            return;
+        }
+
+        check_generic_params(method.generic_params);
+
+        FunctionTemplate tmpl;
+        tmpl.name = owner + "::" + method.name;
+        tmpl.simple_name = method.name;
+        tmpl.module = current_module_;
+        tmpl.is_public = method.is_public;
+        tmpl.owner_type = owner;
+        tmpl.span = method.name_span;
+        tmpl.decl = &method;
+        tmpl.generic_params = block_params;
+        for (const ast::GenericParam& parameter : method.generic_params) {
+            if (std::find(block_params.begin(), block_params.end(), parameter.name) !=
+                block_params.end()) {
+                report("type parameter `" + parameter.name + "` shadows the `impl` block's",
+                       parameter.span, "the block already declares `" + parameter.name + "`")
+                    .with_note("give this one a different name");
+                continue;
+            }
+            tmpl.generic_params.push_back(parameter.name);
+        }
+
+        const std::vector<std::string> saved = generic_scope_;
+        generic_scope_ = tmpl.generic_params;
+        FunctionInfo signature = signature_of(method, owner, self_type);
+        generic_scope_ = saved;
+
+        // The block's parameters come from the receiver, so only the
+        // method's own have to be findable in the arguments.
+        for (std::size_t i = block_params.size(); i < tmpl.generic_params.size(); ++i) {
+            bool mentioned = false;
+            for (const TypePtr type : signature.param_types) {
+                mentioned = mentioned || mentions_parameter(type, tmpl.generic_params[i]);
+            }
+            if (!mentioned) {
+                report("type parameter `" + tmpl.generic_params[i] + "` cannot be inferred",
+                       method.name_span,
+                       "`" + tmpl.generic_params[i] + "` does not appear in any parameter type")
+                    .with_note("type arguments are inferred from the call, so every "
+                               "parameter must be used by one");
+            }
+        }
+
+        method_template_signatures_.emplace(key, std::move(signature));
+        method_templates_.emplace(key, std::move(tmpl));
     }
 
     static bool mentions_parameter(TypePtr type, const std::string& name) {
@@ -695,10 +831,16 @@ private:
 
     void declare_impl(const ast::ImplBlock& block) {
         const std::string owner = qualify(block.type_name);
+
         if (block.is_generic()) {
-            report("generic `impl` blocks are not supported yet", block.type_name_span,
-                   "`impl<T>` needs generic methods, which are not implemented")
-                .with_note("generic free functions do work: `fn first<T>(pair: Pair<T>) -> T`");
+            declare_generic_impl(block, owner);
+            return;
+        }
+        if (result_.structs.find(owner) == result_.structs.end() &&
+            result_.struct_templates.count(owner) != 0) {
+            report("`" + block.type_name + "` is generic", block.type_name_span,
+                   "an `impl` on it has to name its type parameters")
+                .with_note("write `impl<T> " + block.type_name + "<T> { ... }`");
             return;
         }
         if (result_.structs.find(owner) == result_.structs.end()) {
@@ -712,10 +854,10 @@ private:
 
         for (const std::unique_ptr<ast::FunctionDecl>& method : block.methods) {
             if (method->is_generic()) {
-                report("generic methods are not supported yet", method->name_span,
-                       "only free functions may have their own type parameters")
-                    .with_note("move the type parameters to the `impl` block, or make this a "
-                               "free function");
+                // A method with type parameters of its own, on a struct
+                // that has none. Its parameters are inferred from the
+                // call, exactly as a free function's are.
+                declare_method_template(block, *method, owner, /*self_type=*/nullptr, {});
                 continue;
             }
             const auto key = std::make_pair(owner, method->name);
@@ -764,7 +906,11 @@ private:
 
     /// Builds the signature. The mangled name is where §4's "methods are
     /// sugar over plain functions" becomes concrete.
-    FunctionInfo signature_of(const ast::FunctionDecl& function, const std::string& owner) {
+    /// `self_type` is what `self` stands for. It is the bare struct for
+    /// an ordinary `impl`, and `Pair<T>` - placeholders and all - inside
+    /// an `impl<T> Pair<T>`, because that is what the receiver will be.
+    FunctionInfo signature_of(const ast::FunctionDecl& function, const std::string& owner,
+                              TypePtr self_type = nullptr) {
         FunctionInfo info;
         info.name = function.name;
         info.owner_type = owner;
@@ -778,7 +924,9 @@ private:
             if (param.is_self()) {
                 info.self_kind = param.self_kind;
                 const TypePtr owner_type =
-                    owner.empty() ? types().error_type() : types().struct_type(owner);
+                    self_type != nullptr
+                        ? self_type
+                        : (owner.empty() ? types().error_type() : types().struct_type(owner));
                 info.param_names.emplace_back("self");
                 info.param_types.push_back(param.self_kind == ast::SelfKind::Reference
                                                ? types().reference_to(owner_type)
@@ -1241,7 +1389,7 @@ private:
         info.span = tmpl.span;
         info.decl = tmpl.decl;
 
-        const FunctionInfo& generic_signature = template_signatures_.at(tmpl.name);
+        const FunctionInfo& generic_signature = signature_for(tmpl);
         info.module = tmpl.module;
         info.is_public = tmpl.is_public;
         info.param_names = generic_signature.param_names;
@@ -2148,7 +2296,7 @@ private:
                 }
                 return record(expr, types().error_type());
             }
-            return check_generic_call(expr, tmpl->second);
+            return check_generic_call(expr, tmpl->second, hint);
         }
 
         const auto entry = result_.functions.find(*qualified);
@@ -2244,11 +2392,98 @@ private:
         return record(expr, callee->result);
     }
 
+    /// A call to a method of a generic `impl`, or a generic method.
+    ///
+    /// The receiver settles the block's type parameters outright - a
+    /// `Pair<int>` makes `T` `int`, with nothing to infer - and any
+    /// parameters the method declared for itself are then inferred from
+    /// the arguments, the same way a free function's are.
+    TypePtr check_generic_method_call(const ast::MethodCallExpr& expr, TypePtr receiver,
+                                      const FunctionTemplate& tmpl) {
+        const FunctionInfo& signature = signature_for(tmpl);
+
+        if (!check_visible(tmpl.module, tmpl.is_public, expr.method, expr.method_span, "method",
+                           tmpl.span)) {
+            return record(expr, types().error_type());
+        }
+
+        const auto declared = result_.struct_templates.find(tmpl.owner_type);
+        const std::size_t from_receiver =
+            declared == result_.struct_templates.end() ? 0
+                                                       : declared->second.generic_params.size();
+
+        std::map<std::string, TypePtr> bindings;
+        for (std::size_t i = 0; i < from_receiver && i < tmpl.generic_params.size(); ++i) {
+            if (i >= receiver->args.size()) {
+                report("cannot work out what `" + tmpl.generic_params[i] + "` is here",
+                       expr.method_span,
+                       "the receiver does not say, and nothing else can");
+                return record(expr, types().error_type());
+            }
+            bindings.emplace(tmpl.generic_params[i], receiver->args[i]);
+        }
+
+        // Self is the first parameter, so the written arguments start at
+        // index 1 of the signature.
+        const std::size_t expected =
+            signature.param_types.empty() ? 0 : signature.param_types.size() - 1;
+        if (signature.self_kind == ast::SelfKind::None) {
+            report("`" + expr.method + "` is an associated function, not a method",
+                   expr.method_span, "it has no `self` receiver")
+                .with_note("associated functions have no call syntax in v1");
+            return record(expr, types().error_type());
+        }
+        if (expr.args.size() != expected) {
+            Diagnostic& diagnostic =
+                report("this method takes " + std::to_string(expected) + " argument" +
+                           (expected == 1 ? "" : "s") + " but " +
+                           std::to_string(expr.args.size()) + " " +
+                           (expr.args.size() == 1 ? "was" : "were") + " supplied",
+                       expr.span,
+                       "expected " + std::to_string(expected) + ", found " +
+                           std::to_string(expr.args.size()));
+            note_declared_at(diagnostic, tmpl.span);
+            return record(expr, types().error_type());
+        }
+
+        for (std::size_t i = 0; i < expr.args.size(); ++i) {
+            const TypePtr argument = recorded_type(*expr.args[i]);
+            if (!unify(signature.param_types[i + 1], argument, bindings)) {
+                report_mismatch(expr.args[i]->span,
+                                substitute(signature.param_types[i + 1], bindings), argument);
+                return record(expr, types().error_type());
+            }
+        }
+
+        std::vector<TypePtr> args;
+        for (const std::string& parameter : tmpl.generic_params) {
+            const auto bound = bindings.find(parameter);
+            if (bound == bindings.end() || is_generic(bound->second)) {
+                report("cannot infer type parameter `" + parameter + "`", expr.span,
+                       bound == bindings.end()
+                           ? "nothing in this call determines `" + parameter + "`"
+                           : "it would depend on an unsubstituted type parameter");
+                return record(expr, types().error_type());
+            }
+            args.push_back(bound->second);
+        }
+
+        const FunctionInfo* instance = instantiate(tmpl, args, expr.method_span);
+        if (instance == nullptr) {
+            return record(expr, types().error_type());
+        }
+        result_.call_targets[{current_instance_, &expr}] = instance;
+
+        check_arguments(expr.span, expr.args, *instance, 1);
+        return record(expr, instance->return_type);
+    }
+
     /// A call to a generic function: infer the type arguments from the
     /// arguments actually passed, then check the call against the
     /// instantiated signature like any other.
-    TypePtr check_generic_call(const ast::CallExpr& expr, const FunctionTemplate& tmpl) {
-        const FunctionInfo& signature = template_signatures_.at(tmpl.name);
+    TypePtr check_generic_call(const ast::CallExpr& expr, const FunctionTemplate& tmpl,
+                               TypePtr hint = nullptr) {
+        const FunctionInfo& signature = signature_for(tmpl);
 
         for (const ast::ExprPtr& argument : expr.args) {
             check_expr(*argument);
@@ -2280,12 +2515,26 @@ private:
             }
         }
 
+        // A constructor - `fn new_stack<T>() -> Stack<T>` - has nothing
+        // in its arguments to go on, so what the context expects is the
+        // only thing that can say. `let s: Stack<int> = new_stack();`
+        // reads the same way `let v: Vec<int> = new_vec();` already did.
+        if (hint != nullptr && !is_error(hint)) {
+            unify(signature.return_type, hint, bindings);
+        }
+
         std::vector<TypePtr> args;
         for (const std::string& parameter : tmpl.generic_params) {
             const auto bound = bindings.find(parameter);
             if (bound == bindings.end()) {
-                report("cannot infer type parameter `" + parameter + "`", expr.span,
-                       "nothing in this call determines `" + parameter + "`");
+                Diagnostic& diagnostic =
+                    report("cannot infer type parameter `" + parameter + "`", expr.span,
+                           "nothing in this call determines `" + parameter + "`");
+                if (mentions_parameter(signature.return_type, parameter)) {
+                    diagnostic.with_note(
+                        "`" + parameter + "` only appears in the return type, so it has to "
+                        "come from the context: annotate what this is being bound to");
+                }
                 return record(expr, types().error_type());
             }
             if (is_generic(bound->second)) {
@@ -2325,6 +2574,14 @@ private:
 
         const auto entry = result_.methods.find(std::make_pair(to_string(base), expr.method));
         if (entry == result_.methods.end()) {
+            // A generic struct's methods are keyed by the bare name -
+            // `Pair`, not `Pair<int>` - because one template serves
+            // every instantiation.
+            const auto tmpl = method_templates_.find(std::make_pair(base->name, expr.method));
+            if (tmpl != method_templates_.end()) {
+                return check_generic_method_call(expr, base, tmpl->second);
+            }
+
             Diagnostic& diagnostic =
                 report("no method `" + expr.method + "` on type `" + to_string(base) + "`",
                        expr.method_span, "unknown method");

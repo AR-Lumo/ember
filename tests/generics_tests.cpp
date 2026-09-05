@@ -276,14 +276,58 @@ EMBER_TEST(generics_report_conflicting_inference_as_a_mismatch) {
     EMBER_CHECK_EQ(errors.at(0).label, std::string{"expected `int`, found `float`"});
 }
 
-EMBER_TEST(generics_reject_a_parameter_that_cannot_be_inferred) {
-    // There is no turbofish, so a parameter used only in the return type
-    // could never be determined. Better to say so at the declaration
-    // than to fail at every call.
+EMBER_TEST(generics_reject_a_parameter_nothing_could_determine) {
+    // There is no turbofish, so a parameter appearing in neither the
+    // arguments nor the return type could never be worked out. Better to
+    // say so at the declaration than to fail at every call.
     const std::vector<ember::ast::Diagnostic> errors =
-        reject("pub fn make<T>() -> T { return make(); }\n");
+        reject("pub fn make<T>() -> int { return 1; }\n");
     EMBER_CHECK_EQ(errors.at(0).message,
                    std::string{"type parameter `T` cannot be inferred"});
+}
+
+EMBER_TEST(generics_infer_a_constructor_from_what_it_is_bound_to) {
+    // A parameter used only in the return type is fine, because the
+    // context supplies it - which is the only way to write a constructor
+    // for a generic type, and the same rule `new_vec()` already had.
+    accept("struct Stack<T> { pub items: Vec<T>, }\n"
+           "pub fn new_stack<T>() -> Stack<T> {\n"
+           "    let items: Vec<T> = new_vec();\n"
+           "    return Stack { items: items };\n"
+           "}\n"
+           "pub fn main() {\n"
+           "    let s: Stack<int> = new_stack();\n"
+           "    println(len(s.items));\n"
+           "}\n");
+}
+
+EMBER_TEST(generics_say_where_a_constructors_type_has_to_come_from) {
+    // Without an annotation there is nothing to infer from, and the
+    // error says which way out there is.
+    const std::vector<ember::ast::Diagnostic> errors =
+        reject("struct Stack<T> { pub items: Vec<T>, }\n"
+               "pub fn new_stack<T>() -> Stack<T> {\n"
+               "    let items: Vec<T> = new_vec();\n"
+               "    return Stack { items: items };\n"
+               "}\n"
+               "pub fn main() { let s = new_stack(); }\n");
+    EMBER_CHECK_EQ(errors.at(0).message,
+                   std::string{"cannot infer type parameter `T`"});
+
+    bool says_annotate = false;
+    for (const std::string& note : errors.at(0).notes) {
+        says_annotate = says_annotate || note.find("annotate") != std::string::npos;
+    }
+    EMBER_CHECK_MSG(says_annotate, "the error should say an annotation would settle it");
+}
+
+EMBER_TEST(generics_still_prefer_the_arguments_over_the_binding) {
+    // The arguments are unified first, so a hint cannot override what a
+    // call actually passed - it only fills in what was left.
+    const std::vector<ember::ast::Diagnostic> errors =
+        reject("pub fn id<T>(value: T) -> T { return value; }\n"
+               "pub fn main() { let x: float = id(1); }\n");
+    EMBER_CHECK_EQ(errors.at(0).label, std::string{"expected `float`, found `int`"});
 }
 
 EMBER_TEST(generics_reject_a_struct_literal_that_determines_nothing) {
@@ -309,18 +353,142 @@ EMBER_TEST(generics_reject_a_type_parameter_that_shadows_a_struct) {
                    std::string{"type parameter `T` shadows a type"});
 }
 
-EMBER_TEST(generics_report_generic_methods_as_unsupported) {
-    // Deliberately out of scope for this increment, and said plainly
-    // rather than mis-parsed.
-    EMBER_CHECK_EQ(first_error("struct Point { pub x: int, }\n"
-                               "impl Point { fn get<T>(&self, v: T) -> T { return v; } }\n"),
-                   std::string{"generic methods are not supported yet"});
+// ---------------------------------------------------------------------
+// Generic `impl` blocks and generic methods
+//
+// `impl<T> Pair<T>` needs no inference for `T`: the receiver is a
+// `Pair<int>`, so `T` is `int` and there is nothing to work out. A
+// method's *own* parameters are a different matter and are inferred from
+// the arguments, exactly as a free function's are.
+// ---------------------------------------------------------------------
+
+namespace {
+
+const char* const kPair =
+    "struct Pair<T> { pub left: T, pub right: T, }\n"
+    "impl<T> Pair<T> {\n"
+    "    pub fn first(self) -> T { return self.left; }\n"
+    "    pub fn swapped(self) -> Pair<T> {\n"
+    "        return Pair { left: self.right, right: self.left };\n"
+    "    }\n"
+    "}\n";
+
+}  // namespace
+
+EMBER_TEST(generic_impl_takes_its_type_from_the_receiver) {
+    accept(std::string{kPair} +
+           "pub fn main() {\n"
+           "    let p = Pair { left: 3, right: 7 };\n"
+           "    println(p.first());\n"
+           "}\n");
 }
 
-EMBER_TEST(generics_report_generic_impl_blocks_as_unsupported) {
-    EMBER_CHECK_EQ(first_error("struct Pair<T> { pub a: T, }\n"
-                               "impl<T> Pair<T> { fn get(&self) -> T { return self.a; } }\n"),
-                   std::string{"generic `impl` blocks are not supported yet"});
+EMBER_TEST(generic_impl_serves_every_instantiation) {
+    accept(std::string{kPair} +
+           "pub fn main() {\n"
+           "    println(Pair { left: 3, right: 7 }.first());\n"
+           "    println(Pair { left: 1.5, right: 2.5 }.first());\n"
+           "    println(Pair { left: true, right: false }.first());\n"
+           "}\n");
+}
+
+EMBER_TEST(generic_impl_method_may_return_its_own_type) {
+    accept(std::string{kPair} +
+           "pub fn main() {\n"
+           "    let p = Pair { left: 3, right: 7 };\n"
+           "    println(p.swapped().first());\n"
+           "}\n");
+}
+
+EMBER_TEST(generic_impl_reports_a_return_of_the_wrong_type) {
+    const std::vector<ember::ast::Diagnostic> errors =
+        reject("struct Pair<T> { pub left: T, }\n"
+               "impl<T> Pair<T> { pub fn first(self) -> T { return 1; } }\n"
+               "pub fn main() { println(Pair { left: 1.5 }.first()); }\n");
+    EMBER_CHECK_EQ(errors.at(0).label, std::string{"expected `float`, found `int`"});
+}
+
+EMBER_TEST(generic_method_infers_its_own_parameters_from_the_call) {
+    // On a struct with no parameters of its own, so the only thing to
+    // infer is the method's.
+    accept("struct Counter { pub n: int, }\n"
+           "impl Counter {\n"
+           "    pub fn bigger_of<T>(self, a: T, b: T) -> T {\n"
+           "        if self.n > 0 { return a; }\n"
+           "        return b;\n"
+           "    }\n"
+           "}\n"
+           "pub fn main() {\n"
+           "    let c = Counter { n: 1 };\n"
+           "    println(c.bigger_of(10, 20));\n"
+           "    println(c.bigger_of(1.5, 2.5));\n"
+           "}\n");
+}
+
+EMBER_TEST(generic_method_may_add_parameters_to_a_generic_impl) {
+    accept("struct Pair<T> { pub left: T, }\n"
+           "impl<T> Pair<T> {\n"
+           "    pub fn tagged<U>(self, tag: U) -> U { return tag; }\n"
+           "}\n"
+           "pub fn main() {\n"
+           "    println(Pair { left: 1 }.tagged(\"a\"));\n"
+           "}\n");
+}
+
+EMBER_TEST(generic_method_reports_a_parameter_it_cannot_infer) {
+    EMBER_CHECK_EQ(first_error("struct Counter { pub n: int, }\n"
+                               "impl Counter { pub fn make<T>(self) -> T { return self.n; } }\n"),
+                   std::string{"type parameter `T` cannot be inferred"});
+}
+
+EMBER_TEST(generic_method_reports_one_parameter_asked_to_be_two_things) {
+    const std::vector<ember::ast::Diagnostic> errors =
+        reject("struct Counter { pub n: int, }\n"
+               "impl Counter { pub fn same<T>(self, a: T, b: T) -> T { return a; } }\n"
+               "pub fn main() { println(Counter { n: 1 }.same(1, 1.5)); }\n");
+    EMBER_CHECK_EQ(errors.at(0).label, std::string{"expected `int`, found `float`"});
+}
+
+EMBER_TEST(generic_impl_refuses_a_parameter_shadowing_the_blocks) {
+    EMBER_CHECK_EQ(first_error("struct Pair<T> { pub left: T, }\n"
+                               "impl<T> Pair<T> { pub fn f<T>(self) -> T { return self.left; } }\n"),
+                   std::string{"type parameter `T` shadows the `impl` block's"});
+}
+
+EMBER_TEST(generic_impl_requires_the_type_parameters_to_line_up) {
+    EMBER_CHECK_EQ(first_error("struct Pair<T, U> { pub left: T, pub right: U, }\n"
+                               "impl<T> Pair<T> { pub fn f(self) -> T { return self.left; } }\n"),
+                   std::string{"`Pair` takes 2 type parameters but this `impl` declares 1"});
+}
+
+EMBER_TEST(generic_impl_on_a_type_that_is_not_generic_says_so) {
+    EMBER_CHECK_EQ(first_error("struct Point { pub x: int, }\n"
+                               "impl<T> Point<T> { pub fn f(self) -> int { return self.x; } }\n"),
+                   std::string{"`Point` is not generic"});
+}
+
+EMBER_TEST(plain_impl_on_a_generic_type_says_what_to_write) {
+    const std::vector<ember::ast::Diagnostic> errors =
+        reject("struct Pair<T> { pub left: T, }\n"
+               "impl Pair { pub fn f(self) -> int { return 1; } }\n");
+    EMBER_CHECK_EQ(errors.at(0).message, std::string{"`Pair` is generic"});
+    EMBER_CHECK_MSG(errors.at(0).notes.at(0).find("impl<T> Pair<T>") != std::string::npos,
+                    errors.at(0).notes.at(0));
+}
+
+EMBER_TEST(generic_impl_methods_mangle_one_symbol_per_instantiation) {
+    if (!ember::codegen::is_available()) {
+        return;
+    }
+    // Monomorphization made concrete: two receivers, two functions, no
+    // boxing and no dispatch.
+    const std::string ir = compile_ir(std::string{kPair} +
+                                      "pub fn main() {\n"
+                                      "    println(Pair { left: 3, right: 7 }.first());\n"
+                                      "    println(Pair { left: 1.5, right: 2.5 }.first());\n"
+                                      "}\n");
+    EMBER_CHECK_MSG(ir.find("@Pair_first__int(") != std::string::npos, ir);
+    EMBER_CHECK_MSG(ir.find("@Pair_first__float(") != std::string::npos, ir);
 }
 
 // ---------------------------------------------------------------------

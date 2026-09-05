@@ -117,7 +117,9 @@ param          = ( "self" | "&self" ) | identifier ":" type ;
 struct_decl    = visibility "struct" identifier [ generic_params ] "{" { field } "}" ;
 field          = visibility identifier ":" type "," ;
 
-impl_block     = "impl" identifier "{" { function_decl } "}" ;
+impl_block     = "impl" [ generic_params ] identifier [ type_args ]
+                 "{" { function_decl } "}" ;
+                                            (* `impl<T> Pair<T>`, v2 *)
 
 type           = "int" | "float" | "bool" | "string"
                | "fn" "(" [ type { "," type } ] ")" [ "->" type ]
