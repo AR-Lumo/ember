@@ -1,0 +1,401 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Soliton",
+  "scopeName": "source.soliton",
+  "patterns": [
+    {
+      "include": "#comments"
+    },
+    {
+      "include": "#units"
+    },
+    {
+      "include": "#effects"
+    },
+    {
+      "include": "#contracts"
+    },
+    {
+      "include": "#declarations"
+    },
+    {
+      "include": "#strings"
+    },
+    {
+      "include": "#numbers"
+    },
+    {
+      "include": "#keywords"
+    },
+    {
+      "include": "#types"
+    },
+    {
+      "include": "#calls"
+    },
+    {
+      "include": "#operators"
+    },
+    {
+      "include": "#punctuation"
+    }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "comment": "Doc comment. Matched before the ordinary line comment, or `///` is eaten as `//` plus a stray slash.",
+          "name": "comment.line.documentation.soliton",
+          "begin": "///",
+          "end": "$"
+        },
+        {
+          "name": "comment.line.double-slash.soliton",
+          "begin": "//",
+          "end": "$"
+        }
+      ]
+    },
+    "units": {
+      "comment": "A unit of measure, on a numeric type or on a numeric literal. The compiler only reads `<` as a unit when it touches what precedes it - `5.0<meters>` is a quantity, `5.0 < meters` a comparison - so there is no whitespace permitted before the bracket here either. Written without lookbehind on purpose: Oniguruma is fussy about it and a rejected pattern highlights nothing without saying so.",
+      "patterns": [
+        {
+          "comment": "`float<meters/seconds^2>` in type position.",
+          "match": "\\b(int|float)(<)([A-Za-z_][A-Za-z0-9_]*(?:\\s*[*/]\\s*[A-Za-z_][A-Za-z0-9_]*(?:\\^[0-9]+)?|\\^[0-9]+)*)(>)",
+          "captures": {
+            "1": {
+              "name": "support.type.primitive.soliton"
+            },
+            "2": {
+              "name": "punctuation.definition.unit.begin.soliton"
+            },
+            "3": {
+              "patterns": [
+                {
+                  "match": "\\b[A-Za-z_][A-Za-z0-9_]*\\b",
+                  "name": "entity.name.type.unit.soliton"
+                },
+                {
+                  "match": "[*/]",
+                  "name": "keyword.operator.unit.soliton"
+                },
+                {
+                  "match": "\\^",
+                  "name": "keyword.operator.unit.power.soliton"
+                },
+                {
+                  "match": "[0-9]+",
+                  "name": "constant.numeric.unit.soliton"
+                }
+              ]
+            },
+            "4": {
+              "name": "punctuation.definition.unit.end.soliton"
+            }
+          }
+        },
+        {
+          "comment": "`5.0<meters>` on a literal.",
+          "match": "\\b([0-9][0-9_]*(?:\\.[0-9][0-9_]*)?)(<)([A-Za-z_][A-Za-z0-9_]*(?:\\s*[*/]\\s*[A-Za-z_][A-Za-z0-9_]*(?:\\^[0-9]+)?|\\^[0-9]+)*)(>)",
+          "captures": {
+            "1": {
+              "name": "constant.numeric.soliton"
+            },
+            "2": {
+              "name": "punctuation.definition.unit.begin.soliton"
+            },
+            "3": {
+              "patterns": [
+                {
+                  "match": "\\b[A-Za-z_][A-Za-z0-9_]*\\b",
+                  "name": "entity.name.type.unit.soliton"
+                },
+                {
+                  "match": "[*/]",
+                  "name": "keyword.operator.unit.soliton"
+                },
+                {
+                  "match": "\\^",
+                  "name": "keyword.operator.unit.power.soliton"
+                },
+                {
+                  "match": "[0-9]+",
+                  "name": "constant.numeric.unit.soliton"
+                }
+              ]
+            },
+            "4": {
+              "name": "punctuation.definition.unit.end.soliton"
+            }
+          }
+        }
+      ]
+    },
+    "effects": {
+      "comment": "`uses io, mut` and `uses nothing`. The effect names are ordinary identifiers in the lexer, so they are only coloured here, after `uses`.",
+      "begin": "\\b(uses)\\b",
+      "beginCaptures": {
+        "1": {
+          "name": "keyword.control.effect.soliton"
+        }
+      },
+      "end": "(?=[{;]|\\b(?:requires|ensures)\\b|$)",
+      "patterns": [
+        {
+          "match": "\\b(io|mut|nothing)\\b",
+          "name": "support.constant.effect.soliton"
+        },
+        {
+          "match": ",",
+          "name": "punctuation.separator.soliton"
+        }
+      ]
+    },
+    "contracts": {
+      "comment": "`requires` and `ensures` clauses. `result` is bound only inside an `ensures`, but colouring it wherever a contract is open is close enough and never wrong in practice.",
+      "patterns": [
+        {
+          "match": "\\b(requires|ensures)\\b",
+          "name": "keyword.control.contract.soliton"
+        },
+        {
+          "match": "\\bresult\\b",
+          "name": "variable.language.result.soliton"
+        }
+      ]
+    },
+    "declarations": {
+      "patterns": [
+        {
+          "comment": "Function name, and its generic parameters if it has any.",
+          "match": "\\b(fn)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": {
+              "name": "keyword.other.fn.soliton"
+            },
+            "2": {
+              "name": "entity.name.function.soliton"
+            }
+          }
+        },
+        {
+          "match": "\\b(struct|impl)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": {
+              "name": "keyword.other.soliton"
+            },
+            "2": {
+              "name": "entity.name.type.soliton"
+            }
+          }
+        },
+        {
+          "comment": "`unit meters;` introduces a unit name.",
+          "match": "\\b(unit)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": {
+              "name": "keyword.other.unit.soliton"
+            },
+            "2": {
+              "name": "entity.name.type.unit.soliton"
+            }
+          }
+        },
+        {
+          "match": "\\b(const)\\s+([A-Z_][A-Z0-9_]*)",
+          "captures": {
+            "1": {
+              "name": "keyword.other.soliton"
+            },
+            "2": {
+              "name": "variable.other.constant.soliton"
+            }
+          }
+        },
+        {
+          "comment": "`import a::b::c;`",
+          "match": "\\b(import)\\s+([A-Za-z_][A-Za-z0-9_:]*)",
+          "captures": {
+            "1": {
+              "name": "keyword.control.import.soliton"
+            },
+            "2": {
+              "name": "entity.name.namespace.soliton"
+            }
+          }
+        }
+      ]
+    },
+    "strings": {
+      "name": "string.quoted.double.soliton",
+      "begin": "\"",
+      "beginCaptures": {
+        "0": {
+          "name": "punctuation.definition.string.begin.soliton"
+        }
+      },
+      "end": "\"",
+      "endCaptures": {
+        "0": {
+          "name": "punctuation.definition.string.end.soliton"
+        }
+      },
+      "patterns": [
+        {
+          "comment": "The five escapes the lexer accepts, and nothing else.",
+          "match": "\\\\[nrt0\\\\\"]",
+          "name": "constant.character.escape.soliton"
+        },
+        {
+          "match": "\\\\.",
+          "name": "invalid.illegal.unknown-escape.soliton"
+        }
+      ]
+    },
+    "numbers": {
+      "patterns": [
+        {
+          "comment": "Float: a digit is required on both sides of the dot, so `1.foo()` is an int followed by a method call. `_` separators are allowed, as in Rust.",
+          "match": "\\b[0-9][0-9_]*\\.[0-9][0-9_]*(?:[eE][+-]?[0-9][0-9_]*)?\\b",
+          "name": "constant.numeric.float.soliton"
+        },
+        {
+          "match": "\\b[0-9][0-9_]*[eE][+-]?[0-9][0-9_]*\\b",
+          "name": "constant.numeric.float.soliton"
+        },
+        {
+          "match": "\\b[0-9][0-9_]*\\b",
+          "name": "constant.numeric.integer.soliton"
+        }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "match": "\\b(if|else|while|return)\\b",
+          "name": "keyword.control.soliton"
+        },
+        {
+          "match": "\\b(let|mut|const|pub|fn|struct|impl|import|unit)\\b",
+          "name": "keyword.other.soliton"
+        },
+        {
+          "match": "\\b(as)\\b",
+          "name": "keyword.operator.cast.soliton"
+        },
+        {
+          "match": "\\b(self)\\b",
+          "name": "variable.language.self.soliton"
+        },
+        {
+          "match": "\\b(true|false)\\b",
+          "name": "constant.language.boolean.soliton"
+        }
+      ]
+    },
+    "types": {
+      "patterns": [
+        {
+          "comment": "Primitives are reserved words in the grammar, not identifiers.",
+          "match": "\\b(int|float|bool|string)\\b",
+          "name": "support.type.primitive.soliton"
+        },
+        {
+          "comment": "The two owning types the compiler knows by name.",
+          "match": "\\b(Vec|String)\\b",
+          "name": "support.type.soliton"
+        },
+        {
+          "comment": "Anything else in PascalCase is a struct or a type parameter.",
+          "match": "\\b[A-Z][A-Za-z0-9_]*\\b",
+          "name": "entity.name.type.soliton"
+        }
+      ]
+    },
+    "calls": {
+      "patterns": [
+        {
+          "comment": "The whole standard library: recognised by the compiler rather than declared anywhere, so it is highlighted as built in.",
+          "match": "\\b(println|print|len|new_vec|push|pop|new_string|push_str|slice|find|contains|capacity|reserve)\\b(?=\\s*\\()",
+          "name": "support.function.builtin.soliton"
+        },
+        {
+          "match": "\\b([A-Za-z_][A-Za-z0-9_]*)\\s*(?=\\()",
+          "name": "entity.name.function.call.soliton"
+        },
+        {
+          "comment": "`module::item`",
+          "match": "\\b([A-Za-z_][A-Za-z0-9_]*)\\s*(::)",
+          "captures": {
+            "1": {
+              "name": "entity.name.namespace.soliton"
+            },
+            "2": {
+              "name": "punctuation.separator.namespace.soliton"
+            }
+          }
+        }
+      ]
+    },
+    "operators": {
+      "patterns": [
+        {
+          "match": "->",
+          "name": "keyword.operator.arrow.soliton"
+        },
+        {
+          "match": "\\|\\||&&|!",
+          "name": "keyword.operator.logical.soliton"
+        },
+        {
+          "match": "==|!=|<=|>=|<|>",
+          "name": "keyword.operator.comparison.soliton"
+        },
+        {
+          "match": "[+\\-*/%]",
+          "name": "keyword.operator.arithmetic.soliton"
+        },
+        {
+          "match": "=",
+          "name": "keyword.operator.assignment.soliton"
+        },
+        {
+          "match": "&",
+          "name": "keyword.operator.reference.soliton"
+        },
+        {
+          "match": "\\|",
+          "name": "keyword.operator.closure.soliton"
+        }
+      ]
+    },
+    "punctuation": {
+      "patterns": [
+        {
+          "match": "[{}]",
+          "name": "punctuation.section.block.soliton"
+        },
+        {
+          "match": "[()]",
+          "name": "punctuation.section.parens.soliton"
+        },
+        {
+          "match": "\\[|\\]",
+          "name": "punctuation.section.brackets.soliton"
+        },
+        {
+          "match": ";",
+          "name": "punctuation.terminator.soliton"
+        },
+        {
+          "match": "[,:]",
+          "name": "punctuation.separator.soliton"
+        },
+        {
+          "match": "\\.",
+          "name": "punctuation.accessor.soliton"
+        }
+      ]
+    }
+  }
+}

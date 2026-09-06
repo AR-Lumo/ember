@@ -1,0 +1,65 @@
+{
+  "main": {
+    "prefix": "main",
+    "body": ["pub fn main() {", "\t$0", "}"],
+    "description": "Entry point"
+  },
+  "function": {
+    "prefix": "fn",
+    "body": ["pub fn ${1:name}(${2}) -> ${3:int} {", "\t$0", "}"],
+    "description": "Public function"
+  },
+  "function with contracts": {
+    "prefix": "fnreq",
+    "body": [
+      "pub fn ${1:name}(${2}) -> ${3:int}",
+      "\trequires ${4:condition}",
+      "\tensures ${5:result > 0}",
+      "{",
+      "\t$0",
+      "}"
+    ],
+    "description": "Function with a precondition and a postcondition (§10.1)"
+  },
+  "pure function": {
+    "prefix": "fnpure",
+    "body": ["pub fn ${1:name}(${2}) -> ${3:int} uses nothing {", "\t$0", "}"],
+    "description": "Function the compiler holds to performing no effects (§10.3)"
+  },
+  "struct": {
+    "prefix": "struct",
+    "body": ["struct ${1:Name} {", "\tpub ${2:field}: ${3:int},", "}"],
+    "description": "Struct declaration (fields need a trailing comma)"
+  },
+  "impl": {
+    "prefix": "impl",
+    "body": [
+      "impl ${1:Name} {",
+      "\tpub fn ${2:method}(&self) -> ${3:int} {",
+      "\t\t$0",
+      "\t}",
+      "}"
+    ],
+    "description": "Methods on a type"
+  },
+  "unit": {
+    "prefix": "unit",
+    "body": ["unit ${1:meters};"],
+    "description": "Declare a unit of measure (§10.2)"
+  },
+  "while": {
+    "prefix": "while",
+    "body": ["while ${1:i} < ${2:len(v)} {", "\t$0", "}"],
+    "description": "While loop"
+  },
+  "vec": {
+    "prefix": "vec",
+    "body": ["let mut ${1:items}: Vec<${2:int}> = new_vec();", "$0"],
+    "description": "A growable array"
+  },
+  "string": {
+    "prefix": "string",
+    "body": ["let mut ${1:text}: String = new_string();", "push_str(${1:text}, \"$2\");", "$0"],
+    "description": "An owned, growable string"
+  }
+}

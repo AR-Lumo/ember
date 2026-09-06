@@ -1,0 +1,54 @@
+/// A file to eyeball the highlighting against. Every construct the
+/// grammar claims to handle appears here at least once.
+
+unit meters;
+unit seconds;
+
+const MAX_LEGS: int = 8;
+
+/// A leg of a journey, with its distance and how long it took.
+struct Leg {
+    pub distance: float<meters>,
+    pub elapsed: float<seconds>,
+}
+
+impl Leg {
+    /// Pure, and held to it. The unit of the answer falls out of the
+    /// division rather than being declared.
+    pub fn speed(&self) -> float<meters/seconds> uses nothing
+        requires self.elapsed > 0.0<seconds>
+        ensures result >= 0.0<meters/seconds>
+    {
+        return self.distance / self.elapsed;
+    }
+}
+
+/// Generic, and allowed to print.
+pub fn describe<T>(label: string, value: T) uses io {
+    print(label);
+    print(": ");
+    println(value);
+}
+
+pub fn main() {
+    let sprint = Leg { distance: 100.0<meters>, elapsed: 9.6<seconds> };
+    describe("sprint", sprint.speed());
+
+    // `<` here is a comparison, not a unit: it does not touch the number.
+    let limit = 9;
+    if 5 < limit {
+        println("five is less");
+    }
+
+    let mut names: Vec<String> = new_vec();
+    let mut first: String = new_string();
+    push_str(first, "quick\tbrown\n");
+    push(names, first);
+    println(len(names));
+
+    let mut i = 0;
+    while i < MAX_LEGS && i < 3 {
+        println(i as float / 2.0);
+        i = i + 1;
+    }
+}

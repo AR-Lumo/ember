@@ -1,0 +1,63 @@
+{
+  "name": "soliton-lang",
+  "displayName": "Soliton",
+  "description": "Syntax highlighting for the Soliton programming language.",
+  "version": "0.1.0",
+  "publisher": "ar-lumo",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "keywords": [
+    "soliton",
+    "sn",
+    "compiler",
+    "llvm"
+  ],
+  "icon": "icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/AR-Lumo/soliton.git",
+    "directory": "editors/vscode"
+  },
+  "homepage": "https://ar-lumo.github.io/soliton/",
+  "bugs": {
+    "url": "https://github.com/AR-Lumo/soliton/issues"
+  },
+  "contributes": {
+    "languages": [
+      {
+        "id": "soliton",
+        "aliases": [
+          "Soliton",
+          "soliton"
+        ],
+        "extensions": [
+          ".sn",
+          ".sni"
+        ],
+        "configuration": "./language-configuration.json",
+        "icon": {
+          "light": "./icons/file-icon.svg",
+          "dark": "./icons/file-icon.svg"
+        }
+      }
+    ],
+    "grammars": [
+      {
+        "language": "soliton",
+        "scopeName": "source.soliton",
+        "path": "./syntaxes/soliton.tmLanguage.json"
+      }
+    ],
+    "snippets": [
+      {
+        "language": "soliton",
+        "path": "./snippets/soliton.json"
+      }
+    ]
+  }
+}

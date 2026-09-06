@@ -1,0 +1,7 @@
+# Everything the extension does not need at run time.
+.vscode/**
+.gitignore
+.soliton/**
+sample.sn
+sample.exe
+*.vsix

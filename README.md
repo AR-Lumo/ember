@@ -1262,6 +1262,15 @@ file, so a library that annotates is believed.
 yet, and it is accepted now so programs need not change when it gains
 meaning.
 
+### Editor support
+
+Syntax highlighting for VS Code lives in
+[`editors/vscode`](editors/vscode), packaged as a `.vsix` on the
+[releases page](https://github.com/AR-Lumo/soliton/releases/latest). It
+knows about units, contracts and effects, not just the keywords — and
+it applies the compiler's own rule that `5.0<meters>` is a quantity
+while `5.0 < meters` is a comparison.
+
 ### Standard library
 
 The whole of it, recognized directly by the compiler:

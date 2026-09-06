@@ -11,3 +11,6 @@
 *.o
 *.obj
 *.pdb
+
+# Packaged editor extensions; these belong on the release page.
+*.vsix
