@@ -332,7 +332,7 @@ Each phase should end with passing tests and a tagged commit before
 moving to the next. Don't let phases blend together.
 
 ### Phase 0 — Scaffolding
-- Cargo workspace with empty crates per the layout above.
+- CMake project with an empty static library per the layout above.
 - CLI skeleton that parses subcommands but does nothing yet.
 - CI-style test harness reading `.em` files from `tests/golden/`.
 
