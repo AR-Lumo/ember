@@ -3,12 +3,30 @@
 #include <algorithm>
 #include <fstream>
 #include <sstream>
+#include <string_view>
 #include <utility>
 
 namespace ember::ast {
 
 SourceFile::SourceFile(std::string path, std::string contents, FileId id)
     : path_(std::move(path)), contents_(std::move(contents)), id_(id) {
+    // A UTF-8 byte order mark is not part of the program.
+    //
+    // Windows editors write one by default - Notepad does, and so does
+    // PowerShell's `Out-File -Encoding utf8` - so the first file a lot
+    // of people save is one Ember used to reject with three
+    // "`\xEF` is not valid in Ember source" errors before reaching a
+    // single token. Every other compiler skips it; so does this one.
+    //
+    // Dropped here rather than in the lexer, and before `line_starts_`
+    // is built, so that offsets count from the first real character:
+    // skipping it later would leave every column on line 1 reported
+    // three too high.
+    constexpr std::string_view kUtf8Bom = "\xEF\xBB\xBF";
+    if (contents_.rfind(kUtf8Bom, 0) == 0) {
+        contents_.erase(0, kUtf8Bom.size());
+    }
+
     line_starts_.push_back(0);
     for (std::uint32_t offset = 0; offset < size(); ++offset) {
         if (contents_[offset] == '\n') {

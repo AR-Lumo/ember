@@ -91,7 +91,9 @@ so the language reads as familiar rather than idiosyncratic:
 ```ebnf
 program        = { item } ;
 item           = function_decl | struct_decl | impl_block | const_decl
-               | import_decl ;
+               | import_decl | unit_decl ;
+
+unit_decl      = "unit" identifier ";" ;                   (* v1.1 *)
 
 import_decl    = "import" module_path ";" ;                (* v2 *)
 module_path    = identifier { "::" identifier } ;          (* v2 *)
@@ -104,11 +106,23 @@ visibility     = [ "pub" ] ;
 const_decl     = visibility "const" identifier ":" type "=" expression ";" ;
 
 function_decl  = visibility "fn" identifier [ generic_params ]
-                 "(" [ param_list ] ")" [ "->" type ] ( block | ";" ) ;
+                 "(" [ param_list ] ")" [ "->" type ]
+                 [ effect_clause ] { contract } ( block | ";" ) ;
                                             (* `;` declares without
                                                defining: an interface
                                                file is written this
                                                way, v2 *)
+
+effect_clause  = "uses" effect { "," effect } ;            (* v1.1 *)
+effect         = "io" | "mut" ;              (* a closed set for now:
+                                                easy to add to, hard to
+                                                take away once relied on *)
+
+contract       = ( "requires" | "ensures" ) expression ;   (* v1.1 *)
+                                            (* `requires` is checked on
+                                               entry, `ensures` before
+                                               return, where `result`
+                                               names the return value *)
 
 generic_params = "<" identifier { "," identifier } ">" ;   (* v2 *)
 param_list     = param { "," param } ;
@@ -121,7 +135,12 @@ impl_block     = "impl" [ generic_params ] identifier [ type_args ]
                  "{" { function_decl } "}" ;
                                             (* `impl<T> Pair<T>`, v2 *)
 
-type           = "int" | "float" | "bool" | "string"
+type           = ( "int" | "float" ) [ "<" unit_expr ">" ]
+                                           (* a unit, v1.1: `float<meters>`.
+                                              Compile-time only - the
+                                              generated IR is the same
+                                              double either way *)
+               | "bool" | "string"
                | "fn" "(" [ type { "," type } ] ")" [ "->" type ]
                                            (* function value, v2 *)
                | "Vec" "<" type ">"        (* growable array, v2 *)
@@ -132,6 +151,12 @@ type           = "int" | "float" | "bool" | "string"
                | "[" type ";" int_lit "]"  (* fixed-size array *) ;
 
 type_args      = "<" type { "," type } ">" ;               (* v2 *)
+
+unit_expr      = unit_term { ( "*" | "/" ) unit_term } ;   (* v1.1 *)
+unit_term      = identifier ;                (* a declared unit name, or
+                                                one derived by `*` and
+                                                `/` - a derived unit
+                                                needs no declaration *)
 
 block          = "{" { statement } "}" ;
 
@@ -166,7 +191,9 @@ index_expr     = expression "[" expression "]" ;
 struct_literal = qualified "{" [ field_init_list ] "}" ;
 field_init_list = identifier ":" expression { "," identifier ":" expression } ;
 
-literal        = int_lit | float_lit | bool_lit | string_lit ;
+literal        = ( int_lit | float_lit ) [ "<" unit_expr ">" ]
+                                           (* `5.0<meters>`, v1.1 *)
+               | bool_lit | string_lit ;
 ```
 
 **Operator precedence (low to high):**
@@ -409,3 +436,99 @@ moving to the next. Don't let phases blend together.
   `new`/`delete` (see §2) — this keeps the compiler's own code
   memory-safe by convention even though Ember-the-language itself has
   no such guarantees in v1.
+
+---
+
+## 10. v1.1 Roadmap - Signature Features
+
+**Status: specified, not implemented.** The grammar in §3 carries the
+syntax so that adding these later is not a breaking change, but nothing
+in the lexer, parser, checker or codegen understands them yet. A program
+using them today is a syntax error.
+
+These three are what would make Ember distinctive rather than
+"Rust-flavoured syntax on LLVM". Treat this as its own miniature version
+of the phased plan in §8: one feature at a time, each with its own
+tests, each ending in a tagged release - not all three in one patch.
+
+### 10.1 Contracts (`requires` / `ensures`) - first, and the easiest
+
+Preconditions and postconditions live in the signature and are checked
+at every call, instead of being the first few lines of the body.
+
+```ember
+pub fn divide(a: int, b: int) -> int
+    requires b != 0
+    ensures result != 0 || a == 0
+{
+    return a / b;
+}
+```
+
+- `requires <expr>` - checked on entry; failure is a runtime panic
+  naming the violated contract and the call site, in the §7 format.
+- `ensures <expr>` - checked just before return. `result` is bound to
+  the return value and is in scope only inside `ensures`.
+- **Implementation:** in codegen this is `if (!condition) { panic(...) }`
+  at entry and exit - no new IR concepts. The checker's job is that the
+  expressions are `bool` and that `result` appears only in `ensures`.
+- v1.1 scope is runtime-checked only. Proving contracts statically, as
+  Ada/SPARK does, is a far larger effort and explicitly out of scope.
+
+### 10.2 Units of measure - second, and it touches the type system
+
+Numeric types may carry a physical unit; mixing incompatible ones is a
+compile error.
+
+```ember
+unit meters;
+unit seconds;
+
+pub fn main() {
+    let d: float<meters> = 5.0<meters>;
+    let t: float<seconds> = 2.0<seconds>;
+    let speed = d / t;              // float<meters/seconds>
+    // let bad = d + t;             // error: incompatible units
+}
+```
+
+- `unit` introduces a name. Untagged `int` and `float` stay valid and
+  unitless, so nothing existing has to change.
+- `+` and `-` require identical units. `*` and `/` combine them
+  algebraically; a derived unit such as `meters/seconds` needs no
+  declaration of its own.
+- **Implementation:** compile-time only. A `float<meters>` is an
+  ordinary `double` in the generated IR, so codegen is untouched. The
+  work is in the checker: a unit term on the type representation, and
+  every arithmetic path taught the rules above.
+- The most invasive of the three, because it touches every arithmetic
+  type-check path.
+
+### 10.3 Effect annotations (`uses io`, `uses mut`) - last, and hardest
+
+Functions declare the side effects they perform, and the compiler stops
+an effectful call from a function that has not declared it.
+
+```ember
+pub fn read_config(path: string) -> string uses io {
+    return read_file(path);   // read_file is itself `uses io`
+}
+
+pub fn distance_sq(a: Point, b: Point) -> int {
+    // no `uses` clause: pure. Calling an `io` function here
+    // would be a compile error.
+}
+```
+
+- Two effects to start: `io` and `mut`. Keep the vocabulary small - it
+  is easy to add one and impossible to remove one people depend on.
+- A function's effect set is the union of what it calls; the checker
+  infers it rather than making every function annotate. **The inference
+  rule needs writing down here before any code is written**, not
+  deciding case by case at the keyboard.
+- **Implementation:** almost entirely in `typeck`, with no codegen or
+  runtime changes. It is a second, effect-flavoured type system layered
+  over the first, which is why it is the hardest to get right while
+  touching the least code.
+- Worth prototyping on paper first. Effect systems are where "seemed
+  simple, turned out to have edge cases" bites hardest.

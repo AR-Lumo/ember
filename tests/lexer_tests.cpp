@@ -404,3 +404,43 @@ EMBER_TEST(lexer_errors_render_with_a_caret_on_the_offending_text) {
                                "1 | let x = 1abc;\n"
                                "  |          ^^^ `abc` is not a valid literal suffix\n"});
 }
+
+
+EMBER_TEST(lexer_skips_a_utf8_byte_order_mark) {
+    // Notepad and PowerShell's `Out-File -Encoding utf8` both write a
+    // BOM, so this is the first file many people on Windows save. It
+    // used to produce three "not valid in Ember source" errors before
+    // the lexer reached a single token.
+    const SourceFile source = make_source("\xEF\xBB\xBFlet x = 1;");
+    const std::vector<Token> tokens = lex_ok(source);
+    EMBER_CHECK(tokens.front().kind == TokenKind::KwLet);
+}
+
+EMBER_TEST(a_byte_order_mark_does_not_shift_columns) {
+    // Why the mark is dropped when the file is read rather than skipped
+    // by the lexer. Were it left in the text, every column on the first
+    // line would be reported three too high and the caret in a
+    // diagnostic would point past the thing it is about.
+    const SourceFile plain = make_source("let x = 1;");
+    const SourceFile marked = make_source("\xEF\xBB\xBFlet x = 1;");
+
+    const std::vector<Token> from_plain = lex_ok(plain);
+    const std::vector<Token> from_marked = lex_ok(marked);
+
+    EMBER_CHECK_EQ(marked.position_of(from_marked[0].span.start), (Position{1, 1}));
+    EMBER_CHECK_EQ(plain.position_of(from_plain[0].span.start),
+                   marked.position_of(from_marked[0].span.start));
+
+    // And the one after it, so this is about the whole line rather than
+    // just the token that happened to sit against the mark.
+    EMBER_CHECK_EQ(plain.position_of(from_plain[1].span.start),
+                   marked.position_of(from_marked[1].span.start));
+}
+
+EMBER_TEST(a_byte_order_mark_only_counts_at_the_start) {
+    // Those bytes anywhere else are still junk, and saying so is the
+    // whole point of the diagnostic this skips.
+    const SourceFile source = make_source("let x = 1;\xEF\xBB\xBF");
+    const ember::lexer::LexResult result = ember::lexer::tokenize(source);
+    EMBER_CHECK(!result.diagnostics.empty());
+}
