@@ -5,8 +5,8 @@
 // readable failure output and a non-zero exit code - roughly the subset
 // of Catch2 the compiler actually needs.
 
-#ifndef CINDER_TEST_HARNESS_HPP
-#define CINDER_TEST_HARNESS_HPP
+#ifndef SOLITON_TEST_HARNESS_HPP
+#define SOLITON_TEST_HARNESS_HPP
 
 #include <exception>
 #include <functional>
@@ -16,7 +16,7 @@
 #include <string_view>
 #include <vector>
 
-namespace cinder::test {
+namespace soliton::test {
 
 /// Thrown by a failing assertion and caught by the runner.
 class AssertionFailure : public std::exception {
@@ -96,29 +96,29 @@ inline int run_all(std::string_view filter = {}) {
     return failures.empty() ? 0 : 1;
 }
 
-}  // namespace cinder::test
+}  // namespace soliton::test
 
-#define CINDER_TEST_CONCAT_INNER(a, b) a##b
-#define CINDER_TEST_CONCAT(a, b) CINDER_TEST_CONCAT_INNER(a, b)
+#define SOLITON_TEST_CONCAT_INNER(a, b) a##b
+#define SOLITON_TEST_CONCAT(a, b) SOLITON_TEST_CONCAT_INNER(a, b)
 
-/// Define a test: CINDER_TEST(golden_directory_has_cases) { ... }
-#define CINDER_TEST(name)                                                            \
+/// Define a test: SOLITON_TEST(golden_directory_has_cases) { ... }
+#define SOLITON_TEST(name)                                                            \
     static void name();                                                             \
-    static const ::cinder::test::Registrar CINDER_TEST_CONCAT(name, _registrar){#name, \
+    static const ::soliton::test::Registrar SOLITON_TEST_CONCAT(name, _registrar){#name, \
                                                                               &name}; \
     static void name()
 
-#define CINDER_CHECK(condition)                                                      \
+#define SOLITON_CHECK(condition)                                                      \
     do {                                                                            \
         if (!(condition)) {                                                         \
-            ::cinder::test::fail(__FILE__, __LINE__, "expected: " #condition);       \
+            ::soliton::test::fail(__FILE__, __LINE__, "expected: " #condition);       \
         }                                                                           \
     } while (false)
 
-#define CINDER_CHECK_MSG(condition, message)                                         \
+#define SOLITON_CHECK_MSG(condition, message)                                         \
     do {                                                                            \
         if (!(condition)) {                                                         \
-            ::cinder::test::fail(__FILE__, __LINE__,                                 \
+            ::soliton::test::fail(__FILE__, __LINE__,                                 \
                                 std::string("expected: " #condition "\n     ") +    \
                                     (message));                                     \
         }                                                                           \
@@ -133,18 +133,18 @@ inline int run_all(std::string_view filter = {}) {
 /// memory - which shows up as a garbled failure message rather than as
 /// anything that points at the mistake. A copy costs nothing a test will
 /// notice.
-#define CINDER_CHECK_EQ(actual, expected)                                            \
+#define SOLITON_CHECK_EQ(actual, expected)                                            \
     do {                                                                            \
-        const auto cinder_actual = (actual);                                         \
-        const auto cinder_expected = (expected);                                     \
-        if (!(cinder_actual == cinder_expected)) {                                    \
-            ::cinder::test::fail(__FILE__, __LINE__,                                 \
+        const auto soliton_actual = (actual);                                         \
+        const auto soliton_expected = (expected);                                     \
+        if (!(soliton_actual == soliton_expected)) {                                    \
+            ::soliton::test::fail(__FILE__, __LINE__,                                 \
                                 "expected `" #actual "` == `" #expected "`\n" \
                                 "       actual: " +                                 \
-                                    ::cinder::test::describe(cinder_actual) +         \
+                                    ::soliton::test::describe(soliton_actual) +         \
                                     "\n     expected: " +                           \
-                                    ::cinder::test::describe(cinder_expected));       \
+                                    ::soliton::test::describe(soliton_expected));       \
         }                                                                           \
     } while (false)
 
-#endif  // CINDER_TEST_HARNESS_HPP
+#endif  // SOLITON_TEST_HARNESS_HPP

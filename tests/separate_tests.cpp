@@ -9,7 +9,7 @@
 // Two halves are tested here. The first is codegen: with a target module
 // set, only that module's functions get bodies and everything else
 // becomes a declaration for the linker to resolve. The second is the
-// driver: object files are cached under `.cinder` beside the entry
+// driver: object files are cached under `.soliton` beside the entry
 // source and reused when nothing they depend on has changed.
 //
 // Monomorphized generics are the interesting case, because a copy of
@@ -20,12 +20,12 @@
 
 #include "test_harness.hpp"
 
-#include "cinder/ast/diagnostic.hpp"
-#include "cinder/ast/nodes.hpp"
-#include "cinder/ast/span.hpp"
-#include "cinder/codegen/codegen.hpp"
-#include "cinder/parser/parser.hpp"
-#include "cinder/typeck/typeck.hpp"
+#include "soliton/ast/diagnostic.hpp"
+#include "soliton/ast/nodes.hpp"
+#include "soliton/ast/span.hpp"
+#include "soliton/codegen/codegen.hpp"
+#include "soliton/parser/parser.hpp"
+#include "soliton/typeck/typeck.hpp"
 
 #include <array>
 #include <cstdio>
@@ -41,7 +41,7 @@ namespace fs = std::filesystem;
 
 namespace {
 
-using cinder::ast::SourceMap;
+using soliton::ast::SourceMap;
 
 /// One module of a test program: its name, its source, and what it
 /// imports. An empty name is the entry module.
@@ -55,44 +55,44 @@ struct Source {
 /// codegen reads from outlive the lowering.
 struct Program {
     SourceMap sources;
-    std::vector<cinder::parser::ParseResult> parsed;
-    cinder::typeck::CheckResult checked;
-    std::vector<cinder::codegen::ModuleInput> inputs;
+    std::vector<soliton::parser::ParseResult> parsed;
+    soliton::typeck::CheckResult checked;
+    std::vector<soliton::codegen::ModuleInput> inputs;
 };
 
 Program check_program(const std::vector<Source>& modules) {
     Program program;
 
     for (const Source& module : modules) {
-        const cinder::ast::FileId id = program.sources.add(
-            (module.name.empty() ? std::string{"main"} : module.name) + ".ci", module.text);
-        cinder::parser::ParseResult parsed =
-            cinder::parser::parse_source(program.sources.file(id));
+        const soliton::ast::FileId id = program.sources.add(
+            (module.name.empty() ? std::string{"main"} : module.name) + ".sn", module.text);
+        soliton::parser::ParseResult parsed =
+            soliton::parser::parse_source(program.sources.file(id));
         if (!parsed.ok()) {
-            ::cinder::test::fail(__FILE__, __LINE__,
+            ::soliton::test::fail(__FILE__, __LINE__,
                                 "test fixture does not parse:\n" +
-                                    cinder::ast::render_all(parsed.diagnostics, program.sources));
+                                    soliton::ast::render_all(parsed.diagnostics, program.sources));
         }
         program.parsed.push_back(std::move(parsed));
     }
 
-    std::vector<cinder::typeck::ModuleInput> checker_inputs;
+    std::vector<soliton::typeck::ModuleInput> checker_inputs;
     for (std::size_t i = 0; i < modules.size(); ++i) {
-        checker_inputs.push_back(cinder::typeck::ModuleInput{
+        checker_inputs.push_back(soliton::typeck::ModuleInput{
             modules[i].name, program.parsed[i].program.get(), modules[i].imports});
     }
 
-    program.checked = cinder::typeck::check(checker_inputs, program.sources);
+    program.checked = soliton::typeck::check(checker_inputs, program.sources);
     if (!program.checked.ok()) {
-        ::cinder::test::fail(__FILE__, __LINE__,
+        ::soliton::test::fail(__FILE__, __LINE__,
                             "test fixture does not type-check:\n" +
-                                cinder::ast::render_all(program.checked.diagnostics,
+                                soliton::ast::render_all(program.checked.diagnostics,
                                                        program.sources));
     }
 
     for (std::size_t i = 0; i < modules.size(); ++i) {
         program.inputs.push_back(
-            cinder::codegen::ModuleInput{modules[i].name, program.parsed[i].program.get()});
+            soliton::codegen::ModuleInput{modules[i].name, program.parsed[i].program.get()});
     }
     return program;
 }
@@ -103,15 +103,15 @@ std::string lower(const std::vector<Source>& modules,
                   std::optional<std::string> target = std::nullopt) {
     const Program program = check_program(modules);
 
-    cinder::codegen::CompileOptions options;
+    soliton::codegen::CompileOptions options;
     options.target_module = std::move(target);
 
-    const cinder::codegen::CompileResult compiled =
-        cinder::codegen::compile_to_string(program.inputs, program.checked, options);
+    const soliton::codegen::CompileResult compiled =
+        soliton::codegen::compile_to_string(program.inputs, program.checked, options);
     if (!compiled.ok()) {
-        ::cinder::test::fail(__FILE__, __LINE__,
+        ::soliton::test::fail(__FILE__, __LINE__,
                             "codegen failed:\n" +
-                                cinder::ast::render_all(compiled.diagnostics, program.sources));
+                                soliton::ast::render_all(compiled.diagnostics, program.sources));
     }
     return compiled.assembly;
 }
@@ -142,50 +142,50 @@ const std::vector<Source> kTwoModules = {
 // What lands in each object file
 // ---------------------------------------------------------------------
 
-CINDER_TEST(separate_compilation_defines_only_the_target_modules_functions) {
-    if (!cinder::codegen::is_available()) {
+SOLITON_TEST(separate_compilation_defines_only_the_target_modules_functions) {
+    if (!soliton::codegen::is_available()) {
         return;
     }
     const std::string ir = lower(kTwoModules, "geometry");
-    CINDER_CHECK_MSG(has(ir, "define i64 @geometry__double_it("),
+    SOLITON_CHECK_MSG(has(ir, "define i64 @geometry__double_it("),
                     "geometry's own function should have a body here:\n" + ir);
-    CINDER_CHECK_MSG(!has(ir, "define i32 @main("),
+    SOLITON_CHECK_MSG(!has(ir, "define i32 @main("),
                     "the entry module's body leaked into geometry's object:\n" + ir);
 }
 
-CINDER_TEST(separate_compilation_declares_what_it_calls_across_a_module_boundary) {
-    if (!cinder::codegen::is_available()) {
+SOLITON_TEST(separate_compilation_declares_what_it_calls_across_a_module_boundary) {
+    if (!soliton::codegen::is_available()) {
         return;
     }
     // This is the whole mechanism: the entry object refers to
     // `geometry::double_it` by symbol and lets the linker find the body.
     const std::string ir = lower(kTwoModules, "");
-    CINDER_CHECK_MSG(has(ir, "define i32 @main("), "no entry point in:\n" + ir);
-    CINDER_CHECK_MSG(has(ir, "declare i64 @geometry__double_it("),
+    SOLITON_CHECK_MSG(has(ir, "define i32 @main("), "no entry point in:\n" + ir);
+    SOLITON_CHECK_MSG(has(ir, "declare i64 @geometry__double_it("),
                     "the imported function should be a declaration here:\n" + ir);
-    CINDER_CHECK_MSG(!has(ir, "define i64 @geometry__double_it("),
+    SOLITON_CHECK_MSG(!has(ir, "define i64 @geometry__double_it("),
                     "geometry's body was emitted twice:\n" + ir);
 }
 
-CINDER_TEST(separate_compilation_puts_the_entry_point_in_one_object_only) {
-    if (!cinder::codegen::is_available()) {
+SOLITON_TEST(separate_compilation_puts_the_entry_point_in_one_object_only) {
+    if (!soliton::codegen::is_available()) {
         return;
     }
     // Two `main`s would be a duplicate symbol, which is the failure this
     // whole split is most likely to cause.
-    CINDER_CHECK(has(lower(kTwoModules, ""), "define i32 @main("));
-    CINDER_CHECK(!has(lower(kTwoModules, "geometry"), "define i32 @main("));
+    SOLITON_CHECK(has(lower(kTwoModules, ""), "define i32 @main("));
+    SOLITON_CHECK(!has(lower(kTwoModules, "geometry"), "define i32 @main("));
 }
 
-CINDER_TEST(whole_program_compilation_still_defines_every_module) {
-    if (!cinder::codegen::is_available()) {
+SOLITON_TEST(whole_program_compilation_still_defines_every_module) {
+    if (!soliton::codegen::is_available()) {
         return;
     }
     // With no target the old behaviour is unchanged, which is what the
     // golden `.ll` snapshots read.
     const std::string ir = lower(kTwoModules);
-    CINDER_CHECK(has(ir, "define i32 @main("));
-    CINDER_CHECK(has(ir, "define i64 @geometry__double_it("));
+    SOLITON_CHECK(has(ir, "define i32 @main("));
+    SOLITON_CHECK(has(ir, "define i64 @geometry__double_it("));
 }
 
 // ---------------------------------------------------------------------
@@ -227,34 +227,34 @@ const std::vector<Source> kSharedGeneric = {
 
 }  // namespace
 
-CINDER_TEST(separate_compilation_copies_an_instantiation_into_every_module_that_uses_it) {
-    if (!cinder::codegen::is_available()) {
+SOLITON_TEST(separate_compilation_copies_an_instantiation_into_every_module_that_uses_it) {
+    if (!soliton::codegen::is_available()) {
         return;
     }
     // Neither `alpha` nor `beta` can assume the other was built, so both
     // carry `max<int>` and the linker discards one.
-    CINDER_CHECK(has(lower(kSharedGeneric, "alpha"), "define linkonce_odr i64 @compare__max__int("));
-    CINDER_CHECK(has(lower(kSharedGeneric, "beta"), "define linkonce_odr i64 @compare__max__int("));
+    SOLITON_CHECK(has(lower(kSharedGeneric, "alpha"), "define linkonce_odr i64 @compare__max__int("));
+    SOLITON_CHECK(has(lower(kSharedGeneric, "beta"), "define linkonce_odr i64 @compare__max__int("));
 }
 
-CINDER_TEST(separate_compilation_leaves_an_instantiation_out_of_modules_that_do_not_use_it) {
-    if (!cinder::codegen::is_available()) {
+SOLITON_TEST(separate_compilation_leaves_an_instantiation_out_of_modules_that_do_not_use_it) {
+    if (!soliton::codegen::is_available()) {
         return;
     }
     // The module that *wrote* the template emits nothing for it: a
     // generic function is not code until someone picks its types.
     const std::string compare = lower(kSharedGeneric, "compare");
-    CINDER_CHECK_MSG(!has(compare, "define linkonce_odr i64 @compare__max__int("),
+    SOLITON_CHECK_MSG(!has(compare, "define linkonce_odr i64 @compare__max__int("),
                     "an unused instantiation was emitted into its template's module:\n" +
                         compare);
 
     // And `float` is only demanded by the entry module.
-    CINDER_CHECK(!has(lower(kSharedGeneric, "alpha"), "@compare__max__float("));
-    CINDER_CHECK(has(lower(kSharedGeneric, ""), "define linkonce_odr double @compare__max__float("));
+    SOLITON_CHECK(!has(lower(kSharedGeneric, "alpha"), "@compare__max__float("));
+    SOLITON_CHECK(has(lower(kSharedGeneric, ""), "define linkonce_odr double @compare__max__float("));
 }
 
-CINDER_TEST(separate_compilation_follows_demand_through_a_generic_calling_a_generic) {
-    if (!cinder::codegen::is_available()) {
+SOLITON_TEST(separate_compilation_follows_demand_through_a_generic_calling_a_generic) {
+    if (!soliton::codegen::is_available()) {
         return;
     }
     // `max3<int>` is demanded by the entry module and demands `max<int>`
@@ -279,23 +279,23 @@ CINDER_TEST(separate_compilation_follows_demand_through_a_generic_calling_a_gene
     };
 
     const std::string entry = lower(modules, "");
-    CINDER_CHECK_MSG(has(entry, "define linkonce_odr i64 @util__max3__int("),
+    SOLITON_CHECK_MSG(has(entry, "define linkonce_odr i64 @util__max3__int("),
                     "the demanded instantiation is missing:\n" + entry);
-    CINDER_CHECK_MSG(has(entry, "define linkonce_odr i64 @util__max__int("),
+    SOLITON_CHECK_MSG(has(entry, "define linkonce_odr i64 @util__max__int("),
                     "an instantiation demanded by another one is missing:\n" + entry);
 
     const std::string util = lower(modules, "util");
-    CINDER_CHECK(!has(util, "define linkonce_odr i64 @util__max3__int("));
-    CINDER_CHECK(!has(util, "define linkonce_odr i64 @util__max__int("));
+    SOLITON_CHECK(!has(util, "define linkonce_odr i64 @util__max3__int("));
+    SOLITON_CHECK(!has(util, "define linkonce_odr i64 @util__max__int("));
 }
 
-CINDER_TEST(separate_compilation_records_which_modules_demand_an_instantiation) {
+SOLITON_TEST(separate_compilation_records_which_modules_demand_an_instantiation) {
     // The checker's own answer, without going through codegen.
     const Program program = check_program(kSharedGeneric);
 
     std::optional<std::set<std::string>> at_int;
     std::optional<std::set<std::string>> at_float;
-    for (const cinder::typeck::Instantiation& instance : program.checked.instantiations) {
+    for (const soliton::typeck::Instantiation& instance : program.checked.instantiations) {
         if (instance.info.display_name == "compare::max<int>") {
             at_int = instance.demanded_by;
         } else if (instance.info.display_name == "compare::max<float>") {
@@ -303,10 +303,10 @@ CINDER_TEST(separate_compilation_records_which_modules_demand_an_instantiation) 
         }
     }
 
-    CINDER_CHECK_MSG(at_int.has_value(), "no `compare::max<int>` instantiation");
-    CINDER_CHECK_MSG(at_float.has_value(), "no `compare::max<float>` instantiation");
-    CINDER_CHECK_EQ(*at_int, (std::set<std::string>{"alpha", "beta"}));
-    CINDER_CHECK_EQ(*at_float, (std::set<std::string>{""}));
+    SOLITON_CHECK_MSG(at_int.has_value(), "no `compare::max<int>` instantiation");
+    SOLITON_CHECK_MSG(at_float.has_value(), "no `compare::max<float>` instantiation");
+    SOLITON_CHECK_EQ(*at_int, (std::set<std::string>{"alpha", "beta"}));
+    SOLITON_CHECK_EQ(*at_float, (std::set<std::string>{""}));
 }
 
 // ---------------------------------------------------------------------
@@ -332,7 +332,7 @@ ProcessResult run_process(const std::string& command) {
     FILE* pipe = popen(redirected.c_str(), "r");
 #endif
     if (pipe == nullptr) {
-        ::cinder::test::fail(__FILE__, __LINE__, "cannot start: " + command);
+        ::soliton::test::fail(__FILE__, __LINE__, "cannot start: " + command);
     }
 
     ProcessResult result;
@@ -351,13 +351,13 @@ ProcessResult run_process(const std::string& command) {
 
 std::string quoted(const fs::path& path) { return "\"" + path.string() + "\""; }
 
-/// A directory of `.ci` files, removed when the test ends.
+/// A directory of `.sn` files, removed when the test ends.
 class Workspace {
 public:
     Workspace() {
         static int counter = 0;
         root_ = fs::temp_directory_path() /
-                ("cinder-separate-" + std::to_string(++counter) + "-" +
+                ("soliton-separate-" + std::to_string(++counter) + "-" +
                  std::to_string(static_cast<unsigned long long>(
                      std::hash<std::string>{}(__FILE__))));
         std::error_code ignored;
@@ -380,10 +380,10 @@ public:
 
     fs::path path(const std::string& name) const { return root_ / name; }
 
-    /// `cinder run <entry> --verbose`, so the result carries both the
+    /// `soliton run <entry> --verbose`, so the result carries both the
     /// program's output and the report of what was compiled.
     ProcessResult run(const std::string& entry, const std::string& flags = "") const {
-        return run_process(quoted(fs::path{CINDER_BINARY}) + " run " + quoted(path(entry)) +
+        return run_process(quoted(fs::path{SOLITON_BINARY}) + " run " + quoted(path(entry)) +
                            " --verbose" + (flags.empty() ? "" : " " + flags));
     }
 
@@ -393,11 +393,11 @@ private:
 
 /// Fills a workspace with the three-module program these tests edit.
 void write_program(const Workspace& workspace) {
-    workspace.write("shapes.ci",
+    workspace.write("shapes.sn",
                     "pub struct Point { pub x: int, pub y: int, }\n"
                     "pub fn sum(p: Point) -> int { return p.x + p.y; }\n");
-    workspace.write("counter.ci", "pub fn next(n: int) -> int { return n + 1; }\n");
-    workspace.write("main.ci",
+    workspace.write("counter.sn", "pub fn next(n: int) -> int { return n + 1; }\n");
+    workspace.write("main.sn",
                     "import shapes;\n"
                     "import counter;\n"
                     "pub fn main() {\n"
@@ -417,55 +417,55 @@ bool cached(const ProcessResult& result, const std::string& file) {
 
 }  // namespace
 
-CINDER_TEST(incremental_build_compiles_every_module_the_first_time) {
-    if (!cinder::codegen::is_available()) {
+SOLITON_TEST(incremental_build_compiles_every_module_the_first_time) {
+    if (!soliton::codegen::is_available()) {
         return;
     }
     const Workspace workspace;
     write_program(workspace);
 
-    const ProcessResult first = workspace.run("main.ci");
-    CINDER_CHECK_MSG(first.exit_code == 0, "build failed:\n" + first.output);
-    CINDER_CHECK_MSG(compiled(first, "main.ci"), first.output);
-    CINDER_CHECK_MSG(compiled(first, "shapes.ci"), first.output);
-    CINDER_CHECK_MSG(compiled(first, "counter.ci"), first.output);
+    const ProcessResult first = workspace.run("main.sn");
+    SOLITON_CHECK_MSG(first.exit_code == 0, "build failed:\n" + first.output);
+    SOLITON_CHECK_MSG(compiled(first, "main.sn"), first.output);
+    SOLITON_CHECK_MSG(compiled(first, "shapes.sn"), first.output);
+    SOLITON_CHECK_MSG(compiled(first, "counter.sn"), first.output);
 }
 
-CINDER_TEST(incremental_build_reuses_every_object_when_nothing_changed) {
-    if (!cinder::codegen::is_available()) {
+SOLITON_TEST(incremental_build_reuses_every_object_when_nothing_changed) {
+    if (!soliton::codegen::is_available()) {
         return;
     }
     const Workspace workspace;
     write_program(workspace);
-    workspace.run("main.ci");
+    workspace.run("main.sn");
 
-    const ProcessResult again = workspace.run("main.ci");
-    CINDER_CHECK_MSG(again.exit_code == 0, "rebuild failed:\n" + again.output);
-    CINDER_CHECK_MSG(cached(again, "main.ci"), again.output);
-    CINDER_CHECK_MSG(cached(again, "shapes.ci"), again.output);
-    CINDER_CHECK_MSG(cached(again, "counter.ci"), again.output);
+    const ProcessResult again = workspace.run("main.sn");
+    SOLITON_CHECK_MSG(again.exit_code == 0, "rebuild failed:\n" + again.output);
+    SOLITON_CHECK_MSG(cached(again, "main.sn"), again.output);
+    SOLITON_CHECK_MSG(cached(again, "shapes.sn"), again.output);
+    SOLITON_CHECK_MSG(cached(again, "counter.sn"), again.output);
 
     // Reusing objects must not change what the program does.
-    CINDER_CHECK_MSG(again.output.find("7") != std::string::npos, again.output);
-    CINDER_CHECK_MSG(again.output.find("42") != std::string::npos, again.output);
+    SOLITON_CHECK_MSG(again.output.find("7") != std::string::npos, again.output);
+    SOLITON_CHECK_MSG(again.output.find("42") != std::string::npos, again.output);
 }
 
-CINDER_TEST(incremental_build_recompiles_a_changed_module_and_its_dependents) {
-    if (!cinder::codegen::is_available()) {
+SOLITON_TEST(incremental_build_recompiles_a_changed_module_and_its_dependents) {
+    if (!soliton::codegen::is_available()) {
         return;
     }
     const Workspace workspace;
     write_program(workspace);
-    workspace.run("main.ci");
+    workspace.run("main.sn");
 
     // A struct that changes shape changes the code generated in every
     // module that uses it, so `main` has to be rebuilt too - which is
     // why the cache key covers a module's imports, not just its own
     // source. `counter` is untouched and stays cached.
-    workspace.write("shapes.ci",
+    workspace.write("shapes.sn",
                     "pub struct Point { pub tag: int, pub x: int, pub y: int, }\n"
                     "pub fn sum(p: Point) -> int { return p.x + p.y; }\n");
-    workspace.write("main.ci",
+    workspace.write("main.sn",
                     "import shapes;\n"
                     "import counter;\n"
                     "pub fn main() {\n"
@@ -474,70 +474,70 @@ CINDER_TEST(incremental_build_recompiles_a_changed_module_and_its_dependents) {
                     "    println(counter::next(41));\n"
                     "}\n");
 
-    const ProcessResult after = workspace.run("main.ci");
-    CINDER_CHECK_MSG(after.exit_code == 0, "rebuild failed:\n" + after.output);
-    CINDER_CHECK_MSG(compiled(after, "shapes.ci"), after.output);
-    CINDER_CHECK_MSG(compiled(after, "main.ci"), after.output);
-    CINDER_CHECK_MSG(cached(after, "counter.ci"),
+    const ProcessResult after = workspace.run("main.sn");
+    SOLITON_CHECK_MSG(after.exit_code == 0, "rebuild failed:\n" + after.output);
+    SOLITON_CHECK_MSG(compiled(after, "shapes.sn"), after.output);
+    SOLITON_CHECK_MSG(compiled(after, "main.sn"), after.output);
+    SOLITON_CHECK_MSG(cached(after, "counter.sn"),
                     "an unrelated module was rebuilt:\n" + after.output);
-    CINDER_CHECK_MSG(after.output.find("7") != std::string::npos, after.output);
+    SOLITON_CHECK_MSG(after.output.find("7") != std::string::npos, after.output);
 }
 
-CINDER_TEST(incremental_build_leaves_a_module_alone_when_only_a_sibling_changed) {
-    if (!cinder::codegen::is_available()) {
+SOLITON_TEST(incremental_build_leaves_a_module_alone_when_only_a_sibling_changed) {
+    if (!soliton::codegen::is_available()) {
         return;
     }
     const Workspace workspace;
     write_program(workspace);
-    workspace.run("main.ci");
+    workspace.run("main.sn");
 
     // `shapes` does not import `counter`, so it cannot be affected.
-    workspace.write("counter.ci", "pub fn next(n: int) -> int { return n + 1 + 0; }\n");
+    workspace.write("counter.sn", "pub fn next(n: int) -> int { return n + 1 + 0; }\n");
 
-    const ProcessResult after = workspace.run("main.ci");
-    CINDER_CHECK_MSG(cached(after, "shapes.ci"),
+    const ProcessResult after = workspace.run("main.sn");
+    SOLITON_CHECK_MSG(cached(after, "shapes.sn"),
                     "a module that imports nothing changed was rebuilt:\n" + after.output);
-    CINDER_CHECK_MSG(compiled(after, "counter.ci"), after.output);
-    CINDER_CHECK_MSG(compiled(after, "main.ci"), after.output);
+    SOLITON_CHECK_MSG(compiled(after, "counter.sn"), after.output);
+    SOLITON_CHECK_MSG(compiled(after, "main.sn"), after.output);
 }
 
-CINDER_TEST(incremental_build_can_be_told_to_ignore_the_cache) {
-    if (!cinder::codegen::is_available()) {
+SOLITON_TEST(incremental_build_can_be_told_to_ignore_the_cache) {
+    if (!soliton::codegen::is_available()) {
         return;
     }
     const Workspace workspace;
     write_program(workspace);
-    workspace.run("main.ci");
+    workspace.run("main.sn");
 
-    const ProcessResult fresh = workspace.run("main.ci", "--fresh");
-    CINDER_CHECK_MSG(fresh.exit_code == 0, "rebuild failed:\n" + fresh.output);
-    CINDER_CHECK_MSG(compiled(fresh, "shapes.ci"), fresh.output);
-    CINDER_CHECK_MSG(compiled(fresh, "counter.ci"), fresh.output);
-    CINDER_CHECK_MSG(compiled(fresh, "main.ci"), fresh.output);
+    const ProcessResult fresh = workspace.run("main.sn", "--fresh");
+    SOLITON_CHECK_MSG(fresh.exit_code == 0, "rebuild failed:\n" + fresh.output);
+    SOLITON_CHECK_MSG(compiled(fresh, "shapes.sn"), fresh.output);
+    SOLITON_CHECK_MSG(compiled(fresh, "counter.sn"), fresh.output);
+    SOLITON_CHECK_MSG(compiled(fresh, "main.sn"), fresh.output);
 }
 
-CINDER_TEST(separate_compilation_links_a_generic_two_modules_both_instantiated) {
-    if (!cinder::codegen::is_available()) {
+SOLITON_TEST(separate_compilation_links_a_generic_two_modules_both_instantiated) {
+    if (!soliton::codegen::is_available()) {
         return;
     }
     // The tests above read IR; this one reads the linker's mind. Two
     // objects each define `compare__max__int`, and a duplicate symbol
     // would fail the link - `linkonce_odr` is what makes it not.
     const Workspace workspace;
-    workspace.write("compare.ci",
+    workspace.write("compare.sn",
                     "pub fn max<T>(a: T, b: T) -> T {\n"
                     "    if a > b {\n"
                     "        return a;\n"
                     "    }\n"
                     "    return b;\n"
                     "}\n");
-    workspace.write("alpha.ci",
+    workspace.write("alpha.sn",
                     "import compare;\n"
                     "pub fn best() -> int { return compare::max(3, 7); }\n");
-    workspace.write("beta.ci",
+    workspace.write("beta.sn",
                     "import compare;\n"
                     "pub fn best() -> int { return compare::max(11, 4); }\n");
-    workspace.write("main.ci",
+    workspace.write("main.sn",
                     "import alpha;\n"
                     "import beta;\n"
                     "pub fn main() {\n"
@@ -545,14 +545,14 @@ CINDER_TEST(separate_compilation_links_a_generic_two_modules_both_instantiated) 
                     "    println(beta::best());\n"
                     "}\n");
 
-    const ProcessResult result = workspace.run("main.ci");
-    CINDER_CHECK_MSG(result.exit_code == 0, "build or run failed:\n" + result.output);
-    CINDER_CHECK_MSG(result.output.find("7") != std::string::npos, result.output);
-    CINDER_CHECK_MSG(result.output.find("11") != std::string::npos, result.output);
+    const ProcessResult result = workspace.run("main.sn");
+    SOLITON_CHECK_MSG(result.exit_code == 0, "build or run failed:\n" + result.output);
+    SOLITON_CHECK_MSG(result.output.find("7") != std::string::npos, result.output);
+    SOLITON_CHECK_MSG(result.output.find("11") != std::string::npos, result.output);
 }
 
-CINDER_TEST(incremental_build_caches_each_optimization_level_separately) {
-    if (!cinder::codegen::is_available()) {
+SOLITON_TEST(incremental_build_caches_each_optimization_level_separately) {
+    if (!soliton::codegen::is_available()) {
         return;
     }
     // Flipping between `-O0` while working and `-O2` to check something
@@ -561,52 +561,52 @@ CINDER_TEST(incremental_build_caches_each_optimization_level_separately) {
     const Workspace workspace;
     write_program(workspace);
 
-    workspace.run("main.ci", "-O2");
-    workspace.run("main.ci", "-O0");
+    workspace.run("main.sn", "-O2");
+    workspace.run("main.sn", "-O0");
 
-    const ProcessResult again = workspace.run("main.ci", "-O2");
-    CINDER_CHECK_MSG(cached(again, "main.ci"),
+    const ProcessResult again = workspace.run("main.sn", "-O2");
+    SOLITON_CHECK_MSG(cached(again, "main.sn"),
                     "switching back to -O2 recompiled:\n" + again.output);
-    CINDER_CHECK_MSG(cached(again, "shapes.ci"), again.output);
+    SOLITON_CHECK_MSG(cached(again, "shapes.sn"), again.output);
 
     int objects = 0;
     std::error_code ignored;
     for (const fs::directory_entry& entry :
-         fs::directory_iterator(workspace.path(".cinder"), ignored)) {
+         fs::directory_iterator(workspace.path(".soliton"), ignored)) {
         objects += entry.path().extension() == ".o" ? 1 : 0;
     }
     // Three modules at two levels, and neither level swept the other.
-    CINDER_CHECK_EQ(objects, 6);
+    SOLITON_CHECK_EQ(objects, 6);
 }
 
-CINDER_TEST(incremental_build_keeps_one_object_per_module) {
-    if (!cinder::codegen::is_available()) {
+SOLITON_TEST(incremental_build_keeps_one_object_per_module) {
+    if (!soliton::codegen::is_available()) {
         return;
     }
     const Workspace workspace;
     write_program(workspace);
-    workspace.run("main.ci");
+    workspace.run("main.sn");
 
     // Editing repeatedly must not grow the cache: each build sweeps the
     // objects the previous fingerprints left behind.
     for (int i = 0; i < 3; ++i) {
-        workspace.write("counter.ci",
+        workspace.write("counter.sn",
                         "pub fn next(n: int) -> int { return n + 1 + " + std::to_string(i) +
                             " - " + std::to_string(i) + "; }\n");
-        workspace.run("main.ci");
+        workspace.run("main.sn");
     }
 
     int objects = 0;
     std::error_code ignored;
     for (const fs::directory_entry& entry :
-         fs::directory_iterator(workspace.path(".cinder"), ignored)) {
+         fs::directory_iterator(workspace.path(".soliton"), ignored)) {
         objects += entry.path().extension() == ".o" ? 1 : 0;
     }
-    CINDER_CHECK_EQ(objects, 3);
+    SOLITON_CHECK_EQ(objects, 3);
 }
 
-CINDER_TEST(whole_program_builds_one_object_and_caches_nothing) {
-    if (!cinder::codegen::is_available()) {
+SOLITON_TEST(whole_program_builds_one_object_and_caches_nothing) {
+    if (!soliton::codegen::is_available()) {
         return;
     }
     // The trade separate compilation made, offered back: no per-module
@@ -615,31 +615,31 @@ CINDER_TEST(whole_program_builds_one_object_and_caches_nothing) {
     const Workspace workspace;
     write_program(workspace);
 
-    const ProcessResult built = workspace.run("main.ci", "--whole-program");
-    CINDER_CHECK_MSG(built.exit_code == 0, "build failed:\n" + built.output);
-    CINDER_CHECK_MSG(built.output.find("as one unit") != std::string::npos, built.output);
-    CINDER_CHECK_MSG(!fs::exists(workspace.path(".cinder")),
+    const ProcessResult built = workspace.run("main.sn", "--whole-program");
+    SOLITON_CHECK_MSG(built.exit_code == 0, "build failed:\n" + built.output);
+    SOLITON_CHECK_MSG(built.output.find("as one unit") != std::string::npos, built.output);
+    SOLITON_CHECK_MSG(!fs::exists(workspace.path(".soliton")),
                     "a whole-program build should cache nothing");
 
     // And the program it produces is the same program.
-    CINDER_CHECK_MSG(built.output.find("7") != std::string::npos, built.output);
-    CINDER_CHECK_MSG(built.output.find("42") != std::string::npos, built.output);
+    SOLITON_CHECK_MSG(built.output.find("7") != std::string::npos, built.output);
+    SOLITON_CHECK_MSG(built.output.find("42") != std::string::npos, built.output);
 }
 
-CINDER_TEST(whole_program_and_separate_builds_agree) {
-    if (!cinder::codegen::is_available()) {
+SOLITON_TEST(whole_program_and_separate_builds_agree) {
+    if (!soliton::codegen::is_available()) {
         return;
     }
     const Workspace workspace;
     write_program(workspace);
 
-    const ProcessResult separate = workspace.run("main.ci", "-O2");
-    const ProcessResult together = workspace.run("main.ci", "-O2 --whole-program");
+    const ProcessResult separate = workspace.run("main.sn", "-O2");
+    const ProcessResult together = workspace.run("main.sn", "-O2 --whole-program");
 
     // Compare only what the program printed: the progress reporting
     // differs between the two by design.
-    CINDER_CHECK_MSG(separate.output.find("7") != std::string::npos, separate.output);
-    CINDER_CHECK_MSG(together.output.find("7") != std::string::npos, together.output);
-    CINDER_CHECK_MSG(separate.output.find("42") != std::string::npos, separate.output);
-    CINDER_CHECK_MSG(together.output.find("42") != std::string::npos, together.output);
+    SOLITON_CHECK_MSG(separate.output.find("7") != std::string::npos, separate.output);
+    SOLITON_CHECK_MSG(together.output.find("7") != std::string::npos, together.output);
+    SOLITON_CHECK_MSG(separate.output.find("42") != std::string::npos, separate.output);
+    SOLITON_CHECK_MSG(together.output.find("42") != std::string::npos, together.output);
 }

@@ -2,40 +2,46 @@
 
 | File | Use |
 |---|---|
-| `cinder-mark.svg` | The mark alone. App icons, favicons, anywhere the name is already present. |
-| `cinder-wordmark.svg` | Mark and name, dark ink — for light backgrounds. |
-| `cinder-wordmark-dark.svg` | The same, light ink — for dark backgrounds. |
-| `cinder-file-icon.svg` | File-type icon for `.ci` source files. |
+| `soliton-mark.svg` | The mark alone. App icons, favicons, anywhere the name is already present. |
+| `soliton-wordmark.svg` | Mark and name, dark ink — for light backgrounds. |
+| `soliton-wordmark-dark.svg` | The same, light ink — for dark backgrounds. |
+| `soliton-file-icon.svg` | File-type icon for `.sn` source files. |
+| `og-card.html` | Source for the social card; renders to `docs/og-image.png`. |
 
-**The mark** is a chip of coal split open and still burning: an irregular
-dark body, molten light through the break, and a splinter lying across
-it. A cinder is what is left of a fire rather than the fire itself, so it
-is deliberately not a flame — two earlier attempts were a flame, which
-reads as any of a hundred fire icons, and a faceted solid, which read as
-a box.
+**The mark is the equation.** A soliton is a solitary wave that keeps
+its shape as it travels, and the canonical solution to the KdV equation
+is a sech² pulse — so the silhouette is that curve, sampled at 96 points
+rather than approximated with béziers. Two copies of the same pulse, the
+trailing one fading off the left edge: identical shape at two positions
+is what "does not disperse" looks like, and it is the whole idea in one
+image.
 
-**The wordmark needs two files** because an SVG embedded with `<img>`
-does not inherit `currentColor` from the page. A single file using it
-renders black on black in a dark README. Select between them with
-`<picture>`:
+The fade is not decoration. The echo is cut by the frame, and without it
+that cut is a hard vertical wall that reads as a rendering fault.
+
+**These are generated, not drawn.** `make_mark.py` emits the mark from
+the equation; `make_assets.py` derives the wordmark and file icon from
+it. Change the curve in one place and re-run both, rather than editing
+four files and hoping they still agree.
+
+**The wordmark ships twice** because an SVG embedded with `<img>` does
+not inherit `currentColor` from the page. A single file using it renders
+invisible in one theme. Select between them:
 
 ```html
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="assets/cinder-wordmark-dark.svg">
-  <img src="assets/cinder-wordmark.svg" alt="Cinder" width="230">
+  <source media="(prefers-color-scheme: dark)" srcset="assets/soliton-wordmark-dark.svg">
+  <img src="assets/soliton-wordmark.svg" alt="Soliton" width="250">
 </picture>
 ```
 
-**Colours.** Coal `#26140f`, ember `#f97316`, heat `#fde047`, core
-`#fffbeb`. The gradients carry the rest.
-
-Everything here is MIT-licensed along with the rest of the project.
+**Colours.** Ink `#0b1620`, deep `#0e7490`, pulse `#22d3ee`, crest
+`#7dd3fc`. The gradients carry the rest.
 
 ## The social card
 
-`og-card.html` is the source; `docs/og-image.png` is the render that the
-site actually serves. Rebuild it with headless Chrome after editing the
-card:
+`og-card.html` is the source; `docs/og-image.png` is the render the site
+serves. Rebuild it after editing the card:
 
 ```bash
 chrome --headless=new --disable-gpu --hide-scrollbars \
@@ -44,9 +50,16 @@ chrome --headless=new --disable-gpu --hide-scrollbars \
        --screenshot=docs/og-image.png assets/og-card.html
 ```
 
+Two things about that command are load-bearing.
 `--virtual-time-budget` is not optional: without it the shot is taken
-before the webfonts arrive and the card renders in Times.
+before the webfonts arrive and the card renders in Times. And **both
+paths must be absolute** — given a relative `--screenshot` target and a
+relative page, headless Chrome exits successfully having written
+nothing, leaving the previous render in place. It looks like it worked.
+Check the mtime.
 
 It is a PNG rather than the SVG mark because most platforms will not
 render an SVG in a link preview, and a broken preview is worse than
-none. 1200x630 is the size Open Graph, Slack and Twitter all agree on.
+none. 1200×630 is the size Open Graph, Slack and Twitter all agree on.
+
+Everything here is MIT-licensed along with the rest of the project.

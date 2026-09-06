@@ -7,11 +7,11 @@
 
 #include "test_harness.hpp"
 
-#include "cinder/ast/diagnostic.hpp"
-#include "cinder/ast/nodes.hpp"
-#include "cinder/codegen/codegen.hpp"
-#include "cinder/parser/parser.hpp"
-#include "cinder/typeck/typeck.hpp"
+#include "soliton/ast/diagnostic.hpp"
+#include "soliton/ast/nodes.hpp"
+#include "soliton/codegen/codegen.hpp"
+#include "soliton/parser/parser.hpp"
+#include "soliton/typeck/typeck.hpp"
 
 #include <string>
 #include <utility>
@@ -19,8 +19,8 @@
 
 namespace {
 
-using cinder::ast::SourceMap;
-using cinder::typeck::CheckResult;
+using soliton::ast::SourceMap;
+using soliton::typeck::CheckResult;
 
 /// One module of a test program: its name and its source.
 struct Source {
@@ -36,7 +36,7 @@ struct Source {
 /// explicit import list.
 struct Program {
     SourceMap sources;
-    std::vector<cinder::parser::ParseResult> parsed;
+    std::vector<soliton::parser::ParseResult> parsed;
     CheckResult checked;
 };
 
@@ -45,26 +45,26 @@ Program check_modules(const std::vector<Source>& modules,
     Program program;
 
     for (const Source& module : modules) {
-        const cinder::ast::FileId id = program.sources.add(
-            (module.name.empty() ? std::string{"main"} : module.name) + ".ci", module.text);
-        cinder::parser::ParseResult parsed =
-            cinder::parser::parse_source(program.sources.file(id));
+        const soliton::ast::FileId id = program.sources.add(
+            (module.name.empty() ? std::string{"main"} : module.name) + ".sn", module.text);
+        soliton::parser::ParseResult parsed =
+            soliton::parser::parse_source(program.sources.file(id));
         if (!parsed.ok()) {
-            ::cinder::test::fail(__FILE__, __LINE__,
+            ::soliton::test::fail(__FILE__, __LINE__,
                                 "test fixture does not parse:\n" +
-                                    cinder::ast::render_all(parsed.diagnostics, program.sources));
+                                    soliton::ast::render_all(parsed.diagnostics, program.sources));
         }
         program.parsed.push_back(std::move(parsed));
     }
 
-    std::vector<cinder::typeck::ModuleInput> inputs;
+    std::vector<soliton::typeck::ModuleInput> inputs;
     for (std::size_t i = 0; i < modules.size(); ++i) {
-        inputs.push_back(cinder::typeck::ModuleInput{modules[i].name,
+        inputs.push_back(soliton::typeck::ModuleInput{modules[i].name,
                                                     program.parsed[i].program.get(),
                                                     imports[i]});
     }
 
-    program.checked = cinder::typeck::check(inputs, program.sources);
+    program.checked = soliton::typeck::check(inputs, program.sources);
     return program;
 }
 
@@ -86,17 +86,17 @@ std::vector<std::vector<std::string>> all_import_all(const std::vector<Source>& 
 void accept(const std::vector<Source>& modules) {
     Program program = check_modules(modules, all_import_all(modules));
     if (!program.checked.ok()) {
-        ::cinder::test::fail(__FILE__, __LINE__,
+        ::soliton::test::fail(__FILE__, __LINE__,
                             "expected these modules to check, but:\n" +
-                                cinder::ast::render_all(program.checked.diagnostics,
+                                soliton::ast::render_all(program.checked.diagnostics,
                                                        program.sources));
     }
 }
 
-std::vector<cinder::ast::Diagnostic> reject(const std::vector<Source>& modules) {
+std::vector<soliton::ast::Diagnostic> reject(const std::vector<Source>& modules) {
     Program program = check_modules(modules, all_import_all(modules));
     if (program.checked.ok()) {
-        ::cinder::test::fail(__FILE__, __LINE__,
+        ::soliton::test::fail(__FILE__, __LINE__,
                             "expected these modules to be rejected, but they checked");
     }
     return std::move(program.checked.diagnostics);
@@ -111,24 +111,24 @@ std::string first_error(const std::vector<Source>& modules) {
 std::string compile_modules(const std::vector<Source>& modules) {
     Program program = check_modules(modules, all_import_all(modules));
     if (!program.checked.ok()) {
-        ::cinder::test::fail(__FILE__, __LINE__,
+        ::soliton::test::fail(__FILE__, __LINE__,
                             "expected these modules to check, but:\n" +
-                                cinder::ast::render_all(program.checked.diagnostics,
+                                soliton::ast::render_all(program.checked.diagnostics,
                                                        program.sources));
     }
 
-    std::vector<cinder::codegen::ModuleInput> inputs;
+    std::vector<soliton::codegen::ModuleInput> inputs;
     for (std::size_t i = 0; i < modules.size(); ++i) {
         inputs.push_back(
-            cinder::codegen::ModuleInput{modules[i].name, program.parsed[i].program.get()});
+            soliton::codegen::ModuleInput{modules[i].name, program.parsed[i].program.get()});
     }
 
-    const cinder::codegen::CompileResult compiled =
-        cinder::codegen::compile_to_string(inputs, program.checked, {});
+    const soliton::codegen::CompileResult compiled =
+        soliton::codegen::compile_to_string(inputs, program.checked, {});
     if (!compiled.ok()) {
-        ::cinder::test::fail(__FILE__, __LINE__,
+        ::soliton::test::fail(__FILE__, __LINE__,
                             "codegen failed:\n" +
-                                cinder::ast::render_all(compiled.diagnostics, program.sources));
+                                soliton::ast::render_all(compiled.diagnostics, program.sources));
     }
     return compiled.assembly;
 }
@@ -147,7 +147,7 @@ const char* const kGeometry =
 // Reaching across a module boundary
 // ---------------------------------------------------------------------
 
-CINDER_TEST(modules_reach_a_public_function) {
+SOLITON_TEST(modules_reach_a_public_function) {
     accept({{"geometry", kGeometry},
             {"", "pub fn main() {\n"
                  "    let p = geometry::Point { x: 3, y: 4 };\n"
@@ -155,7 +155,7 @@ CINDER_TEST(modules_reach_a_public_function) {
                  "}\n"}});
 }
 
-CINDER_TEST(modules_reach_a_public_struct_and_constant) {
+SOLITON_TEST(modules_reach_a_public_struct_and_constant) {
     accept({{"geometry", kGeometry},
             {"", "pub fn main() {\n"
                  "    let p: geometry::Point = geometry::ORIGIN;\n"
@@ -163,7 +163,7 @@ CINDER_TEST(modules_reach_a_public_struct_and_constant) {
                  "}\n"}});
 }
 
-CINDER_TEST(modules_keep_their_own_namespace) {
+SOLITON_TEST(modules_keep_their_own_namespace) {
     // Two modules may each declare `helper`; the qualified names differ,
     // so neither collides with the other or with the entry module.
     accept({{"a", "pub fn helper() -> int { return 1; }\n"},
@@ -174,7 +174,7 @@ CINDER_TEST(modules_keep_their_own_namespace) {
                  "}\n"}});
 }
 
-CINDER_TEST(modules_let_two_modules_declare_the_same_type_name) {
+SOLITON_TEST(modules_let_two_modules_declare_the_same_type_name) {
     accept({{"a", "pub struct Value { pub n: int, }\n"},
             {"b", "pub struct Value { pub n: int, }\n"},
             {"", "pub fn main() {\n"
@@ -184,15 +184,15 @@ CINDER_TEST(modules_let_two_modules_declare_the_same_type_name) {
                  "}\n"}});
 }
 
-CINDER_TEST(modules_treat_same_named_types_from_two_modules_as_distinct) {
-    CINDER_CHECK_EQ(first_error({{"a", "pub struct Value { pub n: int, }\n"},
+SOLITON_TEST(modules_treat_same_named_types_from_two_modules_as_distinct) {
+    SOLITON_CHECK_EQ(first_error({{"a", "pub struct Value { pub n: int, }\n"},
                                 {"b", "pub struct Value { pub n: int, }\n"},
                                 {"", "pub fn take(v: a::Value) { }\n"
                                      "pub fn main() { take(b::Value { n: 1 }); }\n"}}),
                    std::string{"type mismatch"});
 }
 
-CINDER_TEST(modules_resolve_a_module_qualified_name_inside_that_module) {
+SOLITON_TEST(modules_resolve_a_module_qualified_name_inside_that_module) {
     // `geometry::magnitude_sq` written inside `geometry` itself is legal
     // and reaches even private items, being the same module.
     accept({{"geometry",
@@ -207,31 +207,31 @@ CINDER_TEST(modules_resolve_a_module_qualified_name_inside_that_module) {
 // Visibility - what `pub` now means
 // ---------------------------------------------------------------------
 
-CINDER_TEST(modules_reject_calling_a_private_function) {
-    const std::vector<cinder::ast::Diagnostic> errors =
+SOLITON_TEST(modules_reject_calling_a_private_function) {
+    const std::vector<soliton::ast::Diagnostic> errors =
         reject({{"geometry", kGeometry},
                 {"", "pub fn main() { println(geometry::private_helper()); }\n"}});
-    CINDER_CHECK_EQ(errors.at(0).message,
+    SOLITON_CHECK_EQ(errors.at(0).message,
                    std::string{"function `geometry::private_helper` is private"});
-    CINDER_CHECK_MSG(errors.at(0).notes.at(0).find("declared at") != std::string::npos,
+    SOLITON_CHECK_MSG(errors.at(0).notes.at(0).find("declared at") != std::string::npos,
                     "note was: " + errors.at(0).notes.at(0));
 }
 
-CINDER_TEST(modules_reject_naming_a_private_type) {
-    CINDER_CHECK_EQ(first_error({{"geometry", kGeometry},
+SOLITON_TEST(modules_reject_naming_a_private_type) {
+    SOLITON_CHECK_EQ(first_error({{"geometry", kGeometry},
                                 {"", "pub fn take(p: geometry::PrivatePoint) { }\n"}}),
                    std::string{"type `geometry::PrivatePoint` is private"});
 }
 
-CINDER_TEST(modules_allow_a_module_to_use_its_own_private_items) {
+SOLITON_TEST(modules_allow_a_module_to_use_its_own_private_items) {
     accept({{"geometry",
              std::string{kGeometry} +
                  "pub fn uses_private() -> int { return private_helper() + PRIVATE_LIMIT; }\n"},
             {"", "pub fn main() { println(geometry::uses_private()); }\n"}});
 }
 
-CINDER_TEST(modules_reject_reading_a_private_field) {
-    CINDER_CHECK_EQ(first_error({{"shapes", "pub struct Circle { pub r: int, hidden: int, }\n"
+SOLITON_TEST(modules_reject_reading_a_private_field) {
+    SOLITON_CHECK_EQ(first_error({{"shapes", "pub struct Circle { pub r: int, hidden: int, }\n"
                                            "pub fn make() -> Circle {\n"
                                            "    return Circle { r: 1, hidden: 2 };\n"
                                            "}\n"},
@@ -242,10 +242,10 @@ CINDER_TEST(modules_reject_reading_a_private_field) {
                    std::string{"field `hidden` of `shapes::Circle` is private"});
 }
 
-CINDER_TEST(modules_reject_constructing_a_struct_with_private_fields) {
+SOLITON_TEST(modules_reject_constructing_a_struct_with_private_fields) {
     // Every field must be given a value and a private one cannot be, so
     // the type is simply not constructible from outside.
-    CINDER_CHECK_EQ(first_error({{"shapes", "pub struct Circle { pub r: int, hidden: int, }\n"},
+    SOLITON_CHECK_EQ(first_error({{"shapes", "pub struct Circle { pub r: int, hidden: int, }\n"},
                                 {"", "pub fn main() {\n"
                                      "    let c = shapes::Circle { r: 1 };\n"
                                      "    println(c.r);\n"
@@ -253,14 +253,14 @@ CINDER_TEST(modules_reject_constructing_a_struct_with_private_fields) {
                    std::string{"`shapes::Circle` cannot be constructed from outside its module"});
 }
 
-CINDER_TEST(modules_allow_a_module_to_construct_its_own_private_fields) {
+SOLITON_TEST(modules_allow_a_module_to_construct_its_own_private_fields) {
     accept({{"shapes", "pub struct Circle { pub r: int, hidden: int, }\n"
                        "pub fn make() -> Circle { return Circle { r: 1, hidden: 2 }; }\n"},
             {"", "pub fn main() { println(shapes::make().r); }\n"}});
 }
 
-CINDER_TEST(modules_reject_a_private_constant) {
-    CINDER_CHECK_EQ(first_error({{"config", "const SECRET: int = 1;\npub const OPEN: int = 2;\n"},
+SOLITON_TEST(modules_reject_a_private_constant) {
+    SOLITON_CHECK_EQ(first_error({{"config", "const SECRET: int = 1;\npub const OPEN: int = 2;\n"},
                                 {"", "pub fn main() { println(config::SECRET); }\n"}}),
                    std::string{"constant `config::SECRET` is private"});
 }
@@ -269,19 +269,19 @@ CINDER_TEST(modules_reject_a_private_constant) {
 // Imports
 // ---------------------------------------------------------------------
 
-CINDER_TEST(modules_require_an_import_before_a_module_can_be_named) {
+SOLITON_TEST(modules_require_an_import_before_a_module_can_be_named) {
     // `geometry` is loaded, but this module did not import it.
     Program program = check_modules(
         {{"geometry", kGeometry},
          {"", "pub fn main() { println(geometry::magnitude_sq(geometry::ORIGIN)); }\n"}},
         {{}, {}});
 
-    CINDER_CHECK(!program.checked.ok());
-    CINDER_CHECK_EQ(program.checked.diagnostics.at(0).message,
+    SOLITON_CHECK(!program.checked.ok());
+    SOLITON_CHECK_EQ(program.checked.diagnostics.at(0).message,
                    std::string{"module `geometry` is not imported here"});
 }
 
-CINDER_TEST(modules_do_not_make_imports_transitive) {
+SOLITON_TEST(modules_do_not_make_imports_transitive) {
     // `mid` imports `geometry`; the entry module imports only `mid`, so
     // it still cannot name `geometry`.
     Program program = check_modules(
@@ -292,17 +292,17 @@ CINDER_TEST(modules_do_not_make_imports_transitive) {
          {"", "pub fn main() { println(geometry::ORIGIN.x); }\n"}},
         {{}, {"geometry"}, {"mid"}});
 
-    CINDER_CHECK(!program.checked.ok());
-    CINDER_CHECK_EQ(program.checked.diagnostics.at(0).message,
+    SOLITON_CHECK(!program.checked.ok());
+    SOLITON_CHECK_EQ(program.checked.diagnostics.at(0).message,
                    std::string{"module `geometry` is not imported here"});
 }
 
-CINDER_TEST(modules_report_an_unknown_module) {
-    CINDER_CHECK_EQ(first_error({{"", "pub fn main() { println(nowhere::thing()); }\n"}}),
+SOLITON_TEST(modules_report_an_unknown_module) {
+    SOLITON_CHECK_EQ(first_error({{"", "pub fn main() { println(nowhere::thing()); }\n"}}),
                    std::string{"cannot find module `nowhere`"});
 }
 
-CINDER_TEST(modules_resolve_a_cycle_between_two_modules) {
+SOLITON_TEST(modules_resolve_a_cycle_between_two_modules) {
     // Every module is collected before any body is checked, so neither
     // has to be declared first.
     accept({{"a", "pub struct Ping { pub n: int, }\n"
@@ -316,7 +316,7 @@ CINDER_TEST(modules_resolve_a_cycle_between_two_modules) {
 // Symbols and unqualified resolution
 // ---------------------------------------------------------------------
 
-CINDER_TEST(modules_qualify_symbol_names_so_two_modules_can_share_one) {
+SOLITON_TEST(modules_qualify_symbol_names_so_two_modules_can_share_one) {
     // Both declare `helper`; the emitted symbols must differ or the
     // linker would pick one arbitrarily.
     Program program = check_modules({{"a", "pub fn helper() -> int { return 1; }\n"},
@@ -324,33 +324,33 @@ CINDER_TEST(modules_qualify_symbol_names_so_two_modules_can_share_one) {
                                      {"", "pub fn main() { println(a::helper()); }\n"}},
                                     all_import_all({{"a", ""}, {"b", ""}, {"", ""}}));
 
-    CINDER_CHECK(program.checked.ok());
-    CINDER_CHECK_EQ(program.checked.functions.at("a::helper").mangled_name,
+    SOLITON_CHECK(program.checked.ok());
+    SOLITON_CHECK_EQ(program.checked.functions.at("a::helper").mangled_name,
                    std::string{"a__helper"});
-    CINDER_CHECK_EQ(program.checked.functions.at("b::helper").mangled_name,
+    SOLITON_CHECK_EQ(program.checked.functions.at("b::helper").mangled_name,
                    std::string{"b__helper"});
 }
 
-CINDER_TEST(modules_leave_the_entry_modules_symbols_unprefixed) {
+SOLITON_TEST(modules_leave_the_entry_modules_symbols_unprefixed) {
     Program program =
         check_modules({{"", "pub fn helper() -> int { return 1; }\npub fn main() { }\n"}}, {{}});
 
-    CINDER_CHECK(program.checked.ok());
-    CINDER_CHECK_EQ(program.checked.functions.at("helper").mangled_name, std::string{"helper"});
-    CINDER_CHECK_EQ(program.checked.functions.at("main").mangled_name, std::string{"main"});
+    SOLITON_CHECK(program.checked.ok());
+    SOLITON_CHECK_EQ(program.checked.functions.at("helper").mangled_name, std::string{"helper"});
+    SOLITON_CHECK_EQ(program.checked.functions.at("main").mangled_name, std::string{"main"});
 }
 
-CINDER_TEST(modules_resolve_an_unqualified_name_in_its_own_module_only) {
+SOLITON_TEST(modules_resolve_an_unqualified_name_in_its_own_module_only) {
     // `magnitude_sq` is unqualified in the entry module, where it does
     // not exist, so it must not silently resolve to geometry's.
-    CINDER_CHECK_EQ(first_error({{"geometry", kGeometry},
+    SOLITON_CHECK_EQ(first_error({{"geometry", kGeometry},
                                 {"", "pub fn main() { println(magnitude_sq(geometry::ORIGIN)); }\n"}}),
                    std::string{"cannot find function `magnitude_sq`"});
 }
 
-CINDER_TEST(modules_let_a_local_shadow_nothing_across_modules) {
+SOLITON_TEST(modules_let_a_local_shadow_nothing_across_modules) {
     // A local in one module is invisible to another, even by name.
-    CINDER_CHECK_EQ(first_error({{"a", "pub fn f() -> int { let hidden = 1; return hidden; }\n"},
+    SOLITON_CHECK_EQ(first_error({{"a", "pub fn f() -> int { let hidden = 1; return hidden; }\n"},
                                 {"", "pub fn main() { println(hidden); }\n"}}),
                    std::string{"cannot find value `hidden`"});
 }
@@ -359,7 +359,7 @@ CINDER_TEST(modules_let_a_local_shadow_nothing_across_modules) {
 // Generics across modules
 // ---------------------------------------------------------------------
 
-CINDER_TEST(modules_instantiate_a_generic_from_another_module) {
+SOLITON_TEST(modules_instantiate_a_generic_from_another_module) {
     accept({{"util", "pub fn max<T>(a: T, b: T) -> T {\n"
                      "    if a > b {\n"
                      "        return a;\n"
@@ -372,19 +372,19 @@ CINDER_TEST(modules_instantiate_a_generic_from_another_module) {
                  "}\n"}});
 }
 
-CINDER_TEST(modules_give_an_instantiation_the_declaring_modules_symbol) {
+SOLITON_TEST(modules_give_an_instantiation_the_declaring_modules_symbol) {
     Program program =
         check_modules({{"util", "pub fn identity<T>(v: T) -> T { return v; }\n"},
                        {"", "pub fn main() { println(util::identity(1)); }\n"}},
                       {{}, {"util"}});
 
-    CINDER_CHECK(program.checked.ok());
-    CINDER_CHECK_EQ(program.checked.instantiations.size(), std::size_t{1});
-    CINDER_CHECK_EQ(program.checked.instantiations.front().info.mangled_name,
+    SOLITON_CHECK(program.checked.ok());
+    SOLITON_CHECK_EQ(program.checked.instantiations.size(), std::size_t{1});
+    SOLITON_CHECK_EQ(program.checked.instantiations.front().info.mangled_name,
                    std::string{"util__identity__int"});
 }
 
-CINDER_TEST(modules_check_a_template_body_as_its_own_module) {
+SOLITON_TEST(modules_check_a_template_body_as_its_own_module) {
     // The template uses a private helper from its own module; that has
     // to stay legal when instantiated from somewhere else.
     accept({{"util", "fn twice(n: int) -> int { return n * 2; }\n"
@@ -395,8 +395,8 @@ CINDER_TEST(modules_check_a_template_body_as_its_own_module) {
                  "}\n"}});
 }
 
-CINDER_TEST(modules_reject_a_private_generic_function) {
-    CINDER_CHECK_EQ(first_error({{"util", "fn identity<T>(v: T) -> T { return v; }\n"},
+SOLITON_TEST(modules_reject_a_private_generic_function) {
+    SOLITON_CHECK_EQ(first_error({{"util", "fn identity<T>(v: T) -> T { return v; }\n"},
                                 {"", "pub fn main() { println(util::identity(1)); }\n"}}),
                    std::string{"function `util::identity` is private"});
 }
@@ -405,16 +405,16 @@ CINDER_TEST(modules_reject_a_private_generic_function) {
 // Single-file programs are unaffected
 // ---------------------------------------------------------------------
 
-CINDER_TEST(modules_leave_a_single_file_program_unchanged) {
-    const cinder::ast::SourceFile source{"solo.ci",
+SOLITON_TEST(modules_leave_a_single_file_program_unchanged) {
+    const soliton::ast::SourceFile source{"solo.sn",
                                         "pub fn helper() -> int { return 1; }\n"
                                         "pub fn main() { println(helper()); }\n"};
-    const cinder::parser::ParseResult parsed = cinder::parser::parse_source(source);
-    const CheckResult checked = cinder::typeck::check(*parsed.program, source);
+    const soliton::parser::ParseResult parsed = soliton::parser::parse_source(source);
+    const CheckResult checked = soliton::typeck::check(*parsed.program, source);
 
-    CINDER_CHECK(checked.ok());
-    CINDER_CHECK_EQ(checked.functions.at("helper").mangled_name, std::string{"helper"});
-    CINDER_CHECK_EQ(checked.functions.at("helper").module, std::string{});
+    SOLITON_CHECK(checked.ok());
+    SOLITON_CHECK_EQ(checked.functions.at("helper").mangled_name, std::string{"helper"});
+    SOLITON_CHECK_EQ(checked.functions.at("helper").module, std::string{});
 }
 
 // ---------------------------------------------------------------------
@@ -427,7 +427,7 @@ CINDER_TEST(modules_leave_a_single_file_program_unchanged) {
 // `shapes::geometry` has no special relationship to `shapes`.
 // ---------------------------------------------------------------------
 
-CINDER_TEST(nested_modules_qualify_their_items_by_the_whole_path) {
+SOLITON_TEST(nested_modules_qualify_their_items_by_the_whole_path) {
     accept({
         Source{"shapes::geometry",
                "pub struct Point { pub x: int, }\n"
@@ -439,7 +439,7 @@ CINDER_TEST(nested_modules_qualify_their_items_by_the_whole_path) {
     });
 }
 
-CINDER_TEST(nested_modules_keep_two_leaves_of_the_same_name_apart) {
+SOLITON_TEST(nested_modules_keep_two_leaves_of_the_same_name_apart) {
     accept({
         Source{"math", "pub fn value() -> int { return 1; }\n"},
         Source{"shapes::math", "pub fn value() -> int { return 2; }\n"},
@@ -447,31 +447,31 @@ CINDER_TEST(nested_modules_keep_two_leaves_of_the_same_name_apart) {
     });
 }
 
-CINDER_TEST(nested_modules_enforce_pub_the_same_way) {
+SOLITON_TEST(nested_modules_enforce_pub_the_same_way) {
     // Nesting changes how a module is named, not who may reach into it.
-    const std::vector<cinder::ast::Diagnostic> errors = reject({
+    const std::vector<soliton::ast::Diagnostic> errors = reject({
         Source{"shapes::geometry", "fn hidden() -> int { return 1; }\n"},
         Source{"", "pub fn main() { println(shapes::geometry::hidden()); }\n"},
     });
-    CINDER_CHECK_EQ(errors.at(0).message,
+    SOLITON_CHECK_EQ(errors.at(0).message,
                    std::string{"function `shapes::geometry::hidden` is private"});
 }
 
-CINDER_TEST(nested_modules_give_a_parent_no_special_access) {
+SOLITON_TEST(nested_modules_give_a_parent_no_special_access) {
     // `shapes` is not a module here, and even if it were it would get
     // nothing extra. There is no nesting *semantics*, only nesting
     // names.
-    const std::vector<cinder::ast::Diagnostic> errors = reject({
+    const std::vector<soliton::ast::Diagnostic> errors = reject({
         Source{"shapes", "pub fn peek() -> int { return shapes::detail::hidden(); }\n"},
         Source{"shapes::detail", "fn hidden() -> int { return 1; }\n"},
         Source{"", "pub fn main() { println(shapes::peek()); }\n"},
     });
-    CINDER_CHECK_EQ(errors.at(0).message,
+    SOLITON_CHECK_EQ(errors.at(0).message,
                    std::string{"function `shapes::detail::hidden` is private"});
 }
 
-CINDER_TEST(nested_modules_mangle_to_linker_safe_symbols) {
-    if (!cinder::codegen::is_available()) {
+SOLITON_TEST(nested_modules_mangle_to_linker_safe_symbols) {
+    if (!soliton::codegen::is_available()) {
         return;
     }
     // `::` is not something a linker will accept, so the path becomes
@@ -484,8 +484,8 @@ CINDER_TEST(nested_modules_mangle_to_linker_safe_symbols) {
                    "    println(shapes::detail::math::square(5));\n"
                    "}\n"},
     });
-    CINDER_CHECK_MSG(ir.find("@math__square(") != std::string::npos, ir);
-    CINDER_CHECK_MSG(ir.find("@shapes__detail__math__square(") != std::string::npos, ir);
-    CINDER_CHECK_MSG(ir.find("::") == std::string::npos,
+    SOLITON_CHECK_MSG(ir.find("@math__square(") != std::string::npos, ir);
+    SOLITON_CHECK_MSG(ir.find("@shapes__detail__math__square(") != std::string::npos, ir);
+    SOLITON_CHECK_MSG(ir.find("::") == std::string::npos,
                     "a module path leaked into a symbol name:\n" + ir);
 }

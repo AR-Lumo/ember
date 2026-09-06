@@ -3,9 +3,9 @@
 /cmake-build-*/
 
 # Per-module object files cached between builds, beside the entry source
-.cinder/
+.soliton/
 
-# Compiled Cinder programs and intermediate artifacts
+# Compiled Soliton programs and intermediate artifacts
 *.exe
 *.ll
 *.o

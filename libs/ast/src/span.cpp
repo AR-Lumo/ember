@@ -1,4 +1,4 @@
-#include "cinder/ast/span.hpp"
+#include "soliton/ast/span.hpp"
 
 #include <algorithm>
 #include <fstream>
@@ -6,7 +6,7 @@
 #include <string_view>
 #include <utility>
 
-namespace cinder::ast {
+namespace soliton::ast {
 
 SourceFile::SourceFile(std::string path, std::string contents, FileId id)
     : path_(std::move(path)), contents_(std::move(contents)), id_(id) {
@@ -14,8 +14,8 @@ SourceFile::SourceFile(std::string path, std::string contents, FileId id)
     //
     // Windows editors write one by default - Notepad does, and so does
     // PowerShell's `Out-File -Encoding utf8` - so the first file a lot
-    // of people save is one Cinder used to reject with three
-    // "`\xEF` is not valid in Cinder source" errors before reaching a
+    // of people save is one Soliton used to reject with three
+    // "`\xEF` is not valid in Soliton source" errors before reaching a
     // single token. Every other compiler skips it; so does this one.
     //
     // Dropped here rather than in the lexer, and before `line_starts_`
@@ -103,4 +103,4 @@ const SourceFile* SourceMap::find(std::string_view path) const {
     return nullptr;
 }
 
-}  // namespace cinder::ast
+}  // namespace soliton::ast

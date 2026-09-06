@@ -1,4 +1,0 @@
-/// The smallest Cinder program that produces output.
-pub fn main() {
-    println("hello, world");
-}

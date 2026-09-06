@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64"
+     role="img" aria-label="Soliton source file">
+  <title>Soliton source file (.sn)</title>
+  <defs>
+    <linearGradient id="fSheet" x1="10" y1="2" x2="54" y2="62" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#152a36"/><stop offset="1" stop-color="#0a141c"/>
+    </linearGradient>
+    <linearGradient id="fFold" x1="42" y1="2" x2="58" y2="18" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#31576b"/><stop offset="1" stop-color="#1d3543"/>
+    </linearGradient>
+    <linearGradient id="fPulse" x1="34" y1="14.0" x2="34" y2="34.0"
+                    gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#7dd3fc"/><stop offset="0.45" stop-color="#22d3ee"/>
+      <stop offset="1" stop-color="#0e7490"/>
+    </linearGradient>
+    <linearGradient id="fFade" x1="6" y1="0" x2="28" y2="0" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#22d3ee" stop-opacity="0"/>
+      <stop offset="1" stop-color="#22d3ee" stop-opacity="0.4"/>
+    </linearGradient>
+    <clipPath id="fClip"><rect x="8" y="8" width="48" height="34.0"/></clipPath>
+  </defs>
+
+  <path d="M10 3 h30 l14 14 v44 a3 3 0 0 1 -3 3 h-41 a3 3 0 0 1 -3 -3 v-55 a3 3 0 0 1 3 -3 z"
+        fill="url(#fSheet)"/>
+  <path d="M40 3 l14 14 h-11 a3 3 0 0 1 -3 -3 z" fill="url(#fFold)"/>
+
+  <g clip-path="url(#fClip)">
+    <path d="M -8.00 33.29 L -7.39 33.19 L -6.78 33.08 L -6.17 32.95 L -5.56 32.81 L -4.94 32.65 L -4.33 32.47 L -3.72 32.26 L -3.11 32.04 L -2.50 31.78 L -1.89 31.49 L -1.28 31.16 L -0.67 30.80 L -0.06 30.39 L 0.56 29.95 L 1.17 29.45 L 1.78 28.90 L 2.39 28.30 L 3.00 27.64 L 3.61 26.93 L 4.22 26.16 L 4.83 25.33 L 5.44 24.45 L 6.06 23.53 L 6.67 22.57 L 7.28 21.58 L 7.89 20.58 L 8.50 19.58 L 9.11 18.60 L 9.72 17.66 L 10.33 16.78 L 10.94 15.99 L 11.56 15.30 L 12.17 14.75 L 12.78 14.34 L 13.39 14.08 L 14.00 14.00 L 14.61 14.08 L 15.22 14.34 L 15.83 14.75 L 16.44 15.30 L 17.06 15.99 L 17.67 16.78 L 18.28 17.66 L 18.89 18.60 L 19.50 19.58 L 20.11 20.58 L 20.72 21.58 L 21.33 22.57 L 21.94 23.53 L 22.56 24.45 L 23.17 25.33 L 23.78 26.16 L 24.39 26.93 L 25.00 27.64 L 25.61 28.30 L 26.22 28.90 L 26.83 29.45 L 27.44 29.95 L 28.06 30.39 L 28.67 30.80 L 29.28 31.16 L 29.89 31.49 L 30.50 31.78 L 31.11 32.04 L 31.72 32.26 L 32.33 32.47 L 32.94 32.65 L 33.56 32.81 L 34.17 32.95 L 34.78 33.08 L 35.39 33.19 L 36.00 33.29 L 36.00 34.00 L -8.00 34.00 Z" fill="url(#fFade)"/>
+    <path d="M 13.00 33.29 L 13.61 33.19 L 14.22 33.08 L 14.83 32.95 L 15.44 32.81 L 16.06 32.65 L 16.67 32.47 L 17.28 32.26 L 17.89 32.04 L 18.50 31.78 L 19.11 31.49 L 19.72 31.16 L 20.33 30.80 L 20.94 30.39 L 21.56 29.95 L 22.17 29.45 L 22.78 28.90 L 23.39 28.30 L 24.00 27.64 L 24.61 26.93 L 25.22 26.16 L 25.83 25.33 L 26.44 24.45 L 27.06 23.53 L 27.67 22.57 L 28.28 21.58 L 28.89 20.58 L 29.50 19.58 L 30.11 18.60 L 30.72 17.66 L 31.33 16.78 L 31.94 15.99 L 32.56 15.30 L 33.17 14.75 L 33.78 14.34 L 34.39 14.08 L 35.00 14.00 L 35.61 14.08 L 36.22 14.34 L 36.83 14.75 L 37.44 15.30 L 38.06 15.99 L 38.67 16.78 L 39.28 17.66 L 39.89 18.60 L 40.50 19.58 L 41.11 20.58 L 41.72 21.58 L 42.33 22.57 L 42.94 23.53 L 43.56 24.45 L 44.17 25.33 L 44.78 26.16 L 45.39 26.93 L 46.00 27.64 L 46.61 28.30 L 47.22 28.90 L 47.83 29.45 L 48.44 29.95 L 49.06 30.39 L 49.67 30.80 L 50.28 31.16 L 50.89 31.49 L 51.50 31.78 L 52.11 32.04 L 52.72 32.26 L 53.33 32.47 L 53.94 32.65 L 54.56 32.81 L 55.17 32.95 L 55.78 33.08 L 56.39 33.19 L 57.00 33.29 L 57.00 34.00 L 13.00 34.00 Z" fill="url(#fPulse)"/>
+  </g>
+  <rect x="9" y="34.0" width="44" height="2" rx="1" fill="#0e7490" opacity="0.6"/>
+
+  <text x="32" y="55" text-anchor="middle"
+        font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace"
+        font-size="13" font-weight="700" fill="#a5e9f7" letter-spacing="0.5">.sn</text>
+</svg>

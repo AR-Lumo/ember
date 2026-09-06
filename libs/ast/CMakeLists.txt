@@ -1,6 +1,6 @@
-# cinder::ast - one pipeline stage, per the project layout in section 2.
+# soliton::ast - one pipeline stage, per the project layout in section 2.
 
-add_library(cinder_ast STATIC
+add_library(soliton_ast STATIC
     src/ast.cpp
     src/span.cpp
     src/diagnostic.cpp
@@ -8,7 +8,7 @@ add_library(cinder_ast STATIC
     src/printer.cpp
     src/interface.cpp
 )
-add_library(cinder::ast ALIAS cinder_ast)
+add_library(soliton::ast ALIAS soliton_ast)
 
-target_include_directories(cinder_ast PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
-target_compile_features(cinder_ast PUBLIC cxx_std_20)
+target_include_directories(soliton_ast PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
+target_compile_features(soliton_ast PUBLIC cxx_std_20)

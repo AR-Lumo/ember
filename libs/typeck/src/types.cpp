@@ -1,9 +1,9 @@
-#include "cinder/typeck/types.hpp"
+#include "soliton/typeck/types.hpp"
 
 #include <algorithm>
 #include <utility>
 
-namespace cinder::typeck {
+namespace soliton::typeck {
 
 TypeContext::TypeContext() {
     int_ = intern(Type{TypeKind::Int, {}, nullptr, 0, {}, nullptr, false});
@@ -288,4 +288,4 @@ std::string to_string(TypePtr type) {
     return "?";
 }
 
-}  // namespace cinder::typeck
+}  // namespace soliton::typeck

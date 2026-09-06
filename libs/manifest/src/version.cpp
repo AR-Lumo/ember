@@ -1,8 +1,8 @@
-#include "cinder/manifest/version.hpp"
+#include "soliton/manifest/version.hpp"
 
 #include <cctype>
 
-namespace cinder::manifest {
+namespace soliton::manifest {
 namespace {
 
 /// Reads digits at `at`, or nothing if there are none. Leading zeros are
@@ -109,4 +109,4 @@ std::string Requirement::to_string() const {
     return (kind_ == Kind::Exact ? "=" : "^") + version_.to_string();
 }
 
-}  // namespace cinder::manifest
+}  // namespace soliton::manifest

@@ -36,7 +36,7 @@
         (call @32:5 push
           (name @32:10 words)
           (call @32:17 make
-            (string-lit @32:22 "cinder"))))
+            (string-lit @32:22 "soliton"))))
       (expr-stmt @33:5
         (call @33:5 push
           (name @33:10 words)

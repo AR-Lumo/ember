@@ -1,7 +1,7 @@
-#include "cinder/codegen/codegen.hpp"
+#include "soliton/codegen/codegen.hpp"
 
-#ifndef CINDER_HAVE_LLVM
-#define CINDER_HAVE_LLVM 0
+#ifndef SOLITON_HAVE_LLVM
+#define SOLITON_HAVE_LLVM 0
 #endif
 
 #include <map>
@@ -9,7 +9,7 @@
 #include <string>
 #include <vector>
 
-#if CINDER_HAVE_LLVM
+#if SOLITON_HAVE_LLVM
 #include <llvm/ADT/StringRef.h>
 #include <llvm/IR/BasicBlock.h>
 #include <llvm/IR/Constants.h>
@@ -31,14 +31,14 @@
 #include <llvm/TargetParser/Triple.h>
 #endif
 
-namespace cinder::codegen {
+namespace soliton::codegen {
 
 std::string_view stage_name() noexcept { return "codegen"; }
 
-bool is_available() noexcept { return CINDER_HAVE_LLVM != 0; }
+bool is_available() noexcept { return SOLITON_HAVE_LLVM != 0; }
 
 std::string_view llvm_version() noexcept {
-#if CINDER_HAVE_LLVM
+#if SOLITON_HAVE_LLVM
     return LLVM_VERSION_STRING;
 #else
     return "none";
@@ -71,14 +71,14 @@ std::vector<ast::Diagnostic> verify_entry_point(const typeck::CheckResult& check
     return diagnostics;
 }
 
-#if CINDER_HAVE_LLVM
+#if SOLITON_HAVE_LLVM
 namespace {
 
 using typeck::TypeKind;
 using typeck::TypePtr;
 
 /// Where a named value lives: the address of its stack slot (or of its
-/// global), plus the Cinder type stored there.
+/// global), plus the Soliton type stored there.
 struct Slot {
     llvm::Value* address = nullptr;
     TypePtr type = nullptr;
@@ -100,12 +100,12 @@ public:
         // { i8*, i64 }: §4's "immutable, fixed-length view". Carrying the
         // length keeps len() O(1) and lets a string hold a NUL byte.
         string_type_ = llvm::StructType::create(*context_, {ptr_type(), int_type()},
-                                                "cinder.string");
+                                                "soliton.string");
         // A growable container is { buffer, length, capacity }. One
         // layout serves every `Vec<T>` and `String`, because the element
         // size is known at each use site rather than carried at runtime.
         buffer_type_ = llvm::StructType::create(
-            *context_, {ptr_type(), int_type(), int_type()}, "cinder.buffer");
+            *context_, {ptr_type(), int_type(), int_type()}, "soliton.buffer");
         // A closure is the lifted function, the heap block holding what
         // it captured, and how to take that block apart.
         //
@@ -117,7 +117,7 @@ public:
         // usual case.
         closure_type_ = llvm::StructType::create(*context_,
                                                  {ptr_type(), ptr_type(), ptr_type()},
-                                                 "cinder.closure");
+                                                 "soliton.closure");
 
         // Set before anything is emitted: a `Vec<T>` push needs the size
         // of T, and asking a module with no layout gives nonsense.
@@ -143,7 +143,7 @@ public:
             // A verifier failure is a bug in this file, not in the user's
             // program, so it says so rather than blaming the source.
             report(ast::Span::at(0), "internal error: generated invalid LLVM IR",
-                   "this is a bug in the Cinder compiler")
+                   "this is a bug in the Soliton compiler")
                 .with_note(error);
             return false;
         }
@@ -231,7 +231,7 @@ private:
                 return struct_types_.at(typeck::to_string(type));
             case TypeKind::Reference:
                 // Opaque pointers: a `&T` is just `ptr`, and the pointee
-                // type comes from the Cinder type, not the LLVM one.
+                // type comes from the Soliton type, not the LLVM one.
                 return ptr_type();
             case TypeKind::Array:
                 return llvm::ArrayType::get(lower(type->element),
@@ -245,7 +245,7 @@ private:
                 // Unreachable: only instantiated bodies are emitted, and
                 // every type in one has been substituted.
                 report(ast::Span::at(0), "internal error: unsubstituted type parameter",
-                       "this is a bug in the Cinder compiler");
+                       "this is a bug in the Soliton compiler");
                 return llvm::Type::getVoidTy(*context_);
             case TypeKind::Void:
             case TypeKind::Error:
@@ -470,7 +470,7 @@ private:
         builder_.SetInsertPoint(fail);
         llvm::Type* const text = builder_.getPtrTy();
         builder_.CreateCall(
-            runtime("cinder_panic_contract", void_type(), {text, text, text, text}),
+            runtime("soliton_panic_contract", void_type(), {text, text, text, text}),
             {builder_.CreateGlobalString(contract.is_ensures() ? "ensures" : "requires", "ckind"),
              builder_.CreateGlobalString(contract.text, "ctext"),
              builder_.CreateGlobalString(contract.location, "cwhere"),
@@ -613,7 +613,7 @@ private:
 
                 plain->insertInto(current_function_);
                 builder_.SetInsertPoint(plain);
-                builder_.CreateCall(runtime("cinder_free", void_type(), {ptr_type()}), {env});
+                builder_.CreateCall(runtime("soliton_free", void_type(), {ptr_type()}), {env});
                 builder_.CreateBr(done);
 
                 done->insertInto(current_function_);
@@ -637,7 +637,7 @@ private:
                 }
                 llvm::Value* buffer = builder_.CreateLoad(
                     ptr_type(), builder_.CreateStructGEP(buffer_type_, address, 0), "buf");
-                builder_.CreateCall(runtime("cinder_free", void_type(), {ptr_type()}), {buffer});
+                builder_.CreateCall(runtime("soliton_free", void_type(), {ptr_type()}), {buffer});
                 // Null the pointer so a double drop cannot free twice,
                 // whatever the flags say.
                 builder_.CreateStore(llvm::ConstantPointerNull::get(ptr_type()),
@@ -1065,7 +1065,7 @@ private:
         fail->insertInto(current_function_);
         builder_.SetInsertPoint(fail);
         builder_.CreateCall(
-            runtime("cinder_panic_index_out_of_bounds", void_type(), {int_type(), int_type()}),
+            runtime("soliton_panic_index_out_of_bounds", void_type(), {int_type(), int_type()}),
             {index, length});
         builder_.CreateUnreachable();
 
@@ -1074,7 +1074,7 @@ private:
     }
 
     /// §9 says follow C for the low-level rules, and C does not bounds
-    /// check. This does, because Cinder has no borrow checker either: an
+    /// check. This does, because Soliton has no borrow checker either: an
     /// unchecked write past the end would silently corrupt the frame,
     /// and the check folds away for constant indices under -O1.
     void emit_bounds_check(llvm::Value* index, std::int64_t length, ast::Span span) {
@@ -1089,7 +1089,7 @@ private:
         fail->insertInto(current_function_);
         builder_.SetInsertPoint(fail);
         builder_.CreateCall(
-            runtime("cinder_panic_index_out_of_bounds", void_type(), {int_type(), int_type()}),
+            runtime("soliton_panic_index_out_of_bounds", void_type(), {int_type(), int_type()}),
             {index, builder_.getInt64(length)});
         builder_.CreateUnreachable();
 
@@ -1295,7 +1295,7 @@ private:
 
         fail->insertInto(current_function_);
         builder_.SetInsertPoint(fail);
-        builder_.CreateCall(runtime("cinder_panic_divide_by_zero", void_type(), {}), {});
+        builder_.CreateCall(runtime("soliton_panic_divide_by_zero", void_type(), {}), {});
         builder_.CreateUnreachable();
 
         ok->insertInto(current_function_);
@@ -1316,7 +1316,7 @@ private:
 
         if (expr.op == ast::BinaryOp::Equal || expr.op == ast::BinaryOp::NotEqual) {
             llvm::Value* equal = builder_.CreateCall(
-                runtime("cinder_string_eq", byte_type(),
+                runtime("soliton_string_eq", byte_type(),
                         {ptr_type(), int_type(), ptr_type(), int_type()}),
                 {left_bytes, left_length, right_bytes, right_length});
 
@@ -1326,7 +1326,7 @@ private:
         }
 
         llvm::Value* order = builder_.CreateCall(
-            runtime("cinder_string_cmp", int_type(),
+            runtime("soliton_string_cmp", int_type(),
                     {ptr_type(), int_type(), ptr_type(), int_type()}),
             {left_bytes, left_length, right_bytes, right_length}, "strcmp");
         llvm::Value* zero = builder_.getInt64(0);
@@ -1527,7 +1527,7 @@ private:
             // way a `string` view does.
             llvm::Value* address = container_address(argument);
             builder_.CreateCall(
-                runtime(newline ? "cinder_println_string" : "cinder_print_string", void_type(),
+                runtime(newline ? "soliton_println_string" : "soliton_print_string", void_type(),
                         {ptr_type(), int_type()}),
                 {builder_.CreateLoad(ptr_type(),
                                      builder_.CreateStructGEP(buffer_type_, address, 0)),
@@ -1540,24 +1540,24 @@ private:
 
         switch (type->kind) {
             case TypeKind::Int:
-                builder_.CreateCall(runtime(newline ? "cinder_println_int" : "cinder_print_int",
+                builder_.CreateCall(runtime(newline ? "soliton_println_int" : "soliton_print_int",
                                             void_type(), {int_type()}),
                                     {value});
                 break;
             case TypeKind::Float:
-                builder_.CreateCall(runtime(newline ? "cinder_println_float" : "cinder_print_float",
+                builder_.CreateCall(runtime(newline ? "soliton_println_float" : "soliton_print_float",
                                             void_type(), {float_type()}),
                                     {value});
                 break;
             case TypeKind::Bool:
                 // The runtime takes an int8_t, so widen the i1.
-                builder_.CreateCall(runtime(newline ? "cinder_println_bool" : "cinder_print_bool",
+                builder_.CreateCall(runtime(newline ? "soliton_println_bool" : "soliton_print_bool",
                                             void_type(), {byte_type()}),
                                     {builder_.CreateZExt(value, byte_type(), "bool")});
                 break;
             case TypeKind::String:
                 builder_.CreateCall(
-                    runtime(newline ? "cinder_println_string" : "cinder_print_string", void_type(),
+                    runtime(newline ? "soliton_println_string" : "soliton_print_string", void_type(),
                             {ptr_type(), int_type()}),
                     {builder_.CreateExtractValue(value, {0}),
                      builder_.CreateExtractValue(value, {1})});
@@ -1613,7 +1613,7 @@ private:
         // The runtime decides whether to grow and by how much, and hands
         // back the buffer, which realloc may have moved.
         llvm::Value* grown = builder_.CreateCall(
-            runtime("cinder_grow", ptr_type(),
+            runtime("soliton_grow", ptr_type(),
                     {ptr_type(), int_type(), int_type(), ptr_type()}),
             {builder_.CreateLoad(ptr_type(), buffer_field, "buf"), size_of(container->element),
              length, capacity_field});
@@ -1640,7 +1640,7 @@ private:
         empty->insertInto(current_function_);
         builder_.SetInsertPoint(empty);
         llvm::Value* what = builder_.CreateGlobalString("Vec", "popwhat");
-        builder_.CreateCall(runtime("cinder_panic_empty", void_type(), {ptr_type(), int_type()}),
+        builder_.CreateCall(runtime("soliton_panic_empty", void_type(), {ptr_type(), int_type()}),
                             {what, builder_.getInt64(3)});
         builder_.CreateUnreachable();
 
@@ -1688,7 +1688,7 @@ private:
         bad->insertInto(current_function_);
         builder_.SetInsertPoint(bad);
         builder_.CreateCall(
-            runtime("cinder_panic_bad_slice", void_type(), {int_type(), int_type(), int_type()}),
+            runtime("soliton_panic_bad_slice", void_type(), {int_type(), int_type(), int_type()}),
             {start, end, length});
         builder_.CreateUnreachable();
 
@@ -1702,7 +1702,7 @@ private:
         const auto [needle, needle_length] = text_parts(*expr.args[1]);
 
         llvm::Value* at = builder_.CreateCall(
-            runtime("cinder_string_find", int_type(),
+            runtime("soliton_string_find", int_type(),
                     {ptr_type(), int_type(), ptr_type(), int_type()}),
             {haystack, haystack_length, needle, needle_length}, "found");
 
@@ -1733,7 +1733,7 @@ private:
 
         llvm::Value* buffer_field = builder_.CreateStructGEP(buffer_type_, address, 0);
         llvm::Value* grown = builder_.CreateCall(
-            runtime("cinder_reserve", ptr_type(),
+            runtime("soliton_reserve", ptr_type(),
                     {ptr_type(), int_type(), ptr_type(), int_type()}),
             {builder_.CreateLoad(ptr_type(), buffer_field, "buf"), element_size,
              builder_.CreateStructGEP(buffer_type_, address, 2), wanted});
@@ -1762,7 +1762,7 @@ private:
 
         llvm::Value* buffer_field = builder_.CreateStructGEP(buffer_type_, address, 0);
         llvm::Value* appended = builder_.CreateCall(
-            runtime("cinder_string_append", ptr_type(),
+            runtime("soliton_string_append", ptr_type(),
                     {ptr_type(), ptr_type(), ptr_type(), ptr_type(), int_type()}),
             {builder_.CreateLoad(ptr_type(), buffer_field, "buf"),
              builder_.CreateStructGEP(buffer_type_, address, 1),
@@ -1799,7 +1799,7 @@ private:
         if (!capture_types.empty()) {
             const std::uint64_t size =
                 module_->getDataLayout().getTypeAllocSize(env_type).getFixedValue();
-            env = builder_.CreateCall(runtime("cinder_alloc", ptr_type(), {int_type()}),
+            env = builder_.CreateCall(runtime("soliton_alloc", ptr_type(), {int_type()}),
                                       {builder_.getInt64(size)}, "env");
 
             for (std::size_t i = 0; i < expr.captures.size(); ++i) {
@@ -1854,7 +1854,7 @@ private:
 
         llvm::Function* dropper = llvm::Function::Create(
             llvm::FunctionType::get(void_type(), {ptr_type()}, false),
-            llvm::Function::InternalLinkage, "cinder_closure_drop_" + std::to_string(expr.id),
+            llvm::Function::InternalLinkage, "soliton_closure_drop_" + std::to_string(expr.id),
             module_.get());
 
         // Save whatever the outer emission is in the middle of, the same
@@ -1872,7 +1872,7 @@ private:
                           builder_.CreateStructGEP(env_type, env, static_cast<unsigned>(i)));
             }
         }
-        builder_.CreateCall(runtime("cinder_free", void_type(), {ptr_type()}), {env});
+        builder_.CreateCall(runtime("soliton_free", void_type(), {ptr_type()}), {env});
         builder_.CreateRetVoid();
 
         builder_.restoreIP(saved_point);
@@ -1899,7 +1899,7 @@ private:
         llvm::FunctionType* signature = llvm::FunctionType::get(
             lower(type->result), params, false);
 
-        const std::string name = "cinder_closure_" + std::to_string(expr.id);
+        const std::string name = "soliton_closure_" + std::to_string(expr.id);
         llvm::Function* function = llvm::Function::Create(
             signature, llvm::Function::InternalLinkage, name, module_.get());
 
@@ -2294,14 +2294,14 @@ CompileResult compile(const ast::Program& program, const typeck::CheckResult& ch
                    options);
 }
 
-#else  // !CINDER_HAVE_LLVM
+#else  // !SOLITON_HAVE_LLVM
 
 namespace {
 
 CompileResult unavailable() {
     CompileResult result;
     result.diagnostics.push_back(ast::Diagnostic::error(
-        "this build of cinder has no code generator", ast::Span::at(0),
+        "this build of soliton has no code generator", ast::Span::at(0),
         "the compiler was built without LLVM"));
     return result;
 }
@@ -2328,6 +2328,6 @@ CompileResult compile(const ast::Program&, const typeck::CheckResult&, const ast
     return unavailable();
 }
 
-#endif  // CINDER_HAVE_LLVM
+#endif  // SOLITON_HAVE_LLVM
 
-}  // namespace cinder::codegen
+}  // namespace soliton::codegen

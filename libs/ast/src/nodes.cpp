@@ -1,6 +1,6 @@
-#include "cinder/ast/nodes.hpp"
+#include "soliton/ast/nodes.hpp"
 
-namespace cinder::ast {
+namespace soliton::ast {
 
 std::string type_to_string(const TypeRef& type) {
     switch (type.kind) {
@@ -136,4 +136,4 @@ std::string_view binary_op_name(BinaryOp op) noexcept {
     return "?";
 }
 
-}  // namespace cinder::ast
+}  // namespace soliton::ast

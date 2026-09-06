@@ -3,22 +3,22 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Cinder</title>
+<title>Soliton</title>
 <meta name="description" content="A small statically-typed language that compiles to native code through LLVM, with contracts, units of measure and effect annotations.">
 <link rel="icon" type="image/svg+xml" href="favicon.svg">
-<link rel="canonical" href="https://ar-lumo.github.io/cinder/">
+<link rel="canonical" href="https://ar-lumo.github.io/soliton/">
 
 <meta property="og:type" content="website">
-<meta property="og:site_name" content="Cinder">
-<meta property="og:title" content="Cinder">
+<meta property="og:site_name" content="Soliton">
+<meta property="og:title" content="Soliton">
 <meta property="og:description" content="A compiler that argues back. Contracts, units of measure and effect annotations, in a language that compiles to native code through LLVM.">
-<meta property="og:url" content="https://ar-lumo.github.io/cinder/">
-<meta property="og:image" content="https://ar-lumo.github.io/cinder/og-image.png">
+<meta property="og:url" content="https://ar-lumo.github.io/soliton/">
+<meta property="og:image" content="https://ar-lumo.github.io/soliton/og-image.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
-<meta property="og:image:alt" content="Cinder: a compiler that argues back. A code sample adding metres to seconds, and the error it produces.">
+<meta property="og:image:alt" content="Soliton: a compiler that argues back. A code sample adding metres to seconds, and the error it produces.">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:image" content="https://ar-lumo.github.io/cinder/og-image.png">
+<meta name="twitter:image" content="https://ar-lumo.github.io/soliton/og-image.png">
 
 <style>
   html { background: #f7f3ee; }
@@ -30,222 +30,152 @@
 <body>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,800&family=JetBrains+Mono:wght@400;700&family=Source+Sans+3:ital,wght@0,400;0,600;1,400&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700&family=JetBrains+Mono:wght@400;700&family=Source+Sans+3:wght@400;600&display=swap">
 
 <style>
-  /* ---- tokens: complete light palette on bare :root ---- */
+  /* Light palette complete on bare :root; the two dark blocks redefine
+     only tokens, so the un-stamped system-default state resolves too. */
   :root {
-    --ground:      #f7f3ee;   /* bone: fired clay, not paper white */
-    --raised:      #fffdfa;
-    --sunk:        #efe8e0;
-    --ink:         #1a1210;   /* coal */
-    --ink-soft:    #5c5049;
-    --ink-faint:   #8b7d74;
-    --rule:        #e0d6cb;
-    --ember:       #c2410c;   /* the accent, one place at a time */
-    --ember-lift:  #e0521a;
-    --kiln:        #8f2d16;   /* diagnostics */
-    --ash:         #4a4250;   /* the cool second, for structure */
-    --code-bg:     #241a17;
-    --code-ink:    #efe3d8;
-    --code-dim:    #a08b7e;
-    --shadow:      0 1px 2px rgba(26,18,16,.06), 0 8px 28px -12px rgba(26,18,16,.18);
+    --ground:     #f3f8fa;   /* pale ice, not paper white */
+    --raised:     #ffffff;
+    --ink:        #0b1620;   /* deep petrol */
+    --ink-soft:   #47606d;
+    --ink-faint:  #7b929e;
+    --rule:       #d8e6ec;
+    --accent:     #0e7490;   /* the pulse, at rest */
+    --accent-lift:#0891b2;
+    --deep:       #164e63;
+    --code-bg:    #0b1620;
+    --code-ink:   #dceef5;
+    --code-dim:   #6d8b99;
+    --shadow:     0 1px 2px rgba(11,22,32,.06), 0 10px 30px -14px rgba(11,22,32,.22);
   }
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
-      --ground:     #17110f;
-      --raised:     #1f1815;
-      --sunk:       #120d0b;
-      --ink:        #f2e9e1;
-      --ink-soft:   #c0aea3;
-      --ink-faint:  #8b7a6f;
-      --rule:       #382c27;
-      --ember:      #f97316;
-      --ember-lift: #fb923c;
-      --kiln:       #fca5a5;
-      --ash:        #b8a8c4;
-      --code-bg:    #0e0a09;
-      --code-ink:   #efe3d8;
-      --code-dim:   #8f7c70;
-      --shadow:     0 1px 2px rgba(0,0,0,.5), 0 10px 34px -14px rgba(0,0,0,.7);
+      --ground:     #08131b;
+      --raised:     #0e1e29;
+      --ink:        #e3f2f8;
+      --ink-soft:   #a3c0cd;
+      --ink-faint:  #6d8b99;
+      --rule:       #1c3341;
+      --accent:     #22d3ee;
+      --accent-lift:#7dd3fc;
+      --deep:       #7dd3fc;
+      --code-bg:    #050e14;
+      --code-ink:   #dceef5;
+      --code-dim:   #5f7d8b;
+      --shadow:     0 1px 2px rgba(0,0,0,.5), 0 12px 36px -16px rgba(0,0,0,.75);
     }
   }
   :root[data-theme="dark"] {
-    --ground:     #17110f;
-    --raised:     #1f1815;
-    --sunk:       #120d0b;
-    --ink:        #f2e9e1;
-    --ink-soft:   #c0aea3;
-    --ink-faint:  #8b7a6f;
-    --rule:       #382c27;
-    --ember:      #f97316;
-    --ember-lift: #fb923c;
-    --kiln:       #fca5a5;
-    --ash:        #b8a8c4;
-    --code-bg:    #0e0a09;
-    --code-ink:   #efe3d8;
-    --code-dim:   #8f7c70;
-    --shadow:     0 1px 2px rgba(0,0,0,.5), 0 10px 34px -14px rgba(0,0,0,.7);
+    --ground:     #08131b;
+    --raised:     #0e1e29;
+    --ink:        #e3f2f8;
+    --ink-soft:   #a3c0cd;
+    --ink-faint:  #6d8b99;
+    --rule:       #1c3341;
+    --accent:     #22d3ee;
+    --accent-lift:#7dd3fc;
+    --deep:       #7dd3fc;
+    --code-bg:    #050e14;
+    --code-ink:   #dceef5;
+    --code-dim:   #5f7d8b;
+    --shadow:     0 1px 2px rgba(0,0,0,.5), 0 12px 36px -16px rgba(0,0,0,.75);
   }
 
   * { box-sizing: border-box; }
-
   body {
-    background: var(--ground);
-    color: var(--ink);
+    background: var(--ground); color: var(--ink);
     font-family: "Source Sans 3", ui-sans-serif, system-ui, sans-serif;
-    font-size: 17px;
-    line-height: 1.6;
-    -webkit-font-smoothing: antialiased;
+    font-size: 17px; line-height: 1.62; -webkit-font-smoothing: antialiased;
   }
-
   .wrap { max-width: 60rem; margin: 0 auto; padding: 0 1.5rem; }
 
-  /* ---- masthead ---- */
-  .masthead {
-    display: flex; align-items: center; justify-content: space-between;
-    gap: 1rem; padding: 1.75rem 0 0;
-  }
-  .brand { display: flex; align-items: center; gap: .7rem; color: var(--ink); }
-  .brand svg { display: block; }
-  .brand b {
-    font-family: "Bricolage Grotesque", ui-sans-serif, system-ui, sans-serif;
-    font-weight: 800; font-size: 1.35rem; letter-spacing: -.02em;
-  }
-  .masthead nav { display: flex; gap: 1.4rem; flex-wrap: wrap; }
-  .masthead a {
-    color: var(--ink-soft); text-decoration: none; font-size: .95rem;
-    border-bottom: 1px solid transparent; padding-bottom: 1px;
-  }
-  .masthead a:hover { color: var(--ember); border-bottom-color: var(--ember); }
+  .masthead { display:flex; align-items:center; justify-content:space-between;
+              gap:1rem; padding:1.75rem 0 0; }
+  .brand { display:flex; align-items:center; gap:.7rem; color:var(--ink); }
+  .brand svg { display:block; }
+  .brand b { font-family:"Sora",ui-sans-serif,system-ui,sans-serif;
+             font-weight:700; font-size:1.3rem; letter-spacing:-.02em; }
+  .masthead nav { display:flex; gap:1.4rem; flex-wrap:wrap; }
+  .masthead a { color:var(--ink-soft); text-decoration:none; font-size:.95rem;
+                border-bottom:1px solid transparent; padding-bottom:1px; }
+  .masthead a:hover { color:var(--accent); border-bottom-color:var(--accent); }
 
-  /* ---- hero ---- */
-  .hero { padding: 3.5rem 0 3rem; display: grid; gap: 2.25rem; }
-  h1 {
-    font-family: "Bricolage Grotesque", ui-sans-serif, system-ui, sans-serif;
-    font-weight: 800; font-size: clamp(2.4rem, 6vw, 3.9rem);
-    line-height: 1.02; letter-spacing: -.035em; margin: 0; text-wrap: balance;
-    max-width: 18ch;
-  }
-  h1 em { font-style: normal; color: var(--ember); }
-  .standfirst {
-    font-size: 1.2rem; color: var(--ink-soft); max-width: 62ch; margin: 0;
-  }
+  .hero { padding:3.5rem 0 3rem; display:grid; gap:2.25rem; }
+  h1 { font-family:"Sora",ui-sans-serif,system-ui,sans-serif; font-weight:700;
+       font-size:clamp(2.3rem,5.6vw,3.7rem); line-height:1.06; letter-spacing:-.035em;
+       margin:0; text-wrap:balance; max-width:19ch; }
+  h1 em { font-style:normal; color:var(--accent); }
+  .standfirst { font-size:1.2rem; color:var(--ink-soft); max-width:62ch; margin:0; }
 
-  /* ---- terminal ---- */
-  .term {
-    background: var(--code-bg); border-radius: 10px; overflow: hidden;
-    box-shadow: var(--shadow); border: 1px solid var(--rule);
-  }
-  .term-bar {
-    display: flex; align-items: center; gap: .55rem;
-    padding: .6rem .9rem; border-bottom: 1px solid rgba(255,255,255,.07);
-  }
-  .dot { width: 10px; height: 10px; border-radius: 50%; background: #3f2f29; }
-  .term-name {
-    margin-left: .4rem; font-family: "JetBrains Mono", ui-monospace, monospace;
-    font-size: .76rem; color: var(--code-dim); letter-spacing: .02em;
-  }
-  pre {
-    margin: 0; padding: 1.15rem 1.25rem 1.35rem; overflow-x: auto;
-    font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-    font-size: .845rem; line-height: 1.62; color: var(--code-ink);
-    tab-size: 4;
-  }
-  pre .c { color: var(--code-dim); font-style: italic; }   /* comment */
-  pre .k { color: #f0a35e; }                                /* keyword */
-  pre .t { color: #93c7b4; }                                /* type */
-  pre .s { color: #cbb7e0; }                                /* string/lit */
-  pre .p { color: var(--code-dim); }                         /* prompt */
-  pre .e { color: #fca5a5; font-weight: 700; }               /* error */
-  pre .u { color: #fca5a5; }                                /* carets */
-  pre .n { color: #93a7c7; }                                 /* note */
-  pre .g { color: #a3d9a5; }                                 /* good output */
+  .term { background:var(--code-bg); border-radius:10px; overflow:hidden;
+          box-shadow:var(--shadow); border:1px solid var(--rule); }
+  .term-bar { display:flex; align-items:center; gap:.55rem; padding:.6rem .9rem;
+              border-bottom:1px solid rgba(255,255,255,.07); }
+  .dot { width:10px; height:10px; border-radius:50%; background:#22384a; }
+  .term-name { margin-left:.4rem; font-family:"JetBrains Mono",ui-monospace,monospace;
+               font-size:.76rem; color:var(--code-dim); letter-spacing:.02em; }
+  pre { margin:0; padding:1.15rem 1.25rem 1.35rem; overflow-x:auto;
+        font-family:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+        font-size:.845rem; line-height:1.62; color:var(--code-ink); }
+  pre .c{color:var(--code-dim);font-style:italic}
+  pre .k{color:#7dd3fc} pre .t{color:#a5b4fc} pre .s{color:#5eead4}
+  pre .p{color:var(--code-dim)} pre .e{color:#fda4af;font-weight:700}
+  pre .u{color:#fda4af} pre .n{color:#93a7c7}
 
-  /* ---- download ---- */
-  .get {
-    display: grid; grid-template-columns: 1fr; gap: 1.25rem;
-    background: var(--raised); border: 1px solid var(--rule);
-    border-radius: 12px; padding: 1.6rem; box-shadow: var(--shadow);
-  }
-  @media (min-width: 46rem) { .get { grid-template-columns: auto 1fr; align-items: center; gap: 2rem; } }
-  .btn {
-    display: inline-flex; align-items: baseline; gap: .6rem;
-    background: var(--ember); color: #fff; text-decoration: none;
-    font-weight: 600; font-size: 1.05rem;
-    padding: .85rem 1.4rem; border-radius: 8px; white-space: nowrap;
-    border: 1px solid transparent;
-  }
-  .btn:hover { background: var(--ember-lift); }
-  .btn:focus-visible { outline: 3px solid var(--ash); outline-offset: 2px; }
-  .btn small { font-weight: 400; font-size: .82rem; opacity: .82; }
-  .get-meta { font-size: .95rem; color: var(--ink-soft); }
-  .get-meta code {
-    font-family: "JetBrains Mono", ui-monospace, monospace; font-size: .78rem;
-    color: var(--ink-faint); word-break: break-all;
-  }
+  .get { display:grid; grid-template-columns:1fr; gap:1.25rem; background:var(--raised);
+         border:1px solid var(--rule); border-radius:12px; padding:1.6rem; box-shadow:var(--shadow); }
+  @media (min-width:46rem){ .get{grid-template-columns:auto 1fr;align-items:center;gap:2rem} }
+  .btn { display:inline-flex; align-items:baseline; gap:.6rem; background:var(--accent);
+         color:#04121a; text-decoration:none; font-weight:600; font-size:1.05rem;
+         padding:.85rem 1.4rem; border-radius:8px; white-space:nowrap; border:1px solid transparent; }
+  .btn:hover { background:var(--accent-lift); }
+  .btn:focus-visible { outline:3px solid var(--deep); outline-offset:2px; }
+  .btn small { font-weight:400; font-size:.82rem; opacity:.75; }
+  .get-meta { font-size:.95rem; color:var(--ink-soft); }
+  .get-meta code { font-family:"JetBrains Mono",ui-monospace,monospace; font-size:.78rem;
+                   color:var(--ink-faint); word-break:break-all; }
 
-  /* ---- sections ---- */
-  section { padding: 3.25rem 0; border-top: 1px solid var(--rule); }
-  h2 {
-    font-family: "Bricolage Grotesque", ui-sans-serif, system-ui, sans-serif;
-    font-weight: 600; font-size: 1.9rem; letter-spacing: -.02em;
-    margin: 0 0 .6rem; text-wrap: balance;
-  }
-  h3 {
-    font-family: "Bricolage Grotesque", ui-sans-serif, system-ui, sans-serif;
-    font-weight: 600; font-size: 1.3rem; letter-spacing: -.015em; margin: 0 0 .35rem;
-  }
-  p { max-width: 66ch; }
-  section > p:first-of-type { margin-top: 0; }
-  a { color: var(--ember); }
-  a:focus-visible { outline: 2px solid var(--ash); outline-offset: 2px; border-radius: 2px; }
+  section { padding:3.25rem 0; border-top:1px solid var(--rule); }
+  h2 { font-family:"Sora",ui-sans-serif,system-ui,sans-serif; font-weight:600;
+       font-size:1.85rem; letter-spacing:-.025em; margin:0 0 .6rem; text-wrap:balance; }
+  h3 { font-family:"Sora",ui-sans-serif,system-ui,sans-serif; font-weight:600;
+       font-size:1.25rem; letter-spacing:-.015em; margin:0 0 .35rem; }
+  p { max-width:66ch; }
+  section > p:first-of-type { margin-top:0; }
+  a { color:var(--accent); }
+  a:focus-visible { outline:2px solid var(--deep); outline-offset:2px; border-radius:2px; }
 
-  /* The eyebrow carries the spec section - a real fact about where the
-     feature is written down, not a decorative number. */
-  .eyebrow {
-    font-family: "JetBrains Mono", ui-monospace, monospace;
-    font-size: .74rem; letter-spacing: .1em; text-transform: uppercase;
-    color: var(--ash); margin: 0 0 .5rem;
-  }
+  /* The eyebrow carries the spec section the feature is written down in. */
+  .eyebrow { font-family:"JetBrains Mono",ui-monospace,monospace; font-size:.74rem;
+             letter-spacing:.1em; text-transform:uppercase; color:var(--deep); margin:0 0 .5rem; }
 
-  .feature { display: grid; gap: 1.1rem; padding: 2.1rem 0; }
-  .feature + .feature { border-top: 1px dashed var(--rule); }
-  .feature > p { margin: 0; color: var(--ink-soft); }
+  .feature { display:grid; gap:1.1rem; padding:2.1rem 0; }
+  .feature + .feature { border-top:1px dashed var(--rule); }
+  .feature > p { margin:0; color:var(--ink-soft); }
 
-  .cols { display: grid; gap: 1.75rem; }
-  @media (min-width: 46rem) { .cols { grid-template-columns: 1fr 1fr; } }
+  .cols { display:grid; gap:1.75rem; }
+  @media (min-width:46rem){ .cols{grid-template-columns:1fr 1fr} }
 
-  .facts { display: grid; gap: 0; margin: 1.5rem 0 0; padding: 0; list-style: none; }
-  .facts li {
-    display: grid; grid-template-columns: 11rem 1fr; gap: 1rem;
-    padding: .7rem 0; border-bottom: 1px solid var(--rule);
-    font-size: .96rem;
-  }
-  .facts li:first-child { border-top: 1px solid var(--rule); }
-  .facts dfn {
-    font-style: normal; font-family: "JetBrains Mono", ui-monospace, monospace;
-    font-size: .78rem; text-transform: uppercase; letter-spacing: .06em;
-    color: var(--ink-faint); padding-top: .18rem;
-  }
-  @media (max-width: 34rem) { .facts li { grid-template-columns: 1fr; gap: .15rem; } }
+  .facts { display:grid; gap:0; margin:1.5rem 0 0; padding:0; list-style:none; }
+  .facts li { display:grid; grid-template-columns:11rem 1fr; gap:1rem; padding:.7rem 0;
+              border-bottom:1px solid var(--rule); font-size:.96rem; }
+  .facts li:first-child { border-top:1px solid var(--rule); }
+  .facts dfn { font-style:normal; font-family:"JetBrains Mono",ui-monospace,monospace;
+               font-size:.78rem; text-transform:uppercase; letter-spacing:.06em;
+               color:var(--ink-faint); padding-top:.18rem; }
+  @media (max-width:34rem){ .facts li{grid-template-columns:1fr;gap:.15rem} }
 
-  .caveat {
-    border-left: 3px solid var(--kiln); padding: .1rem 0 .1rem 1.1rem;
-    margin: 1.5rem 0 0; color: var(--ink-soft);
-  }
-  .caveat strong { color: var(--ink); }
+  .caveat { border-left:3px solid var(--accent); padding:.1rem 0 .1rem 1.1rem;
+            margin:1.5rem 0 0; color:var(--ink-soft); }
+  .caveat strong { color:var(--ink); }
 
-  footer {
-    border-top: 1px solid var(--rule); padding: 2.5rem 0 3.5rem;
-    color: var(--ink-faint); font-size: .92rem;
-    display: flex; gap: 1.5rem; flex-wrap: wrap; justify-content: space-between;
-  }
-  footer a { color: var(--ink-soft); }
+  footer { border-top:1px solid var(--rule); padding:2.5rem 0 3.5rem; color:var(--ink-faint);
+           font-size:.92rem; display:flex; gap:1.5rem; flex-wrap:wrap; justify-content:space-between; }
+  footer a { color:var(--ink-soft); }
 
-  @media (prefers-reduced-motion: reduce) {
-    * { animation: none !important; transition: none !important; }
-  }
+  @media (prefers-reduced-motion: reduce){ *{animation:none!important;transition:none!important} }
 </style>
 
 <div class="wrap">
@@ -253,34 +183,38 @@
     <span class="brand">
       <svg viewBox="0 0 64 64" width="30" height="30" aria-hidden="true">
         <defs>
-          <linearGradient id="mCoal" x1="12" y1="6" x2="52" y2="58" gradientUnits="userSpaceOnUse">
-            <stop offset="0" stop-color="#44231b"/><stop offset=".5" stop-color="#26140f"/>
-            <stop offset="1" stop-color="#140a08"/>
+          <linearGradient id="hp" x1="38" y1="11" x2="38" y2="46" gradientUnits="userSpaceOnUse">
+            <stop offset="0" stop-color="#7dd3fc"/><stop offset=".45" stop-color="#22d3ee"/>
+            <stop offset="1" stop-color="#0e7490"/>
           </linearGradient>
-          <radialGradient id="mHeat" cx="30" cy="33" r="20" gradientUnits="userSpaceOnUse">
-            <stop offset="0" stop-color="#fffbeb"/><stop offset=".3" stop-color="#fde047"/>
-            <stop offset=".65" stop-color="#f97316"/><stop offset="1" stop-color="#dc2626"/>
-          </radialGradient>
+          <linearGradient id="hf" x1="0" y1="0" x2="30" y2="0" gradientUnits="userSpaceOnUse">
+            <stop offset="0" stop-color="#22d3ee" stop-opacity="0"/>
+            <stop offset="1" stop-color="#22d3ee" stop-opacity=".42"/>
+          </linearGradient>
+          <clipPath id="hc"><rect x="0" y="0" width="64" height="46"/></clipPath>
         </defs>
-        <path d="M30 3 L53 14 L58 34 L47 55 L26 61 L8 47 L4 24 Z" fill="url(#mCoal)"/>
-        <path d="M28 11 L44 21 L40 34 L46 46 L27 52 L15 41 L18 25 Z" fill="#f97316" opacity=".25"/>
-        <path d="M29 15 L41 23 L36 33 L42 44 L27 48 L19 39 L22 26 Z" fill="url(#mHeat)"/>
-        <path d="M24 17 L34 32 L28 34 L33 47 L23 33 L29 31 Z" fill="#1c0f0b" opacity=".85"/>
+        <g clip-path="url(#hc)">
+          <path d="M -22.00 44.75 L -21.38 44.62 L -20.75 44.48 L -20.12 44.33 L -19.50 44.17 L -18.88 43.98 L -18.25 43.78 L -17.62 43.56 L -17.00 43.32 L -16.38 43.06 L -15.75 42.77 L -15.12 42.45 L -14.50 42.11 L -13.88 41.73 L -13.25 41.33 L -12.62 40.88 L -12.00 40.40 L -11.37 39.88 L -10.75 39.31 L -10.13 38.70 L -9.50 38.04 L -8.88 37.32 L -8.25 36.56 L -7.62 35.74 L -7.00 34.87 L -6.38 33.94 L -5.75 32.96 L -5.12 31.92 L -4.50 30.83 L -3.88 29.69 L -3.25 28.50 L -2.62 27.27 L -2.00 26.00 L -1.38 24.70 L -0.75 23.39 L -0.12 22.07 L 0.50 20.76 L 1.12 19.47 L 1.75 18.21 L 2.38 17.00 L 3.00 15.86 L 3.62 14.81 L 4.25 13.85 L 4.87 13.02 L 5.50 12.31 L 6.12 11.74 L 6.75 11.33 L 7.38 11.08 L 8.00 11.00 L 8.62 11.08 L 9.25 11.33 L 9.88 11.74 L 10.50 12.31 L 11.13 13.02 L 11.75 13.85 L 12.38 14.81 L 13.00 15.86 L 13.63 17.00 L 14.25 18.21 L 14.88 19.47 L 15.50 20.76 L 16.12 22.07 L 16.75 23.39 L 17.38 24.70 L 18.00 26.00 L 18.62 27.27 L 19.25 28.50 L 19.88 29.69 L 20.50 30.83 L 21.12 31.92 L 21.75 32.96 L 22.38 33.94 L 23.00 34.87 L 23.62 35.74 L 24.25 36.56 L 24.87 37.32 L 25.50 38.04 L 26.13 38.70 L 26.75 39.31 L 27.37 39.88 L 28.00 40.40 L 28.62 40.88 L 29.25 41.33 L 29.88 41.73 L 30.50 42.11 L 31.12 42.45 L 31.75 42.77 L 32.38 43.06 L 33.00 43.32 L 33.62 43.56 L 34.25 43.78 L 34.88 43.98 L 35.50 44.17 L 36.12 44.33 L 36.75 44.48 L 37.38 44.62 L 38.00 44.75 L 38.00 46.00 L -22.00 46.00 Z" fill="url(#hf)"/>
+        </g>
+        <g clip-path="url(#hc)">
+          <path d="M 6.00 44.75 L 6.62 44.62 L 7.25 44.48 L 7.88 44.33 L 8.50 44.17 L 9.12 43.98 L 9.75 43.78 L 10.38 43.56 L 11.00 43.32 L 11.62 43.06 L 12.25 42.77 L 12.88 42.45 L 13.50 42.11 L 14.12 41.73 L 14.75 41.33 L 15.38 40.88 L 16.00 40.40 L 16.63 39.88 L 17.25 39.31 L 17.87 38.70 L 18.50 38.04 L 19.12 37.32 L 19.75 36.56 L 20.38 35.74 L 21.00 34.87 L 21.62 33.94 L 22.25 32.96 L 22.88 31.92 L 23.50 30.83 L 24.12 29.69 L 24.75 28.50 L 25.38 27.27 L 26.00 26.00 L 26.62 24.70 L 27.25 23.39 L 27.88 22.07 L 28.50 20.76 L 29.12 19.47 L 29.75 18.21 L 30.38 17.00 L 31.00 15.86 L 31.62 14.81 L 32.25 13.85 L 32.88 13.02 L 33.50 12.31 L 34.12 11.74 L 34.75 11.33 L 35.38 11.08 L 36.00 11.00 L 36.62 11.08 L 37.25 11.33 L 37.88 11.74 L 38.50 12.31 L 39.12 13.02 L 39.75 13.85 L 40.38 14.81 L 41.00 15.86 L 41.62 17.00 L 42.25 18.21 L 42.88 19.47 L 43.50 20.76 L 44.12 22.07 L 44.75 23.39 L 45.38 24.70 L 46.00 26.00 L 46.62 27.27 L 47.25 28.50 L 47.88 29.69 L 48.50 30.83 L 49.12 31.92 L 49.75 32.96 L 50.38 33.94 L 51.00 34.87 L 51.62 35.74 L 52.25 36.56 L 52.88 37.32 L 53.50 38.04 L 54.12 38.70 L 54.75 39.31 L 55.38 39.88 L 56.00 40.40 L 56.62 40.88 L 57.25 41.33 L 57.88 41.73 L 58.50 42.11 L 59.12 42.45 L 59.75 42.77 L 60.38 43.06 L 61.00 43.32 L 61.62 43.56 L 62.25 43.78 L 62.88 43.98 L 63.50 44.17 L 64.12 44.33 L 64.75 44.48 L 65.38 44.62 L 66.00 44.75 L 66.00 46.00 L 6.00 46.00 Z" fill="url(#hp)"/>
+        </g>
+        <rect x="2" y="46" width="60" height="2.6" rx="1.3" fill="#0e7490" opacity=".55"/>
       </svg>
-      <b>Cinder</b>
+      <b>Soliton</b>
     </span>
     <nav>
       <a href="#get">Download</a>
-      <a href="https://github.com/AR-Lumo/cinder/blob/main/GETTING_STARTED.md">Guide</a>
-      <a href="https://github.com/AR-Lumo/cinder#readme">Reference</a>
-      <a href="https://github.com/AR-Lumo/cinder">Source</a>
+      <a href="https://github.com/AR-Lumo/soliton/blob/main/GETTING_STARTED.md">Guide</a>
+      <a href="https://github.com/AR-Lumo/soliton#readme">Reference</a>
+      <a href="https://github.com/AR-Lumo/soliton">Source</a>
     </nav>
   </header>
 
   <div class="hero">
     <h1>A compiler that <em>argues back</em>.</h1>
     <p class="standfirst">
-      Cinder is a small statically-typed language that compiles to native
+      Soliton is a small statically-typed language that compiles to native
       machine code through LLVM. It has ownership and moves, generics and
       modules &mdash; and it will not let you add metres to seconds.
     </p>
@@ -288,7 +222,7 @@
     <div class="term">
       <div class="term-bar">
         <span class="dot"></span><span class="dot"></span><span class="dot"></span>
-        <span class="term-name">trip.ci</span>
+        <span class="term-name">trip.sn</span>
       </div>
 <pre><span class="k">unit</span> meters;
 <span class="k">unit</span> seconds;
@@ -303,16 +237,16 @@
 <span class="k">pub fn</span> main() {
     <span class="k">let</span> total = <span class="s">1500.0&lt;meters&gt;</span> + <span class="s">300.0&lt;seconds&gt;</span>;
 }</pre>
-      </div>
+    </div>
 
     <div class="term">
       <div class="term-bar">
         <span class="dot"></span><span class="dot"></span><span class="dot"></span>
         <span class="term-name">the compiler's reply</span>
       </div>
-<pre><span class="p">$</span> cinder check trip.ci
+<pre><span class="p">$</span> soliton check trip.sn
 <span class="e">error:</span> cannot apply `+` to `float&lt;meters&gt;` and `float&lt;seconds&gt;`
- <span class="n">--&gt;</span> trip.ci:12:17
+ <span class="n">--&gt;</span> trip.sn:12:17
   <span class="n">|</span>
 <span class="n">12 |</span>     let total = 1500.0&lt;meters&gt; + 300.0&lt;seconds&gt;;
   <span class="n">|</span>                 <span class="u">^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^</span> the operands have different types
@@ -333,23 +267,23 @@
     </p>
 
     <div class="get">
-      <a class="btn" href="https://github.com/AR-Lumo/cinder/releases/download/v3.0.0-cinder/cinder-0.1.0-windows-x64.zip">
+      <a class="btn" href="https://github.com/AR-Lumo/soliton/releases/latest">
         Download for Windows <small>56 MB &middot; zip</small>
       </a>
       <div class="get-meta">
-        <strong>Cinder 0.1.0</strong> &middot; Windows 10 or later, 64-bit.
-        Unzip anywhere and run <code>bin\cinder.exe</code>.<br>
-        <code>sha256 b8dcc2ea15c179b4207c8bba6ff1358f4ca2cf4cb9a242458a807e4209ad507a</code>
+        <strong>Soliton 0.1.0</strong> &middot; Windows 10 or later, 64-bit.
+        Unzip anywhere and run <code>bin\soliton.exe</code>.<br>
+        Checksums are on the <a href="https://github.com/AR-Lumo/soliton/releases/latest">release page</a>.
       </div>
     </div>
 
     <ul class="facts">
       <li><dfn>Linux &amp; macOS</dfn>
         <span>Build from source &mdash; about ten minutes, most of it LLVM.
-        The <a href="https://github.com/AR-Lumo/cinder/blob/main/GETTING_STARTED.md">getting-started guide</a>
+        The <a href="https://github.com/AR-Lumo/soliton/blob/main/GETTING_STARTED.md">getting-started guide</a>
         has the commands. Self-contained packaging is Windows-only so far.</span></li>
       <li><dfn>First program</dfn>
-        <span><code>cinder run hello.ci</code> compiles to a real executable and runs it.
+        <span><code>soliton run hello.sn</code> compiles to a real executable and runs it.
         There is no interpreter and no VM.</span></li>
       <li><dfn>Licence</dfn>
         <span>MIT. Use it for anything, including commercially.</span></li>
@@ -360,7 +294,7 @@
     <p class="eyebrow">What is unusual about it</p>
     <h2>Three things the type checker knows that most do not.</h2>
     <p>
-      The rest of Cinder is deliberately ordinary &mdash; structs, methods in
+      The rest of Soliton is deliberately ordinary &mdash; structs, methods in
       <code>impl</code> blocks, generics by monomorphization, ownership with
       moves and no garbage collector. These three are the reason to look.
     </p>
@@ -381,9 +315,9 @@
     <span class="k">ensures</span> result != <span class="s">0</span> || a == <span class="s">0</span>
 { <span class="k">return</span> a / b; }
 
-<span class="p">$</span> cinder run divide.ci
-<span class="e">cinder:</span> requires contract violated in `divide`: b != 0
-  <span class="n">--&gt;</span> divide.ci:2:5</pre>
+<span class="p">$</span> soliton run divide.sn
+<span class="e">soliton:</span> requires contract violated in `divide`: b != 0
+  <span class="n">--&gt;</span> divide.sn:2:5</pre>
       </div>
     </div>
 
@@ -418,7 +352,7 @@
 <pre><span class="k">pub fn</span> quiet(w: <span class="t">int</span>) <span class="k">uses nothing</span> { println(w); }
 
 <span class="e">error:</span> `io` is not permitted here
- <span class="n">--&gt;</span> effects.ci:1:33
+ <span class="n">--&gt;</span> effects.sn:1:33
   <span class="n">|</span>
 <span class="n">1 |</span> pub fn quiet(w: int) uses nothing { println(w); }
   <span class="n">|</span>                                     <span class="u">^^^^^^^^^^</span> this performs `io`
@@ -429,11 +363,11 @@
 
   <section>
     <p class="eyebrow">Before you build on it</p>
-    <h2>What Cinder does not do.</h2>
+    <h2>What Soliton does not do.</h2>
     <div class="cols">
       <div>
         <p>
-          Cinder is one person's language at version 0.1. It compiles real
+          Soliton is one person's language at version 0.1. It compiles real
           programs and the test suite is thorough, but it has sharp edges that
           are documented rather than hidden.
         </p>
@@ -449,19 +383,19 @@
           <li><dfn>No GC</dfn><span>Ownership and moves, with drops inserted by the compiler.</span></li>
           <li><dfn>No borrow checker</dfn><span>See above. This is the one to weigh.</span></li>
           <li><dfn>Self-hosting</dfn><span>Not yet &mdash; the compiler is C++20 and LLVM.</span></li>
-          <li><dfn>Everything else</dfn><span>The <a href="https://github.com/AR-Lumo/cinder#known-limitations">known limitations</a> list runs to fifteen entries, each with its reasoning.</span></li>
+          <li><dfn>Everything else</dfn><span>The <a href="https://github.com/AR-Lumo/soliton#known-limitations">known limitations</a> list runs to fifteen entries, each with its reasoning.</span></li>
         </ul>
       </div>
     </div>
   </section>
 
   <footer>
-    <span>Cinder 0.1.0 &middot; MIT &middot; built with LLVM</span>
+    <span>Soliton 0.1.0 &middot; MIT &middot; built with LLVM</span>
     <span>
-      <a href="https://github.com/AR-Lumo/cinder">Source</a> &middot;
-      <a href="https://github.com/AR-Lumo/cinder/blob/main/GETTING_STARTED.md">Guide</a> &middot;
-      <a href="https://github.com/AR-Lumo/cinder/blob/main/cinder-language-spec.md">Spec</a> &middot;
-      <a href="https://github.com/AR-Lumo/cinder/releases">Releases</a>
+      <a href="https://github.com/AR-Lumo/soliton">Source</a> &middot;
+      <a href="https://github.com/AR-Lumo/soliton/blob/main/GETTING_STARTED.md">Guide</a> &middot;
+      <a href="https://github.com/AR-Lumo/soliton/blob/main/soliton-language-spec.md">Spec</a> &middot;
+      <a href="https://github.com/AR-Lumo/soliton/releases">Releases</a>
     </span>
   </footer>
 </div>

@@ -1,10 +1,10 @@
-#include "cinder/ast/diagnostic.hpp"
+#include "soliton/ast/diagnostic.hpp"
 
 #include <algorithm>
 #include <sstream>
 #include <utility>
 
-namespace cinder::ast {
+namespace soliton::ast {
 namespace {
 
 /// Whitespace that lines the carets up under the offending text.
@@ -126,4 +126,4 @@ std::string render_all(const std::vector<Diagnostic>& diagnostics, const SourceM
     return render_each(diagnostics, [&](const Diagnostic& one) { return render(one, sources); });
 }
 
-}  // namespace cinder::ast
+}  // namespace soliton::ast

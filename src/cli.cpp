@@ -1,15 +1,15 @@
 #include "cli.hpp"
 
-#include "cinder/ast/ast.hpp"
-#include "cinder/ast/diagnostic.hpp"
-#include "cinder/ast/span.hpp"
-#include "cinder/ast/interface.hpp"
-#include "cinder/codegen/codegen.hpp"
-#include "cinder/link/link.hpp"
-#include "cinder/manifest/manifest.hpp"
-#include "cinder/manifest/registry.hpp"
-#include "cinder/parser/parser.hpp"
-#include "cinder/typeck/typeck.hpp"
+#include "soliton/ast/ast.hpp"
+#include "soliton/ast/diagnostic.hpp"
+#include "soliton/ast/span.hpp"
+#include "soliton/ast/interface.hpp"
+#include "soliton/codegen/codegen.hpp"
+#include "soliton/link/link.hpp"
+#include "soliton/manifest/manifest.hpp"
+#include "soliton/manifest/registry.hpp"
+#include "soliton/parser/parser.hpp"
+#include "soliton/typeck/typeck.hpp"
 
 #include <cstdint>
 #include <cstdio>
@@ -26,23 +26,23 @@
 
 // Baked in by CMake so the driver can find the runtime it has to link
 // into every compiled program, and the toolchain that does the linking.
-#ifndef CINDER_RUNTIME_LIBRARY
-#define CINDER_RUNTIME_LIBRARY ""
+#ifndef SOLITON_RUNTIME_LIBRARY
+#define SOLITON_RUNTIME_LIBRARY ""
 #endif
-#ifndef CINDER_LINKER
-#define CINDER_LINKER "c++"
+#ifndef SOLITON_LINKER
+#define SOLITON_LINKER "c++"
 #endif
 
-namespace cinder::cli {
+namespace soliton::cli {
 namespace {
 
 UsageError usage_error(std::string message) { return UsageError{std::move(message)}; }
 
-/// Cinder only compiles `.ci` files. Renaming the language means changing
-/// cinder::ast::kFileExtension; this check follows automatically.
+/// Soliton only compiles `.sn` files. Renaming the language means changing
+/// soliton::ast::kFileExtension; this check follows automatically.
 std::variant<std::filesystem::path, UsageError> check_extension(std::string_view arg) {
     const std::filesystem::path path{std::string{arg}};
-    const std::string expected{cinder::ast::kFileExtension};
+    const std::string expected{soliton::ast::kFileExtension};
     const std::string extension = path.extension().string();
     if (extension.size() > 1 && extension.substr(1) == expected) {
         return path;
@@ -58,7 +58,7 @@ bool is_flag(std::string_view arg) { return !arg.empty() && arg.front() == '-'; 
 /// matches, so it reports how many it took.
 ///
 /// Recognized by `check` too: where a module lives is a question the
-/// front end asks, and `cinder check` runs the front end.
+/// front end asks, and `soliton check` runs the front end.
 std::optional<std::variant<std::size_t, UsageError>> parse_module_path_flag(
     std::span<const std::string_view> args, std::size_t at,
     std::vector<std::filesystem::path>& into) {
@@ -73,7 +73,7 @@ std::optional<std::variant<std::size_t, UsageError>> parse_module_path_flag(
     return std::size_t{2};
 }
 
-/// `--update`: ignore the revisions `cinder.lock` pinned and resolve git
+/// `--update`: ignore the revisions `soliton.lock` pinned and resolve git
 /// dependencies afresh. Like `--module-path` it belongs to every
 /// subcommand that reads a program, `check` included.
 bool parse_update_flag(std::string_view arg, bool& update) {
@@ -130,7 +130,7 @@ FlagOutcome parse_build_flag(std::string_view arg, BuildOptions& options) {
             // asking.
             return FlagOutcome{
                 true, "`-O` requires a level, e.g. `-O2` (gcc and clang disagree on what "
-                      "a bare `-O` means, so cinder does not guess)"};
+                      "a bare `-O` means, so soliton does not guess)"};
         }
         return FlagOutcome{true, "expected an optimization level `-O0` through `-O3`, found `" +
                                      std::string{arg} + "`"};
@@ -286,7 +286,7 @@ ParseResult parse_build(std::span<const std::string_view> args,
     return command;
 }
 
-/// `cinder fetch [--update]`. The odd one out: it takes no input file,
+/// `soliton fetch [--update]`. The odd one out: it takes no input file,
 /// because what it works on is the manifest, found by walking up from
 /// wherever it was run.
 ParseResult parse_fetch(std::span<const std::string_view> args) {
@@ -305,7 +305,7 @@ ParseResult parse_fetch(std::span<const std::string_view> args) {
     return command;
 }
 
-/// `cinder publish [--dry-run]`. Like `fetch`, it works on the manifest
+/// `soliton publish [--dry-run]`. Like `fetch`, it works on the manifest
 /// it finds rather than on a file it is handed.
 ParseResult parse_publish(std::span<const std::string_view> args) {
     Command command;
@@ -327,21 +327,21 @@ ParseResult parse_publish(std::span<const std::string_view> args) {
 }  // namespace
 
 const std::string_view kUsage =
-    "cinder - the Cinder compiler\n"
+    "soliton - the Soliton compiler\n"
     "\n"
     "USAGE:\n"
-    "    cinder build <file.ci> [-o <output>]   compile to a native executable\n"
-    "    cinder run <file.ci>                   compile and run in one step\n"
-    "    cinder check <file.ci>                 type-check only, no codegen\n"
-    "    cinder fetch                           resolve and download dependencies\n"
-    "    cinder publish                         record this version in the registry index\n"
-    "    cinder interface <file.ci>             write the module's public interface\n"
+    "    soliton build <file.sn> [-o <output>]   compile to a native executable\n"
+    "    soliton run <file.sn>                   compile and run in one step\n"
+    "    soliton check <file.sn>                 type-check only, no codegen\n"
+    "    soliton fetch                           resolve and download dependencies\n"
+    "    soliton publish                         record this version in the registry index\n"
+    "    soliton interface <file.sn>             write the module's public interface\n"
     "\n"
     "OPTIONS:\n"
     "    -o, --output <path>   output path for `build` (default: input stem)\n"
     "    -L, --module-path <dir>\n"
     "                          also look here for imported modules (repeatable)\n"
-    "        --update          re-resolve git dependencies, ignoring `cinder.lock`\n"
+    "        --update          re-resolve git dependencies, ignoring `soliton.lock`\n"
     "        --dry-run         for `publish`: say what it would record, record nothing\n"
     "        --lib             compile to an object file, with no `main` required\n"
     "        --whole-program   compile as one unit, so `-O` can inline across modules\n"
@@ -409,11 +409,11 @@ std::filesystem::path& compiler_path() {
 
 void set_compiler_path(const std::filesystem::path& path) { compiler_path() = path; }
 
-std::string version_string() { return "cinder " + std::string{cinder::ast::version()}; }
+std::string version_string() { return "soliton " + std::string{soliton::ast::version()}; }
 
 namespace {
 
-/// The separator `CINDER_MODULE_PATH` uses, which is whatever the
+/// The separator `SOLITON_MODULE_PATH` uses, which is whatever the
 /// platform already uses for `PATH`.
 constexpr char kPathSeparator =
 #ifdef _WIN32
@@ -577,11 +577,11 @@ private:
     std::filesystem::path path_;
 };
 
-/// Link the program's object files against the Cinder runtime to produce
+/// Link the program's object files against the Soliton runtime to produce
 /// `output`. Returns an exit code.
 ///
 /// The linker is compiled into this binary, so nothing outside the
-/// Cinder install is consulted and no C++ toolchain need be present. A
+/// Soliton install is consulted and no C++ toolchain need be present. A
 /// build without LLD falls back to invoking one, which works only on a
 /// machine that has one - the situation this replaced.
 int link_executable(const std::vector<std::filesystem::path>& objects,
@@ -589,10 +589,10 @@ int link_executable(const std::vector<std::filesystem::path>& objects,
     if (link::is_available()) {
         const link::Toolchain toolchain = link::discover();
         if (!toolchain.complete) {
-            std::cerr << "error: this Cinder installation is incomplete\n";
+            std::cerr << "error: this Soliton installation is incomplete\n";
             std::cerr << "note: " << toolchain.note << "\n";
             std::cerr << "note: the runtime and system archives belong in "
-                         "`lib/cinder`, beside `bin/cinder`\n";
+                         "`lib/soliton`, beside `bin/soliton`\n";
             return kExitCompileError;
         }
 
@@ -607,14 +607,14 @@ int link_executable(const std::vector<std::filesystem::path>& objects,
         return kExitSuccess;
     }
 
-    const std::filesystem::path runtime{CINDER_RUNTIME_LIBRARY};
+    const std::filesystem::path runtime{SOLITON_RUNTIME_LIBRARY};
     if (runtime.empty() || !std::filesystem::exists(runtime)) {
-        std::cerr << "error: cannot find the Cinder runtime library\n";
+        std::cerr << "error: cannot find the Soliton runtime library\n";
         std::cerr << "note: expected it at `" << runtime.string() << "`\n";
         return kExitCompileError;
     }
 
-    std::string command = quote(std::filesystem::path{CINDER_LINKER});
+    std::string command = quote(std::filesystem::path{SOLITON_LINKER});
     for (const std::filesystem::path& object : objects) {
         command += " " + quote(object);
     }
@@ -655,7 +655,7 @@ std::string hex(std::uint64_t value, int digits) {
 
 /// Every module reachable from `start` through imports, including it.
 ///
-/// Reachability rather than a dependency order, because Cinder lets two
+/// Reachability rather than a dependency order, because Soliton lets two
 /// modules import each other: there may be no order to walk, but the
 /// reachable set is well defined either way.
 std::set<std::size_t> reachable_from(const std::vector<parser::Module>& modules,
@@ -697,12 +697,12 @@ struct ModuleBuild {
 /// does not get to keep anything.
 std::filesystem::path cache_directory(const std::filesystem::path& entry) {
     std::error_code code;
-    std::filesystem::path directory = entry.parent_path() / ".cinder";
+    std::filesystem::path directory = entry.parent_path() / ".soliton";
     std::filesystem::create_directories(directory, code);
     if (!code) {
         return directory;
     }
-    directory = std::filesystem::temp_directory_path() / "cinder-cache";
+    directory = std::filesystem::temp_directory_path() / "soliton-cache";
     std::filesystem::create_directories(directory, code);
     return directory;
 }
@@ -713,7 +713,7 @@ std::filesystem::path cache_directory(const std::filesystem::path& entry) {
 /// The fingerprint covers the module's own source *and* the source of
 /// everything it can reach through imports, because a struct that
 /// changes shape in one module changes the code generated in another.
-/// It also covers the compiler, so upgrading cinder invalidates the lot.
+/// It also covers the compiler, so upgrading soliton invalidates the lot.
 ///
 /// Putting the fingerprint in the file name rather than in a manifest
 /// beside it means a cache hit is just a file existing: there is no
@@ -1074,7 +1074,7 @@ private:
     }
 };
 
-/// Reads `cinder.lock` beside the manifest, if there is one.
+/// Reads `soliton.lock` beside the manifest, if there is one.
 manifest::Lock read_lock(const std::filesystem::path& directory, ast::SourceMap& sources,
                          bool& ok) {
     const std::filesystem::path path = directory / std::filesystem::path{manifest::kLockName};
@@ -1115,7 +1115,7 @@ void write_lock_if_changed(const std::filesystem::path& directory,
 int emit_executable(const FrontEnd& front_end, const std::filesystem::path& output,
                     const BuildOptions& build) {
     if (!codegen::is_available()) {
-        std::cerr << "error: this build of cinder has no code generator\n";
+        std::cerr << "error: this build of soliton has no code generator\n";
         std::cerr << "note: the compiler was built without LLVM; reconfigure with "
                      "-DLLVM_DIR=<prefix>/lib/cmake/llvm\n";
         return kExitCompileError;
@@ -1144,7 +1144,7 @@ int emit_executable(const FrontEnd& front_end, const std::filesystem::path& outp
     }
 
     // An executable needs an entry point. This is not a type error, so
-    // it is checked here rather than by `cinder check`.
+    // it is checked here rather than by `soliton check`.
     const std::vector<ast::Diagnostic> entry = codegen::verify_entry_point(front_end.checked);
     if (!entry.empty()) {
         std::cerr << ast::render_all(entry, front_end.sources);
@@ -1213,7 +1213,7 @@ int emit_executable(const FrontEnd& front_end, const std::filesystem::path& outp
         options.target_module = module.name;
 
         // Written under a private name and moved into place, so a second
-        // cinder running over the same sources cannot be caught reading a
+        // soliton running over the same sources cannot be caught reading a
         // half-written object.
         std::random_device entropy;
         const std::filesystem::path partial =
@@ -1259,7 +1259,7 @@ int emit_executable(const FrontEnd& front_end, const std::filesystem::path& outp
 
 }  // namespace
 
-std::string linker_command() { return CINDER_LINKER; }
+std::string linker_command() { return SOLITON_LINKER; }
 
 std::vector<std::filesystem::path> module_search_path(
     const std::filesystem::path& entry, const std::vector<std::filesystem::path>& requested,
@@ -1271,7 +1271,7 @@ std::vector<std::filesystem::path> module_search_path(
     // happened to be carrying.
     search.insert(search.end(), packages.begin(), packages.end());
 
-    if (const char* environment = std::getenv("CINDER_MODULE_PATH")) {
+    if (const char* environment = std::getenv("SOLITON_MODULE_PATH")) {
         const std::string text{environment};
         std::size_t start = 0;
         while (start <= text.size()) {
@@ -1291,7 +1291,7 @@ std::vector<std::filesystem::path> module_search_path(
     // The conventional place, so a vendored dependency needs no flag at
     // all: drop it in and `import` finds it.
     std::error_code ignored;
-    const std::filesystem::path vendored = entry.parent_path() / "cinder_modules";
+    const std::filesystem::path vendored = entry.parent_path() / "soliton_modules";
     if (std::filesystem::is_directory(vendored, ignored)) {
         search.push_back(vendored);
     }
@@ -1302,7 +1302,7 @@ PackageResolution resolve_packages(const std::filesystem::path& entry, bool upda
                                    bool verbose) {
     PackageResolution result;
 
-    // Most Cinder programs are one file and depend on nothing, so having
+    // Most Soliton programs are one file and depend on nothing, so having
     // no manifest is the ordinary case rather than a mistake.
     const std::optional<std::filesystem::path> manifest_path =
         manifest::find_manifest(entry.parent_path());
@@ -1344,7 +1344,7 @@ PackageResolution resolve_packages(const std::filesystem::path& entry, bool upda
         }
     }
 
-    const std::filesystem::path cache = root / ".cinder" / "packages";
+    const std::filesystem::path cache = root / ".soliton" / "packages";
     GitFetcher fetcher{cache, verbose};
     RegistryIndex index{parsed.manifest->registry_index, cache, update, sources};
 
@@ -1402,8 +1402,8 @@ struct GitAnswer {
     bool ok() const noexcept { return error.empty(); }
 };
 
-/// What `git status --porcelain` said, minus anything cinder itself put
-/// there: the `.cinder` build cache and the lockfile.
+/// What `git status --porcelain` said, minus anything soliton itself put
+/// there: the `.soliton` build cache and the lockfile.
 ///
 /// Both appear the moment a package has been checked once, so without
 /// this every package looks dirty and the check that matters - that the
@@ -1420,11 +1420,11 @@ std::string authored_changes(const std::string& status) {
         at = end == std::string::npos ? status.size() : end + 1;
 
         // Porcelain lines are `XY <path>`, and a path with a space in it
-        // is quoted; either way `.cinder/` is what follows the status.
+        // is quoted; either way `.soliton/` is what follows the status.
         const std::size_t path = line.find_first_not_of(" ?!AMDRCU", 0);
         const std::string_view rest =
             path == std::string::npos ? std::string_view{} : std::string_view{line}.substr(path);
-        if (rest.rfind(".cinder/", 0) == 0 || rest.rfind("\".cinder/", 0) == 0 ||
+        if (rest.rfind(".soliton/", 0) == 0 || rest.rfind("\".soliton/", 0) == 0 ||
             rest == manifest::kLockName) {
             continue;
         }
@@ -1554,7 +1554,7 @@ int publish_package(const std::filesystem::path& from, bool dry_run) {
 
     // The index. A directory is edited where it is; a repository is
     // cloned first, and the clone is where the commit lands.
-    const std::filesystem::path cache = package.root / ".cinder" / "packages";
+    const std::filesystem::path cache = package.root / ".soliton" / "packages";
     GitFetcher fetcher{cache, /*verbose=*/false};
     RegistryIndex index{package.registry_index, cache, /*update=*/true, sources};
 
@@ -1637,7 +1637,7 @@ int publish_package(const std::filesystem::path& from, bool dry_run) {
         if (!said.empty()) {
             std::cerr << said << "\n";
         }
-        std::cerr << "note: nothing was published; fix the above and run `cinder publish` "
+        std::cerr << "note: nothing was published; fix the above and run `soliton publish` "
                      "again\n";
         return kExitCompileError;
     }
@@ -1745,16 +1745,16 @@ int run_file(const std::filesystem::path& input, const BuildOptions& options,
     std::random_device entropy;
     std::filesystem::path executable =
         std::filesystem::temp_directory_path() /
-        ("cinder-run-" + std::to_string(entropy()) + std::string{".exe"});
+        ("soliton-run-" + std::to_string(entropy()) + std::string{".exe"});
 
     const ScratchFile scratch{executable};
     if (emit_executable(front_end, scratch.path(), options) != kExitSuccess) {
         return kExitCompileError;
     }
 
-    // The program's own exit code is this process's exit code, so `cinder
+    // The program's own exit code is this process's exit code, so `soliton
     // run` is transparent to whatever it launched.
     return run_command(quote(scratch.path()));
 }
 
-}  // namespace cinder::cli
+}  // namespace soliton::cli

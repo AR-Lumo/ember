@@ -1,9 +1,9 @@
-#include "cinder/lexer/token.hpp"
+#include "soliton/lexer/token.hpp"
 
 #include <array>
 #include <utility>
 
-namespace cinder::lexer {
+namespace soliton::lexer {
 namespace {
 
 struct KindNames {
@@ -184,4 +184,4 @@ std::optional<TokenKind> keyword_kind(std::string_view text) noexcept {
     return std::nullopt;
 }
 
-}  // namespace cinder::lexer
+}  // namespace soliton::lexer

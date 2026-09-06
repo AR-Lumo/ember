@@ -1,12 +1,12 @@
-# cinder::typeck - one pipeline stage, per the project layout in section 2.
+# soliton::typeck - one pipeline stage, per the project layout in section 2.
 
-add_library(cinder_typeck STATIC
+add_library(soliton_typeck STATIC
     src/typeck.cpp
     src/types.cpp
 )
-add_library(cinder::typeck ALIAS cinder_typeck)
+add_library(soliton::typeck ALIAS soliton_typeck)
 
-target_include_directories(cinder_typeck PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
-target_compile_features(cinder_typeck PUBLIC cxx_std_20)
+target_include_directories(soliton_typeck PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
+target_compile_features(soliton_typeck PUBLIC cxx_std_20)
 
-target_link_libraries(cinder_typeck PUBLIC cinder::ast)
+target_link_libraries(soliton_typeck PUBLIC soliton::ast)

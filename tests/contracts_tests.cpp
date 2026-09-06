@@ -24,10 +24,10 @@
 
 #include "test_harness.hpp"
 
-#include "cinder/ast/diagnostic.hpp"
-#include "cinder/ast/nodes.hpp"
-#include "cinder/parser/parser.hpp"
-#include "cinder/typeck/typeck.hpp"
+#include "soliton/ast/diagnostic.hpp"
+#include "soliton/ast/nodes.hpp"
+#include "soliton/parser/parser.hpp"
+#include "soliton/typeck/typeck.hpp"
 
 #include <array>
 #include <cstdio>
@@ -40,34 +40,34 @@
 
 namespace {
 
-using cinder::ast::SourceFile;
-using cinder::typeck::CheckResult;
+using soliton::ast::SourceFile;
+using soliton::typeck::CheckResult;
 
 SourceFile contract_source(std::string contents) {
-    return SourceFile{"contracts.ci", std::move(contents)};
+    return SourceFile{"contracts.sn", std::move(contents)};
 }
 
-cinder::parser::ParseResult parse_contracts(const SourceFile& source) {
-    return cinder::parser::parse_source(source);
+soliton::parser::ParseResult parse_contracts(const SourceFile& source) {
+    return soliton::parser::parse_source(source);
 }
 
 CheckResult check_contracts(const SourceFile& source) {
-    cinder::parser::ParseResult parsed = parse_contracts(source);
+    soliton::parser::ParseResult parsed = parse_contracts(source);
     if (!parsed.ok()) {
-        ::cinder::test::fail(__FILE__, __LINE__,
+        ::soliton::test::fail(__FILE__, __LINE__,
                             "fixture does not parse:\n" +
-                                cinder::ast::render_all(parsed.diagnostics, source));
+                                soliton::ast::render_all(parsed.diagnostics, source));
     }
-    return cinder::typeck::check(*parsed.program, source);
+    return soliton::typeck::check(*parsed.program, source);
 }
 
 void accepts(const std::string& contents) {
     const SourceFile source = contract_source(contents);
     const CheckResult result = check_contracts(source);
     if (!result.ok()) {
-        ::cinder::test::fail(__FILE__, __LINE__,
+        ::soliton::test::fail(__FILE__, __LINE__,
                             "expected this to type-check, but:\n" +
-                                cinder::ast::render_all(result.diagnostics, source));
+                                soliton::ast::render_all(result.diagnostics, source));
     }
 }
 
@@ -75,7 +75,7 @@ std::string rejects(const std::string& contents) {
     const SourceFile source = contract_source(contents);
     CheckResult result = check_contracts(source);
     if (result.ok()) {
-        ::cinder::test::fail(__FILE__, __LINE__,
+        ::soliton::test::fail(__FILE__, __LINE__,
                             "expected this to be rejected, but it type-checked");
     }
     return result.diagnostics.at(0).message;
@@ -96,17 +96,17 @@ struct RunResult {
 /// question about values, not types.
 RunResult build_and_run(const std::string& contents) {
     const fs::path directory =
-        fs::temp_directory_path() / ("cinder-contract-" + std::to_string(std::rand()));
+        fs::temp_directory_path() / ("soliton-contract-" + std::to_string(std::rand()));
     std::error_code failed;
     fs::create_directories(directory, failed);
 
-    const fs::path source = directory / "main.ci";
+    const fs::path source = directory / "main.sn";
     {
         std::ofstream out{source};
         out << contents;
     }
 
-    const std::string command = "\"" + fs::path{CINDER_BINARY}.string() + "\" run \"" +
+    const std::string command = "\"" + fs::path{SOLITON_BINARY}.string() + "\" run \"" +
                                 source.string() + "\" 2>&1";
 #ifdef _WIN32
     // cmd.exe eats the outer quotes of a command that starts with one.
@@ -115,7 +115,7 @@ RunResult build_and_run(const std::string& contents) {
     FILE* pipe = popen(command.c_str(), "r");
 #endif
     if (pipe == nullptr) {
-        ::cinder::test::fail(__FILE__, __LINE__, "cannot run: " + command);
+        ::soliton::test::fail(__FILE__, __LINE__, "cannot run: " + command);
     }
 
     RunResult result;
@@ -134,19 +134,19 @@ RunResult build_and_run(const std::string& contents) {
 }
 
 /// The first function declared in a program.
-const cinder::ast::FunctionDecl& first_function(const cinder::ast::Program& program) {
-    for (const cinder::ast::ItemPtr& item : program.items) {
-        if (const auto* function = cinder::ast::node_cast<cinder::ast::FunctionDecl>(item.get())) {
+const soliton::ast::FunctionDecl& first_function(const soliton::ast::Program& program) {
+    for (const soliton::ast::ItemPtr& item : program.items) {
+        if (const auto* function = soliton::ast::node_cast<soliton::ast::FunctionDecl>(item.get())) {
             return *function;
         }
     }
-    ::cinder::test::fail(__FILE__, __LINE__, "no function in the program");
+    ::soliton::test::fail(__FILE__, __LINE__, "no function in the program");
     throw 0;  // unreachable; fail() does not return
 }
 
 }  // namespace
 
-CINDER_TEST(a_signature_carries_its_contracts_in_order) {
+SOLITON_TEST(a_signature_carries_its_contracts_in_order) {
     const SourceFile source = contract_source(
         "pub fn divide(a: int, b: int) -> int\n"
         "    requires b != 0\n"
@@ -154,23 +154,23 @@ CINDER_TEST(a_signature_carries_its_contracts_in_order) {
         "{\n"
         "    return a / b;\n"
         "}\n");
-    const cinder::parser::ParseResult parsed = parse_contracts(source);
-    CINDER_CHECK(parsed.ok());
+    const soliton::parser::ParseResult parsed = parse_contracts(source);
+    SOLITON_CHECK(parsed.ok());
 
-    const cinder::ast::FunctionDecl& function = first_function(*parsed.program);
-    CINDER_CHECK_EQ(function.contracts.size(), std::size_t{2});
-    CINDER_CHECK(function.contracts[0].kind == cinder::ast::ContractKind::Requires);
-    CINDER_CHECK(function.contracts[1].kind == cinder::ast::ContractKind::Ensures);
-    CINDER_CHECK(function.has_ensures());
+    const soliton::ast::FunctionDecl& function = first_function(*parsed.program);
+    SOLITON_CHECK_EQ(function.contracts.size(), std::size_t{2});
+    SOLITON_CHECK(function.contracts[0].kind == soliton::ast::ContractKind::Requires);
+    SOLITON_CHECK(function.contracts[1].kind == soliton::ast::ContractKind::Ensures);
+    SOLITON_CHECK(function.has_ensures());
 
     // The text is captured at parse time because codegen is handed no
     // source, and a violated contract has to print what it said.
-    CINDER_CHECK_EQ(function.contracts[0].text, std::string{"b != 0"});
-    CINDER_CHECK_EQ(function.contracts[1].text, std::string{"result != 0 || a == 0"});
-    CINDER_CHECK_EQ(function.contracts[0].location, std::string{"contracts.ci:2:5"});
+    SOLITON_CHECK_EQ(function.contracts[0].text, std::string{"b != 0"});
+    SOLITON_CHECK_EQ(function.contracts[1].text, std::string{"result != 0 || a == 0"});
+    SOLITON_CHECK_EQ(function.contracts[0].location, std::string{"contracts.sn:2:5"});
 }
 
-CINDER_TEST(a_contract_does_not_swallow_the_function_body) {
+SOLITON_TEST(a_contract_does_not_swallow_the_function_body) {
     // The struct-literal trap. If the condition were parsed as an
     // ordinary expression, `0 {` would begin a struct literal and the
     // body would vanish into it - with no syntax error to show for it.
@@ -180,24 +180,24 @@ CINDER_TEST(a_contract_does_not_swallow_the_function_body) {
         "{\n"
         "    return b;\n"
         "}\n");
-    const cinder::parser::ParseResult parsed = parse_contracts(source);
-    CINDER_CHECK(parsed.ok());
+    const soliton::parser::ParseResult parsed = parse_contracts(source);
+    SOLITON_CHECK(parsed.ok());
 
-    const cinder::ast::FunctionDecl& function = first_function(*parsed.program);
-    CINDER_CHECK_EQ(function.contracts.size(), std::size_t{1});
-    CINDER_CHECK(function.has_body);
-    CINDER_CHECK_EQ(function.body.statements.size(), std::size_t{1});
+    const soliton::ast::FunctionDecl& function = first_function(*parsed.program);
+    SOLITON_CHECK_EQ(function.contracts.size(), std::size_t{1});
+    SOLITON_CHECK(function.has_body);
+    SOLITON_CHECK_EQ(function.body.statements.size(), std::size_t{1});
 }
 
-CINDER_TEST(a_function_may_promise_nothing) {
+SOLITON_TEST(a_function_may_promise_nothing) {
     const SourceFile source = contract_source("pub fn f() -> int { return 1; }\n");
-    const cinder::parser::ParseResult parsed = parse_contracts(source);
-    CINDER_CHECK(parsed.ok());
-    CINDER_CHECK(first_function(*parsed.program).contracts.empty());
-    CINDER_CHECK(!first_function(*parsed.program).has_ensures());
+    const soliton::parser::ParseResult parsed = parse_contracts(source);
+    SOLITON_CHECK(parsed.ok());
+    SOLITON_CHECK(first_function(*parsed.program).contracts.empty());
+    SOLITON_CHECK(!first_function(*parsed.program).has_ensures());
 }
 
-CINDER_TEST(contracts_may_talk_about_parameters_and_the_result) {
+SOLITON_TEST(contracts_may_talk_about_parameters_and_the_result) {
     accepts(
         "pub fn divide(a: int, b: int) -> int\n"
         "    requires b != 0\n"
@@ -208,7 +208,7 @@ CINDER_TEST(contracts_may_talk_about_parameters_and_the_result) {
         "pub fn main() { println(divide(4, 2)); }\n");
 }
 
-CINDER_TEST(a_method_may_carry_contracts_and_see_self) {
+SOLITON_TEST(a_method_may_carry_contracts_and_see_self) {
     accepts(
         "struct Counter { pub n: int, }\n"
         "impl Counter {\n"
@@ -225,7 +225,7 @@ CINDER_TEST(a_method_may_carry_contracts_and_see_self) {
         "}\n");
 }
 
-CINDER_TEST(a_function_returning_nothing_may_still_require) {
+SOLITON_TEST(a_function_returning_nothing_may_still_require) {
     accepts(
         "pub fn shout(times: int)\n"
         "    requires times > 0\n"
@@ -235,7 +235,7 @@ CINDER_TEST(a_function_returning_nothing_may_still_require) {
         "pub fn main() { shout(1); }\n");
 }
 
-CINDER_TEST(result_is_not_a_keyword) {
+SOLITON_TEST(result_is_not_a_keyword) {
     // The reason it is bound by the checker rather than reserved by the
     // lexer: reserving it would break programs like this one, which
     // have every right to exist.
@@ -246,27 +246,27 @@ CINDER_TEST(result_is_not_a_keyword) {
         "}\n");
 }
 
-CINDER_TEST(result_is_out_of_scope_in_a_requires) {
+SOLITON_TEST(result_is_out_of_scope_in_a_requires) {
     const std::string message = rejects(
         "pub fn f(x: int) -> int\n"
         "    requires result > 0\n"
         "{\n"
         "    return x;\n"
         "}\n");
-    CINDER_CHECK_EQ(message, std::string{"`result` is not in scope in a `requires`"});
+    SOLITON_CHECK_EQ(message, std::string{"`result` is not in scope in a `requires`"});
 }
 
-CINDER_TEST(result_is_out_of_scope_when_nothing_is_returned) {
+SOLITON_TEST(result_is_out_of_scope_when_nothing_is_returned) {
     const std::string message = rejects(
         "pub fn f(x: int)\n"
         "    ensures result == x\n"
         "{\n"
         "}\n");
-    CINDER_CHECK_EQ(message,
+    SOLITON_CHECK_EQ(message,
                    std::string{"this function returns nothing, so it has no `result`"});
 }
 
-CINDER_TEST(result_is_out_of_scope_in_the_body) {
+SOLITON_TEST(result_is_out_of_scope_in_the_body) {
     // It belongs to the clause, not the function. Inside the body it is
     // just an undefined name, which is what it should be.
     const std::string message = rejects(
@@ -275,18 +275,18 @@ CINDER_TEST(result_is_out_of_scope_in_the_body) {
         "{\n"
         "    return result;\n"
         "}\n");
-    CINDER_CHECK(message != std::string{"`result` is not in scope in a `requires`"});
+    SOLITON_CHECK(message != std::string{"`result` is not in scope in a `requires`"});
 }
 
-CINDER_TEST(a_contract_must_be_a_bool) {
-    CINDER_CHECK_EQ(rejects("pub fn f(x: int) -> int\n"
+SOLITON_TEST(a_contract_must_be_a_bool) {
+    SOLITON_CHECK_EQ(rejects("pub fn f(x: int) -> int\n"
                            "    requires x\n"
                            "{\n"
                            "    return x;\n"
                            "}\n"),
                    std::string{"a contract must be a `bool`"});
 
-    CINDER_CHECK_EQ(rejects("pub fn f(x: int) -> int\n"
+    SOLITON_CHECK_EQ(rejects("pub fn f(x: int) -> int\n"
                            "    ensures result\n"
                            "{\n"
                            "    return x;\n"
@@ -294,7 +294,7 @@ CINDER_TEST(a_contract_must_be_a_bool) {
                    std::string{"a contract must be a `bool`"});
 }
 
-CINDER_TEST(a_contract_cannot_see_a_local) {
+SOLITON_TEST(a_contract_cannot_see_a_local) {
     // A contract belongs to the signature, so it sees what the
     // signature sees. A local is not part of the promise.
     const std::string message = rejects(
@@ -304,20 +304,20 @@ CINDER_TEST(a_contract_cannot_see_a_local) {
         "    let hidden = 1;\n"
         "    return 2;\n"
         "}\n");
-    CINDER_CHECK(!message.empty());
+    SOLITON_CHECK(!message.empty());
 }
 
-CINDER_TEST(a_contract_is_type_checked_like_any_expression) {
+SOLITON_TEST(a_contract_is_type_checked_like_any_expression) {
     // Not waved through: an unknown name or a bad comparison inside a
     // clause is an error like anywhere else.
-    CINDER_CHECK(!rejects("pub fn f(x: int) -> int\n"
+    SOLITON_CHECK(!rejects("pub fn f(x: int) -> int\n"
                          "    requires nonexistent > 0\n"
                          "{\n"
                          "    return x;\n"
                          "}\n")
                      .empty());
 
-    CINDER_CHECK(!rejects("pub fn f(x: int) -> int\n"
+    SOLITON_CHECK(!rejects("pub fn f(x: int) -> int\n"
                          "    requires x > \"text\"\n"
                          "{\n"
                          "    return x;\n"
@@ -325,23 +325,23 @@ CINDER_TEST(a_contract_is_type_checked_like_any_expression) {
                      .empty());
 }
 
-CINDER_TEST(a_declaration_without_a_body_may_carry_contracts) {
+SOLITON_TEST(a_declaration_without_a_body_may_carry_contracts) {
     // What an interface file is made of. The clauses are part of the
     // signature, so they survive being written out and read back.
     const SourceFile source = contract_source(
         "pub fn divide(a: int, b: int) -> int\n"
         "    requires b != 0\n"
         "    ensures result != 0 || a == 0;\n");
-    const cinder::parser::ParseResult parsed = parse_contracts(source);
-    CINDER_CHECK(parsed.ok());
+    const soliton::parser::ParseResult parsed = parse_contracts(source);
+    SOLITON_CHECK(parsed.ok());
 
-    const cinder::ast::FunctionDecl& function = first_function(*parsed.program);
-    CINDER_CHECK(!function.has_body);
-    CINDER_CHECK_EQ(function.contracts.size(), std::size_t{2});
+    const soliton::ast::FunctionDecl& function = first_function(*parsed.program);
+    SOLITON_CHECK(!function.has_body);
+    SOLITON_CHECK_EQ(function.contracts.size(), std::size_t{2});
 }
 
 
-CINDER_TEST(a_satisfied_contract_does_not_get_in_the_way) {
+SOLITON_TEST(a_satisfied_contract_does_not_get_in_the_way) {
     const RunResult run = build_and_run(
         "pub fn divide(a: int, b: int) -> int\n"
         "    requires b != 0\n"
@@ -356,11 +356,11 @@ CINDER_TEST(a_satisfied_contract_does_not_get_in_the_way) {
         "    println(divide(0, 7));\n"
         "}\n");
 
-    CINDER_CHECK_MSG(run.exit_code == 0, run.output);
-    CINDER_CHECK_MSG(run.output.find("42") != std::string::npos, run.output);
+    SOLITON_CHECK_MSG(run.exit_code == 0, run.output);
+    SOLITON_CHECK_MSG(run.output.find("42") != std::string::npos, run.output);
 }
 
-CINDER_TEST(a_violated_requires_panics_and_names_the_clause) {
+SOLITON_TEST(a_violated_requires_panics_and_names_the_clause) {
     const RunResult run = build_and_run(
         "pub fn divide(a: int, b: int) -> int\n"
         "    requires b != 0\n"
@@ -369,16 +369,16 @@ CINDER_TEST(a_violated_requires_panics_and_names_the_clause) {
         "}\n"
         "pub fn main() { println(divide(1, 0)); }\n");
 
-    CINDER_CHECK_MSG(run.exit_code != 0, "expected a panic, got:\n" + run.output);
-    CINDER_CHECK_MSG(run.output.find("requires contract violated") != std::string::npos,
+    SOLITON_CHECK_MSG(run.exit_code != 0, "expected a panic, got:\n" + run.output);
+    SOLITON_CHECK_MSG(run.output.find("requires contract violated") != std::string::npos,
                     run.output);
     // The condition as written, so the message says which clause failed
     // rather than merely that one did.
-    CINDER_CHECK_MSG(run.output.find("b != 0") != std::string::npos, run.output);
-    CINDER_CHECK_MSG(run.output.find("divide") != std::string::npos, run.output);
+    SOLITON_CHECK_MSG(run.output.find("b != 0") != std::string::npos, run.output);
+    SOLITON_CHECK_MSG(run.output.find("divide") != std::string::npos, run.output);
 }
 
-CINDER_TEST(a_requires_is_checked_before_the_body_runs) {
+SOLITON_TEST(a_requires_is_checked_before_the_body_runs) {
     // If the check came after, the division would fault first and the
     // contract would be pointless.
     const RunResult run = build_and_run(
@@ -389,13 +389,13 @@ CINDER_TEST(a_requires_is_checked_before_the_body_runs) {
         "}\n"
         "pub fn main() { println(divide(1, 0)); }\n");
 
-    CINDER_CHECK_MSG(run.output.find("requires contract violated") != std::string::npos,
+    SOLITON_CHECK_MSG(run.output.find("requires contract violated") != std::string::npos,
                     run.output);
-    CINDER_CHECK_MSG(run.output.find("divide by zero") == std::string::npos,
+    SOLITON_CHECK_MSG(run.output.find("divide by zero") == std::string::npos,
                     "the body ran before the precondition:\n" + run.output);
 }
 
-CINDER_TEST(a_violated_ensures_panics) {
+SOLITON_TEST(a_violated_ensures_panics) {
     const RunResult run = build_and_run(
         "pub fn wrong(x: int) -> int\n"
         "    ensures result > x\n"
@@ -404,15 +404,15 @@ CINDER_TEST(a_violated_ensures_panics) {
         "}\n"
         "pub fn main() { println(wrong(5)); }\n");
 
-    CINDER_CHECK_MSG(run.exit_code != 0, "expected a panic, got:\n" + run.output);
-    CINDER_CHECK_MSG(run.output.find("ensures contract violated") != std::string::npos,
+    SOLITON_CHECK_MSG(run.exit_code != 0, "expected a panic, got:\n" + run.output);
+    SOLITON_CHECK_MSG(run.output.find("ensures contract violated") != std::string::npos,
                     run.output);
     // And nothing was printed: the check happens before the value gets
     // back to the caller, not after.
-    CINDER_CHECK_MSG(run.output.find("4") == std::string::npos, run.output);
+    SOLITON_CHECK_MSG(run.output.find("4") == std::string::npos, run.output);
 }
 
-CINDER_TEST(every_return_is_checked_not_only_the_last) {
+SOLITON_TEST(every_return_is_checked_not_only_the_last) {
     const RunResult run = build_and_run(
         "pub fn early(x: int) -> int\n"
         "    ensures result >= 0\n"
@@ -424,13 +424,13 @@ CINDER_TEST(every_return_is_checked_not_only_the_last) {
         "}\n"
         "pub fn main() { println(early(0 - 1)); }\n");
 
-    CINDER_CHECK_MSG(run.exit_code != 0,
+    SOLITON_CHECK_MSG(run.exit_code != 0,
                     "the early return skipped its postcondition:\n" + run.output);
-    CINDER_CHECK_MSG(run.output.find("ensures contract violated") != std::string::npos,
+    SOLITON_CHECK_MSG(run.output.find("ensures contract violated") != std::string::npos,
                     run.output);
 }
 
-CINDER_TEST(an_ensures_may_read_an_owned_return_value) {
+SOLITON_TEST(an_ensures_may_read_an_owned_return_value) {
     // Ordering: the check runs with the value in hand but before the
     // drops at the end of the function. Were it the other way round the
     // condition would read freed memory, which is the sort of bug that
@@ -445,6 +445,6 @@ CINDER_TEST(an_ensures_may_read_an_owned_return_value) {
         "}\n"
         "pub fn main() { println(build()); }\n");
 
-    CINDER_CHECK_MSG(run.exit_code == 0, run.output);
-    CINDER_CHECK_MSG(run.output.find("ok") != std::string::npos, run.output);
+    SOLITON_CHECK_MSG(run.exit_code == 0, run.output);
+    SOLITON_CHECK_MSG(run.output.find("ok") != std::string::npos, run.output);
 }

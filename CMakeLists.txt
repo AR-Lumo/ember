@@ -1,15 +1,15 @@
-# Cinder — top-level build.
+# Soliton — top-level build.
 #
 # The compiler is split into one static library per pipeline stage (§2),
-# plus a thin `cinder` driver binary in src/. Each stage library is
-# exported under an `cinder::` alias so downstream targets link against
+# plus a thin `soliton` driver binary in src/. Each stage library is
+# exported under an `soliton::` alias so downstream targets link against
 # the namespaced name rather than the raw target.
 
 cmake_minimum_required(VERSION 3.20)
 
-project(cinder
+project(soliton
     VERSION 0.1.0
-    DESCRIPTION "Cinder: a statically-typed, compiled language"
+    DESCRIPTION "Soliton: a statically-typed, compiled language"
     LANGUAGES CXX
 )
 
@@ -33,7 +33,7 @@ endif()
 
 # --- A driver that runs without the toolchain that built it ----------
 #
-# By default `cinder.exe` pulls libstdc++-6.dll, libgcc_s_seh-1.dll,
+# By default `soliton.exe` pulls libstdc++-6.dll, libgcc_s_seh-1.dll,
 # libwinpthread-1.dll, zlib1.dll and libzstd.dll out of the MSYS2
 # prefix: copy the binary to a machine without MSYS2 and it dies before
 # reaching `main`. A compiler nobody can install is not a toolchain.
@@ -42,11 +42,11 @@ endif()
 # UCRT (`api-ms-win-crt-*`, present on Windows 10 and later) plus
 # kernel32, advapi32, shell32, ole32 and ntdll. The binary gets fatter,
 # which is the right trade: it is already 120 MB of static LLVM.
-option(CINDER_STATIC_DRIVER
+option(SOLITON_STATIC_DRIVER
        "Link the driver against static runtimes so it needs no toolchain DLLs"
        ON)
 
-if(CINDER_STATIC_DRIVER AND MINGW)
+if(SOLITON_STATIC_DRIVER AND MINGW)
     # FindZLIB honours this, so `ZLIB::ZLIB` resolves to libz.a rather
     # than the zlib1.dll import library. zstd is not so obliging and is
     # dealt with after LLVM has been found.
@@ -57,25 +57,25 @@ endif()
 #
 # LLVM is only needed by Phase 4 (codegen). Phases 0-3 build and test
 # without it, so a missing LLVM is a warning rather than a hard error:
-# cinder::codegen then compiles as a stub that reports the backend is
-# unavailable. Set CINDER_REQUIRE_LLVM=ON to make it fatal.
-option(CINDER_REQUIRE_LLVM "Fail configuration if LLVM is not found" OFF)
+# soliton::codegen then compiles as a stub that reports the backend is
+# unavailable. Set SOLITON_REQUIRE_LLVM=ON to make it fatal.
+option(SOLITON_REQUIRE_LLVM "Fail configuration if LLVM is not found" OFF)
 
 find_package(LLVM CONFIG QUIET)
 if(LLVM_FOUND)
     message(STATUS "Found LLVM ${LLVM_PACKAGE_VERSION} (${LLVM_DIR})")
-    set(CINDER_HAVE_LLVM ON)
-elseif(CINDER_REQUIRE_LLVM)
+    set(SOLITON_HAVE_LLVM ON)
+elseif(SOLITON_REQUIRE_LLVM)
     message(FATAL_ERROR
-        "LLVM not found and CINDER_REQUIRE_LLVM=ON. "
+        "LLVM not found and SOLITON_REQUIRE_LLVM=ON. "
         "Point CMake at an LLVM install with -DLLVM_DIR=<prefix>/lib/cmake/llvm.")
 else()
     message(WARNING
         "LLVM not found - building without the codegen backend. "
         "Phases 0-3 (lexer, parser, type checker) are unaffected; "
-        "`cinder build` will report that codegen is unavailable. "
+        "`soliton build` will report that codegen is unavailable. "
         "Configure with -DLLVM_DIR=<prefix>/lib/cmake/llvm once LLVM is installed.")
-    set(CINDER_HAVE_LLVM OFF)
+    set(SOLITON_HAVE_LLVM OFF)
 endif()
 
 # LLVMWindowsManifest - which lldCOFF needs, to merge the manifest into
@@ -84,22 +84,22 @@ endif()
 # Static libxml2 needs iconv and bcrypt, which the shared build resolved
 # for itself; `Libs.private` in libxml-2.0.pc is where that is written
 # down.
-if(CINDER_STATIC_DRIVER AND MINGW AND TARGET LibXml2::LibXml2)
+if(SOLITON_STATIC_DRIVER AND MINGW AND TARGET LibXml2::LibXml2)
     set(_ember_saved_suffixes ${CMAKE_FIND_LIBRARY_SUFFIXES})
     set(CMAKE_FIND_LIBRARY_SUFFIXES ".a")
-    find_library(CINDER_XML2_STATIC NAMES xml2)
-    find_library(CINDER_ICONV_STATIC NAMES iconv)
+    find_library(SOLITON_XML2_STATIC NAMES xml2)
+    find_library(SOLITON_ICONV_STATIC NAMES iconv)
     set(CMAKE_FIND_LIBRARY_SUFFIXES ${_ember_saved_suffixes})
 
-    if(CINDER_XML2_STATIC AND CINDER_ICONV_STATIC)
+    if(SOLITON_XML2_STATIC AND SOLITON_ICONV_STATIC)
         set_target_properties(LibXml2::LibXml2 PROPERTIES
-            IMPORTED_IMPLIB "${CINDER_XML2_STATIC}"
-            IMPORTED_LOCATION "${CINDER_XML2_STATIC}"
-            INTERFACE_LINK_LIBRARIES "${CINDER_ICONV_STATIC};bcrypt")
-        message(STATUS "Static libxml2: ${CINDER_XML2_STATIC}")
+            IMPORTED_IMPLIB "${SOLITON_XML2_STATIC}"
+            IMPORTED_LOCATION "${SOLITON_XML2_STATIC}"
+            INTERFACE_LINK_LIBRARIES "${SOLITON_ICONV_STATIC};bcrypt")
+        message(STATUS "Static libxml2: ${SOLITON_XML2_STATIC}")
     else()
         message(WARNING
-            "CINDER_STATIC_DRIVER is ON but no static libxml2 was found; "
+            "SOLITON_STATIC_DRIVER is ON but no static libxml2 was found; "
             "the driver will still need libxml2-16.dll at run time.")
     endif()
 endif()
@@ -109,20 +109,20 @@ endif()
 # on the link line cannot displace it. Retarget the imported library at
 # the static archive. On MinGW the link uses IMPORTED_IMPLIB, but set
 # both so the target is coherent whichever CMake reads.
-if(CINDER_STATIC_DRIVER AND MINGW AND TARGET zstd::libzstd_shared)
+if(SOLITON_STATIC_DRIVER AND MINGW AND TARGET zstd::libzstd_shared)
     set(_ember_saved_suffixes ${CMAKE_FIND_LIBRARY_SUFFIXES})
     set(CMAKE_FIND_LIBRARY_SUFFIXES ".a")
-    find_library(CINDER_ZSTD_STATIC NAMES zstd)
+    find_library(SOLITON_ZSTD_STATIC NAMES zstd)
     set(CMAKE_FIND_LIBRARY_SUFFIXES ${_ember_saved_suffixes})
 
-    if(CINDER_ZSTD_STATIC)
+    if(SOLITON_ZSTD_STATIC)
         set_target_properties(zstd::libzstd_shared PROPERTIES
-            IMPORTED_IMPLIB "${CINDER_ZSTD_STATIC}"
-            IMPORTED_LOCATION "${CINDER_ZSTD_STATIC}")
-        message(STATUS "Static zstd: ${CINDER_ZSTD_STATIC}")
+            IMPORTED_IMPLIB "${SOLITON_ZSTD_STATIC}"
+            IMPORTED_LOCATION "${SOLITON_ZSTD_STATIC}")
+        message(STATUS "Static zstd: ${SOLITON_ZSTD_STATIC}")
     else()
         message(WARNING
-            "CINDER_STATIC_DRIVER is ON but no static zstd was found; "
+            "SOLITON_STATIC_DRIVER is ON but no static zstd was found; "
             "the driver will still need libzstd.dll at run time.")
     endif()
 endif()
@@ -135,17 +135,17 @@ endif()
 if(MINGW)
     execute_process(
         COMMAND "${CMAKE_CXX_COMPILER}" -print-libgcc-file-name
-        OUTPUT_VARIABLE CINDER_LIBGCC
+        OUTPUT_VARIABLE SOLITON_LIBGCC
         OUTPUT_STRIP_TRAILING_WHITESPACE
         ERROR_QUIET)
     execute_process(
         COMMAND "${CMAKE_CXX_COMPILER}" -print-file-name=crt2.o
-        OUTPUT_VARIABLE CINDER_CRT2
+        OUTPUT_VARIABLE SOLITON_CRT2
         OUTPUT_STRIP_TRAILING_WHITESPACE
         ERROR_QUIET)
 
-    get_filename_component(CINDER_GCC_DIR "${CINDER_LIBGCC}" DIRECTORY)
-    get_filename_component(CINDER_CRT_DIR "${CINDER_CRT2}" DIRECTORY)
+    get_filename_component(SOLITON_GCC_DIR "${SOLITON_LIBGCC}" DIRECTORY)
+    get_filename_component(SOLITON_CRT_DIR "${SOLITON_CRT2}" DIRECTORY)
 endif()
 
 add_subdirectory(libs/ast)
@@ -164,28 +164,28 @@ if(BUILD_TESTING)
     add_subdirectory(tests)
 endif()
 
-message(STATUS "Cinder ${PROJECT_VERSION} configured (C++${CMAKE_CXX_STANDARD}, LLVM: ${CINDER_HAVE_LLVM})")
+message(STATUS "Soliton ${PROJECT_VERSION} configured (C++${CMAKE_CXX_STANDARD}, LLVM: ${SOLITON_HAVE_LLVM})")
 
 # --- Installing ------------------------------------------------------
 #
-# The layout `cinder::link` looks for, relative to the running binary:
+# The layout `soliton::link` looks for, relative to the running binary:
 #
-#     <prefix>/bin/cinder.exe
-#     <prefix>/lib/cinder/libcinder_std.a       the Cinder runtime
-#     <prefix>/lib/cinder/crt2.o, crtbegin.o, ...   startup objects
-#     <prefix>/lib/cinder/libmsvcrt.a, ...          system archives
+#     <prefix>/bin/soliton.exe
+#     <prefix>/lib/soliton/libsoliton_std.a       the Soliton runtime
+#     <prefix>/lib/soliton/crt2.o, crtbegin.o, ...   startup objects
+#     <prefix>/lib/soliton/libmsvcrt.a, ...          system archives
 #
 # Everything the linker opens is in that one directory, so an install is
 # a directory tree with nothing outside it - copy it to a machine with
 # no compiler and it works. That is the whole point of the exercise.
-install(TARGETS cinder RUNTIME DESTINATION bin)
-install(FILES "$<TARGET_FILE:cinder_std>" DESTINATION lib/cinder)
+install(TARGETS soliton RUNTIME DESTINATION bin)
+install(FILES "$<TARGET_FILE:soliton_std>" DESTINATION lib/soliton)
 
-if(MINGW AND CINDER_GCC_DIR AND CINDER_CRT_DIR)
+if(MINGW AND SOLITON_GCC_DIR AND SOLITON_CRT_DIR)
     # From the mingw prefix: the C runtime, the Win32 import libraries,
-    # and libstdc++ (which the Cinder runtime needs for std::to_chars -
+    # and libstdc++ (which the Soliton runtime needs for std::to_chars -
     # the shortest round-tripping float formatting that `println` uses).
-    set(CINDER_SYSROOT_CRT
+    set(SOLITON_SYSROOT_CRT
         crt2.o
         default-manifest.o
         libmingw32.a
@@ -200,21 +200,21 @@ if(MINGW AND CINDER_GCC_DIR AND CINDER_CRT_DIR)
 
     # From gcc's own directory: the compiler support library and the
     # objects that bracket the startup code.
-    set(CINDER_SYSROOT_GCC
+    set(SOLITON_SYSROOT_GCC
         crtbegin.o
         crtend.o
         libgcc.a
         libgcc_eh.a)
 
-    foreach(CINDER_FILE IN LISTS CINDER_SYSROOT_CRT)
-        install(FILES "${CINDER_CRT_DIR}/${CINDER_FILE}" DESTINATION lib/cinder)
+    foreach(SOLITON_FILE IN LISTS SOLITON_SYSROOT_CRT)
+        install(FILES "${SOLITON_CRT_DIR}/${SOLITON_FILE}" DESTINATION lib/soliton)
     endforeach()
-    foreach(CINDER_FILE IN LISTS CINDER_SYSROOT_GCC)
-        install(FILES "${CINDER_GCC_DIR}/${CINDER_FILE}" DESTINATION lib/cinder)
+    foreach(SOLITON_FILE IN LISTS SOLITON_SYSROOT_GCC)
+        install(FILES "${SOLITON_GCC_DIR}/${SOLITON_FILE}" DESTINATION lib/soliton)
     endforeach()
 
     install(FILES
         "${CMAKE_CURRENT_SOURCE_DIR}/README.md"
         "${CMAKE_CURRENT_SOURCE_DIR}/LICENSE"
-        DESTINATION share/cinder)
+        DESTINATION share/soliton)
 endif()

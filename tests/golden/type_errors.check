@@ -1,125 +1,125 @@
 error: duplicate definition of type `Point`
-  --> type_errors.ci:19:8
+  --> type_errors.sn:19:8
    |
 19 | struct Point {
    |        ^^^^^ `Point` is already defined
-   = note: previously defined at type_errors.ci:5:8
+   = note: previously defined at type_errors.sn:5:8
 
 error: missing return
-  --> type_errors.ci:24:8
+  --> type_errors.sn:24:8
    |
 24 | pub fn no_return(flag: bool) -> int {
    |        ^^^^^^^^^ this function must return `int` on every path
 
 error: this method takes 1 argument but 0 were supplied
-  --> type_errors.ci:33:13
+  --> type_errors.sn:33:13
    |
 33 |     let a = p.distance_sq();
    |             ^^^^^^^^^^^^^^^ expected 1, found 0
-   = note: declared at type_errors.ci:11:12
+   = note: declared at type_errors.sn:11:12
 
 error: type mismatch
-  --> type_errors.ci:34:27
+  --> type_errors.sn:34:27
    |
 34 |     let b = p.distance_sq(1);
    |                           ^ expected `Point`, found `int`
 
 error: no method `area` on type `Point`
-  --> type_errors.ci:40:15
+  --> type_errors.sn:40:15
    |
 40 |     println(p.area());
    |               ^^^^ unknown method
 
 error: no field `z` on type `Point`
-  --> type_errors.ci:41:15
+  --> type_errors.sn:41:15
    |
 41 |     println(p.z);
    |               ^ unknown field
 
 error: no method `x` on type `Point`
-  --> type_errors.ci:42:15
+  --> type_errors.sn:42:15
    |
 42 |     println(p.x());
    |               ^ unknown method
    = note: `x` is a field, not a method
 
 error: cannot apply `+` to `int` and `float`
-  --> type_errors.ci:47:17
+  --> type_errors.sn:47:17
    |
 47 |     let mixed = 1 + 2.5;
    |                 ^^^^^^^ the operands have different types
-   = note: `int` and `float` never mix implicitly in Cinder (§4)
+   = note: `int` and `float` never mix implicitly in Soliton (§4)
 
 error: type mismatch
-  --> type_errors.ci:48:28
+  --> type_errors.sn:48:28
    |
 48 |     let annotated: float = 3;
    |                            ^ expected `float`, found `int`
 
 error: cannot find value `cout`
-  --> type_errors.ci:54:13
+  --> type_errors.sn:54:13
    |
 54 |     println(cout);
    |             ^^^^ not found in this scope
    = note: did you mean `count`?
 
 error: cannot find value `entirely_unknown`
-  --> type_errors.ci:55:13
+  --> type_errors.sn:55:13
    |
 55 |     println(entirely_unknown);
    |             ^^^^^^^^^^^^^^^^ not found in this scope
 
 error: cannot find function `missing_function`
-  --> type_errors.ci:56:5
+  --> type_errors.sn:56:5
    |
 56 |     missing_function();
    |     ^^^^^^^^^^^^^^^^ not found in this scope
 
 error: type mismatch
-  --> type_errors.ci:61:18
+  --> type_errors.sn:61:18
    |
 61 |     let x: int = "hello";
    |                  ^^^^^^^ expected `int`, found `string`
 
 error: type mismatch
-  --> type_errors.ci:62:8
+  --> type_errors.sn:62:8
    |
 62 |     if 1 {
    |        ^ expected `bool`, found `int`
 
 error: cannot assign to immutable binding `fixed`
-  --> type_errors.ci:70:5
+  --> type_errors.sn:70:5
    |
 70 |     fixed = 2;
    |     ^^^^^ `fixed` is not declared `mut`
    = note: declare it as `let mut fixed` to allow assignment
 
 error: missing field `y` in initializer of `Point`
-  --> type_errors.ci:75:19
+  --> type_errors.sn:75:19
    |
 75 |     let missing = Point { x: 1 };
    |                   ^^^^^^^^^^^^^^ every field must be given a value
 
 error: `Point` has no field `w`
-  --> type_errors.ci:76:37
+  --> type_errors.sn:76:37
    |
 76 |     let extra = Point { x: 1, y: 2, w: 3 };
    |                                     ^ unknown field
 
 error: `result` is not in scope in a `requires`
-  --> type_errors.ci:86:14
+  --> type_errors.sn:86:14
    |
 86 |     requires result > 0
    |              ^^^^^^ a `requires` is checked before the function runs, so there is no result yet
 
 error: a contract must be a `bool`
-  --> type_errors.ci:87:14
+  --> type_errors.sn:87:14
    |
 87 |     requires x
    |              ^ expected `bool`, found `int`
 
 error: this function returns nothing, so it has no `result`
-  --> type_errors.ci:93:13
+  --> type_errors.sn:93:13
    |
 93 |     ensures result == x
    |             ^^^^^^ an `ensures` on a function without a return type can still talk about its parameters

@@ -1,4 +1,4 @@
-# Getting started with Cinder
+# Getting started with Soliton
 
 A walk from nothing to a multi-file program, in about twenty minutes of
 reading. Every program here was run before it was written down, and the
@@ -6,7 +6,7 @@ output shown is what it actually printed.
 
 If you want the reference instead, the [README](README.md) documents the
 language feature by feature and
-[the spec](cinder-language-spec.md) documents the design.
+[the spec](soliton-language-spec.md) documents the design.
 
 ---
 
@@ -23,8 +23,8 @@ comes out around 210 MB. Put the kettle on.
 # Debian/Ubuntu: apt install llvm-dev lld clang cmake ninja-build
 # macOS:         brew install llvm lld cmake ninja
 
-git clone https://github.com/AR-Lumo/cinder.git
-cd cinder
+git clone https://github.com/AR-Lumo/soliton.git
+cd soliton
 cmake -S . -B build -G Ninja
 cmake --build build
 ```
@@ -42,40 +42,40 @@ cmake -S . -B build -G Ninja -DCMAKE_CXX_COMPILER=g++ `
 cmake --build build
 ```
 
-The compiler lands at `build/bin/cinder`. Check it:
+The compiler lands at `build/bin/soliton`. Check it:
 
 ```console
-$ ./build/bin/cinder --version
-cinder 0.1.0
+$ ./build/bin/soliton --version
+soliton 0.1.0
 ```
 
 Add it to your `PATH`, or write out the path each time — the rest of
-this guide just says `cinder`.
+this guide just says `soliton`.
 
-**Once it is built, nothing else is needed to use it.** Cinder carries
+**Once it is built, nothing else is needed to use it.** Soliton carries
 its own linker and ships the archives it links against, so
-`cmake --install build --prefix ~/cinder` produces a directory you can
+`cmake --install build --prefix ~/soliton` produces a directory you can
 copy to a machine with no compiler on it at all. LLVM and LLD are
-needed to *build* Cinder, not to *use* it.
+needed to *build* Soliton, not to *use* it.
 
 ---
 
 ## 2. Hello
 
-Put this in `hello.ci`:
+Put this in `hello.sn`:
 
-```cinder
+```soliton
 pub fn main() {
-    println("Hello from Cinder");
+    println("Hello from Soliton");
 }
 ```
 
 ```console
-$ cinder run hello.ci
-Hello from Cinder
+$ soliton run hello.sn
+Hello from Soliton
 ```
 
-`cinder run` compiles to a real native executable and runs it. There is
+`soliton run` compiles to a real native executable and runs it. There is
 no interpreter and no virtual machine; the binary it made is an ordinary
 program.
 
@@ -83,24 +83,24 @@ Three commands, and you will use all three:
 
 | | |
 |---|---|
-| `cinder run file.ci` | compile and run, leaving nothing behind |
-| `cinder check file.ci` | type-check only — fast, no code generated |
-| `cinder build file.ci -o prog` | compile to an executable and stop |
+| `soliton run file.sn` | compile and run, leaving nothing behind |
+| `soliton check file.sn` | type-check only — fast, no code generated |
+| `soliton build file.sn -o prog` | compile to an executable and stop |
 
 `check` is the one to reach for while writing. It says nothing at all
 when a program is fine:
 
 ```console
-$ cinder check hello.ci
+$ soliton check hello.sn
 $
 ```
 
 and tells you where you went wrong when it is not:
 
 ```console
-$ cinder check oops.ci
+$ soliton check oops.sn
 error: type mismatch
- --> oops.ci:2:18
+ --> oops.sn:2:18
   |
 2 |     let x: int = "hello";
   |                  ^^^^^^^ expected `int`, found `string`
@@ -112,7 +112,7 @@ error: aborting due to 1 previous error
 
 ## 3. Values and functions
 
-```cinder
+```soliton
 /// Average speed over a trip, in metres per second.
 pub fn speed(distance: float, seconds: float) -> float {
     return distance / seconds;
@@ -128,7 +128,7 @@ pub fn main() {
 ```
 
 ```console
-$ cinder run speed.ci
+$ soliton run speed.sn
 speed: 5.0
 ```
 
@@ -151,7 +151,7 @@ Things worth noticing in eleven lines:
 
 Methods live in an `impl` block and are called with `.`:
 
-```cinder
+```soliton
 /// One leg of a journey.
 struct Leg {
     pub distance: float,
@@ -177,7 +177,7 @@ pub fn main() {
 ```
 
 ```console
-$ cinder run trip.ci
+$ soliton run trip.sn
 sprint: 10.416666666666668
 jog:    5.0
 ```
@@ -199,7 +199,7 @@ Struct fields need a trailing comma. `pub y: float,` — the last one too.
 `Vec<T>` and `String` own heap memory. Everything else so far has been
 copied freely; these are the types where it matters who holds them.
 
-```cinder
+```soliton
 pub fn main() {
     let mut legs: Vec<String> = new_vec();
 
@@ -224,7 +224,7 @@ pub fn main() {
 ```
 
 ```console
-$ cinder run log.ci
+$ soliton run log.sn
 legs: 2
   sprint
   jog
@@ -253,7 +253,7 @@ sections are the parts that are not.
 A speed with zero seconds is not a slow speed, it is nonsense. Say so in
 the signature rather than in the first line of the body:
 
-```cinder
+```soliton
 pub fn speed(distance: float, seconds: float) -> float
     requires seconds > 0.0
     ensures result >= 0.0
@@ -271,10 +271,10 @@ pub fn main() {
 ```
 
 ```console
-$ cinder run safe.ci
+$ soliton run safe.sn
 ok:  5.0
-bad: cinder: requires contract violated in `speed`: seconds > 0.0
-  --> safe.ci:3:5
+bad: soliton: requires contract violated in `speed`: seconds > 0.0
+  --> safe.sn:3:5
 ```
 
 `requires` is checked before the body runs; `ensures` before every
@@ -295,7 +295,7 @@ contract that *can* fail is not a compile error.
 `float` will happily let you add a distance to a duration. Give the
 numbers units and it will not:
 
-```cinder
+```soliton
 unit meters;
 unit seconds;
 
@@ -314,7 +314,7 @@ pub fn main() {
 ```
 
 ```console
-$ cinder run measured.ci
+$ soliton run measured.sn
 speed: 5.0
 ```
 
@@ -324,9 +324,9 @@ own, and multiplying it back by a time gives a distance again. `+` and
 `-` require the same unit on both sides — which is the point:
 
 ```console
-$ cinder check mixup.ci
+$ soliton check mixup.sn
 error: cannot apply `+` to `float<meters>` and `float<seconds>`
- --> mixup.ci:7:20
+ --> mixup.sn:7:20
   |
 7 |     let nonsense = distance + elapsed;
   |                    ^^^^^^^^^^^^^^^^^^ the operands have different types
@@ -346,7 +346,7 @@ it. `5.0<meters>` is a quantity; `5.0 < meters` is a comparison.
 
 A `uses` clause bounds what a function may do:
 
-```cinder
+```soliton
 unit meters;
 unit seconds;
 
@@ -368,7 +368,7 @@ pub fn main() {
 ```
 
 ```console
-$ cinder run pure.ci
+$ soliton run pure.sn
 speed: 5.0
 ```
 
@@ -378,7 +378,7 @@ that prints counts, however many calls away it is, and the blame lands
 on the call you would have to change.
 
 **A function with no clause has no bound.** That is deliberate, and it
-is why `main` above needs no annotation and why every Cinder program
+is why `main` above needs no annotation and why every Soliton program
 written before effects existed still compiles. Add `uses` where you want
 a guarantee; leave it off everywhere else.
 
@@ -391,21 +391,21 @@ into it.
 
 ```
 trip/
-├── units.ci
-├── pace.ci
-└── main.ci
+├── units.sn
+├── pace.sn
+└── main.sn
 ```
 
-`units.ci` — units are `pub` so other files can name them:
+`units.sn` — units are `pub` so other files can name them:
 
-```cinder
+```soliton
 pub unit meters;
 pub unit seconds;
 ```
 
-`pace.ci`:
+`pace.sn`:
 
-```cinder
+```soliton
 import units;
 
 /// Average speed. Pure, so a caller knows it only computes.
@@ -417,9 +417,9 @@ pub fn speed(distance: float<meters>, elapsed: float<seconds>)
 }
 ```
 
-`main.ci`:
+`main.sn`:
 
-```cinder
+```soliton
 import units;
 import pace;
 
@@ -433,18 +433,18 @@ pub fn main() {
 ```
 
 ```console
-$ cinder run trip/main.ci
+$ soliton run trip/main.sn
 speed: 5.0
 ```
 
 Point the compiler at the file with `main` in it and it finds the rest
 by following the imports. `pub` starts mattering here: drop it from
-`speed` and `main.ci` can no longer see it.
+`speed` and `main.sn` can no longer see it.
 
 To ship the program rather than run it:
 
 ```console
-$ cinder build trip/main.ci -o trip
+$ soliton build trip/main.sn -o trip
 ```
 
 That produces a 591 KB executable that runs on its own — no runtime to
@@ -456,13 +456,13 @@ already ship.
 ## 10. Where to go next
 
 - **[The examples](examples/)** — every one compiles, runs, and is a
-  regression test in the suite. [`ownership.ci`](examples/ownership.ci)
-  and [`closures.ci`](examples/closures.ci) are the two most worth
+  regression test in the suite. [`ownership.sn`](examples/ownership.sn)
+  and [`closures.sn`](examples/closures.sn) are the two most worth
   reading next.
 - **[The README](README.md)** — the reference. Generics, closures,
   references, the module search path, and the package manager, none of
   which this guide touched.
-- **[The spec](cinder-language-spec.md)** — why the language is shaped
+- **[The spec](soliton-language-spec.md)** — why the language is shaped
   this way, including the reasoning behind contracts, units and effects
   in §10.
 - **[Known limitations](README.md#known-limitations)** — worth reading

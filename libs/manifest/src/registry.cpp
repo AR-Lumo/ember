@@ -1,10 +1,10 @@
-#include "cinder/manifest/registry.hpp"
+#include "soliton/manifest/registry.hpp"
 
-#include "cinder/manifest/toml.hpp"
+#include "soliton/manifest/toml.hpp"
 
 #include <algorithm>
 
-namespace cinder::manifest {
+namespace soliton::manifest {
 namespace {
 
 using ast::Diagnostic;
@@ -107,7 +107,7 @@ std::string render_index_entry(const std::string& name, std::vector<Release> rel
 
     std::string out =
         "# Index entry for `" + name +
-        "`, written by cinder. Each section is one published\n"
+        "`, written by soliton. Each section is one published\n"
         "# version and the commit it is. A version already here never changes.\n";
 
     for (const Release& release : releases) {
@@ -152,4 +152,4 @@ PublishResult add_release(const ast::SourceFile& existing, const std::string& na
     return result;
 }
 
-}  // namespace cinder::manifest
+}  // namespace soliton::manifest

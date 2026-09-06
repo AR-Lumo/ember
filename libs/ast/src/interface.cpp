@@ -1,8 +1,8 @@
-#include "cinder/ast/interface.hpp"
+#include "soliton/ast/interface.hpp"
 
 #include <algorithm>
 
-namespace cinder::ast {
+namespace soliton::ast {
 namespace {
 
 /// The text an item occupies, exactly as it was written.
@@ -139,7 +139,7 @@ InterfaceResult write_interface(const Program& program, const SourceFile& source
     std::string out =
         "// Interface for `" +
         (program.module.empty() ? std::string{"this program"} : program.module) +
-        "`, written by cinder.\n"
+        "`, written by soliton.\n"
         "//\n"
         "// The public surface of the module, with the implementations taken\n"
         "// out. A generic keeps its body, because monomorphizing one needs it.\n";
@@ -199,4 +199,4 @@ InterfaceResult write_interface(const Program& program, const SourceFile& source
     return result;
 }
 
-}  // namespace cinder::ast
+}  // namespace soliton::ast

@@ -2,7 +2,7 @@
 //
 // The pipeline itself was written along with codegen and then sat
 // unreachable for four releases - `CompileOptions::optimization_level`
-// existed, defaulted to zero, and nothing ever set it, so every Cinder
+// existed, defaulted to zero, and nothing ever set it, so every Soliton
 // program ever compiled was `-O0`. These tests exist so that cannot
 // quietly happen again: one checks the flag reaches codegen, one checks
 // codegen does something with it, and one checks the program still
@@ -14,12 +14,12 @@
 
 #include "test_harness.hpp"
 
-#include "cinder/ast/diagnostic.hpp"
-#include "cinder/ast/nodes.hpp"
-#include "cinder/ast/span.hpp"
-#include "cinder/codegen/codegen.hpp"
-#include "cinder/parser/parser.hpp"
-#include "cinder/typeck/typeck.hpp"
+#include "soliton/ast/diagnostic.hpp"
+#include "soliton/ast/nodes.hpp"
+#include "soliton/ast/span.hpp"
+#include "soliton/codegen/codegen.hpp"
+#include "soliton/parser/parser.hpp"
+#include "soliton/typeck/typeck.hpp"
 
 #include <array>
 #include <cstdio>
@@ -32,28 +32,28 @@ namespace {
 
 /// Lower one program at a given optimization level.
 std::string lower(const std::string& contents, unsigned level) {
-    const cinder::ast::SourceFile source{"test.ci", contents};
-    const cinder::parser::ParseResult parsed = cinder::parser::parse_source(source);
+    const soliton::ast::SourceFile source{"test.sn", contents};
+    const soliton::parser::ParseResult parsed = soliton::parser::parse_source(source);
     if (!parsed.ok()) {
-        ::cinder::test::fail(__FILE__, __LINE__,
+        ::soliton::test::fail(__FILE__, __LINE__,
                             "fixture does not parse:\n" +
-                                cinder::ast::render_all(parsed.diagnostics, source));
+                                soliton::ast::render_all(parsed.diagnostics, source));
     }
-    const cinder::typeck::CheckResult checked =
-        cinder::typeck::check(*parsed.program, source);
+    const soliton::typeck::CheckResult checked =
+        soliton::typeck::check(*parsed.program, source);
     if (!checked.ok()) {
-        ::cinder::test::fail(__FILE__, __LINE__,
+        ::soliton::test::fail(__FILE__, __LINE__,
                             "fixture does not type-check:\n" +
-                                cinder::ast::render_all(checked.diagnostics, source));
+                                soliton::ast::render_all(checked.diagnostics, source));
     }
 
-    cinder::codegen::CompileOptions options;
+    soliton::codegen::CompileOptions options;
     options.optimization_level = level;
 
-    const cinder::codegen::CompileResult compiled =
-        cinder::codegen::compile_to_string(*parsed.program, checked, source, options);
+    const soliton::codegen::CompileResult compiled =
+        soliton::codegen::compile_to_string(*parsed.program, checked, source, options);
     if (!compiled.ok()) {
-        ::cinder::test::fail(__FILE__, __LINE__, "codegen failed");
+        ::soliton::test::fail(__FILE__, __LINE__, "codegen failed");
     }
     return compiled.assembly;
 }
@@ -67,36 +67,36 @@ const char* const kAddition =
 
 }  // namespace
 
-CINDER_TEST(optimization_is_off_by_default) {
-    if (!cinder::codegen::is_available()) {
+SOLITON_TEST(optimization_is_off_by_default) {
+    if (!soliton::codegen::is_available()) {
         return;
     }
     // Locals live in `alloca` slots and are loaded and stored on every
     // use, which is what clang -O0 emits and what makes the IR readable
     // beside the source it came from.
-    CINDER_CHECK_MSG(lower(kAddition, 0).find("alloca") != std::string::npos,
+    SOLITON_CHECK_MSG(lower(kAddition, 0).find("alloca") != std::string::npos,
                     "an unoptimized build should still be storing locals in slots");
 }
 
-CINDER_TEST(optimization_promotes_locals_out_of_memory) {
-    if (!cinder::codegen::is_available()) {
+SOLITON_TEST(optimization_promotes_locals_out_of_memory) {
+    if (!soliton::codegen::is_available()) {
         return;
     }
     // mem2reg is the first thing any pipeline does, so this is the
     // cheapest way to prove the pipeline ran at all.
     const std::string ir = lower(kAddition, 2);
-    CINDER_CHECK_MSG(ir.find("alloca") == std::string::npos,
+    SOLITON_CHECK_MSG(ir.find("alloca") == std::string::npos,
                     "no pass appears to have run:\n" + ir);
 }
 
-CINDER_TEST(optimization_levels_are_distinguishable) {
-    if (!cinder::codegen::is_available()) {
+SOLITON_TEST(optimization_levels_are_distinguishable) {
+    if (!soliton::codegen::is_available()) {
         return;
     }
     // Not an assertion about what each level does - that is LLVM's
     // business - only that the number is carried through rather than
     // rounded to "on".
-    CINDER_CHECK(lower(kAddition, 0) != lower(kAddition, 1));
+    SOLITON_CHECK(lower(kAddition, 0) != lower(kAddition, 1));
 }
 
 // ---------------------------------------------------------------------
@@ -118,7 +118,7 @@ ProcessResult run_process(const std::string& command) {
     FILE* pipe = popen((command + " 2>&1").c_str(), "r");
 #endif
     if (pipe == nullptr) {
-        ::cinder::test::fail(__FILE__, __LINE__, "cannot start: " + command);
+        ::soliton::test::fail(__FILE__, __LINE__, "cannot start: " + command);
     }
 
     ProcessResult result;
@@ -137,7 +137,7 @@ ProcessResult run_process(const std::string& command) {
 
 std::string quoted(const fs::path& path) { return "\"" + path.string() + "\""; }
 
-/// Every example program: the single-file ones, and the `main.ci` of
+/// Every example program: the single-file ones, and the `main.sn` of
 /// each directory that holds one.
 ///
 /// Discovered rather than listed, so adding an example puts it under
@@ -146,10 +146,10 @@ std::string quoted(const fs::path& path) { return "\"" + path.string() + "\""; }
 std::vector<fs::path> example_programs() {
     std::vector<fs::path> programs;
     std::error_code code;
-    const fs::path examples = fs::path{CINDER_GOLDEN_DIR}.parent_path().parent_path() / "examples";
+    const fs::path examples = fs::path{SOLITON_GOLDEN_DIR}.parent_path().parent_path() / "examples";
 
     for (const fs::directory_entry& entry : fs::directory_iterator(examples, code)) {
-        if (entry.path().extension() == ".ci") {
+        if (entry.path().extension() == ".sn") {
             programs.push_back(entry.path());
             continue;
         }
@@ -158,8 +158,8 @@ std::vector<fs::path> example_programs() {
         }
         // A plain multi-file example, or a package with its modules in
         // `src` the way a manifest expects.
-        for (const fs::path& candidate : {entry.path() / "main.ci",
-                                          entry.path() / "src" / "main.ci"}) {
+        for (const fs::path& candidate : {entry.path() / "main.sn",
+                                          entry.path() / "src" / "main.sn"}) {
             if (fs::exists(candidate)) {
                 programs.push_back(candidate);
                 break;
@@ -171,23 +171,23 @@ std::vector<fs::path> example_programs() {
 
 }  // namespace
 
-CINDER_TEST(optimization_does_not_change_what_a_program_prints) {
-    if (!cinder::codegen::is_available()) {
+SOLITON_TEST(optimization_does_not_change_what_a_program_prints) {
+    if (!soliton::codegen::is_available()) {
         return;
     }
     const std::vector<fs::path> programs = example_programs();
-    CINDER_CHECK_MSG(!programs.empty(), "found no example programs to compare");
+    SOLITON_CHECK_MSG(!programs.empty(), "found no example programs to compare");
 
     for (const fs::path& program : programs) {
         const std::string command =
-            quoted(fs::path{CINDER_BINARY}) + " run " + quoted(program) + " ";
+            quoted(fs::path{SOLITON_BINARY}) + " run " + quoted(program) + " ";
 
         const ProcessResult unoptimized = run_process(command + "-O0");
         const ProcessResult optimized = run_process(command + "-O3");
 
-        CINDER_CHECK_MSG(unoptimized.exit_code == optimized.exit_code,
+        SOLITON_CHECK_MSG(unoptimized.exit_code == optimized.exit_code,
                         program.filename().string() + " exits differently under -O3");
-        CINDER_CHECK_MSG(unoptimized.output == optimized.output,
+        SOLITON_CHECK_MSG(unoptimized.output == optimized.output,
                         program.filename().string() + " prints differently under -O3:\n-O0:\n" +
                             unoptimized.output + "-O3:\n" + optimized.output);
     }

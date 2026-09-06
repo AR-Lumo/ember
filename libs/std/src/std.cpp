@@ -1,4 +1,4 @@
-#include "cinder/std/std.hpp"
+#include "soliton/std/std.hpp"
 
 #include <charconv>
 #include <system_error>
@@ -10,11 +10,11 @@
 
 extern "C" {
 
-const char* cinder_runtime_version(void) { return "0.1.0"; }
+const char* soliton_runtime_version(void) { return "0.1.0"; }
 
 // --- print ----------------------------------------------------------
 
-void cinder_print_int(int64_t value) { printf("%" PRId64, value); }
+void soliton_print_int(int64_t value) { printf("%" PRId64, value); }
 
 /// Floats print as the shortest string that reads back as the same
 /// double, preferring plain notation over exponential.
@@ -24,7 +24,7 @@ void cinder_print_int(int64_t value) { printf("%" PRId64, value); }
 /// shorter, breaking ties toward fixed. Searching `%g` precisions
 /// instead gets this wrong — the shortest round-tripping `%g` for 10.0
 /// is `%.1g`, which prints `1e+01`.
-void cinder_print_float(double value) {
+void soliton_print_float(double value) {
     char buffer[64];
 
     const std::to_chars_result result =
@@ -47,9 +47,9 @@ void cinder_print_float(double value) {
     }
 }
 
-void cinder_print_bool(int8_t value) { fputs(value != 0 ? "true" : "false", stdout); }
+void soliton_print_bool(int8_t value) { fputs(value != 0 ? "true" : "false", stdout); }
 
-void cinder_print_string(const char* bytes, int64_t length) {
+void soliton_print_string(const char* bytes, int64_t length) {
     if (bytes != nullptr && length > 0) {
         fwrite(bytes, 1, static_cast<size_t>(length), stdout);
     }
@@ -57,29 +57,29 @@ void cinder_print_string(const char* bytes, int64_t length) {
 
 // --- println --------------------------------------------------------
 
-void cinder_println_int(int64_t value) {
-    cinder_print_int(value);
+void soliton_println_int(int64_t value) {
+    soliton_print_int(value);
     fputc('\n', stdout);
 }
 
-void cinder_println_float(double value) {
-    cinder_print_float(value);
+void soliton_println_float(double value) {
+    soliton_print_float(value);
     fputc('\n', stdout);
 }
 
-void cinder_println_bool(int8_t value) {
-    cinder_print_bool(value);
+void soliton_println_bool(int8_t value) {
+    soliton_print_bool(value);
     fputc('\n', stdout);
 }
 
-void cinder_println_string(const char* bytes, int64_t length) {
-    cinder_print_string(bytes, length);
+void soliton_println_string(const char* bytes, int64_t length) {
+    soliton_print_string(bytes, length);
     fputc('\n', stdout);
 }
 
 // --- support --------------------------------------------------------
 
-int64_t cinder_string_cmp(const char* left, int64_t left_length, const char* right,
+int64_t soliton_string_cmp(const char* left, int64_t left_length, const char* right,
                          int64_t right_length) {
     const int64_t shared = left_length < right_length ? left_length : right_length;
     if (shared > 0) {
@@ -95,7 +95,7 @@ int64_t cinder_string_cmp(const char* left, int64_t left_length, const char* rig
     return left_length < right_length ? -1 : 1;
 }
 
-int64_t cinder_string_find(const char* haystack, int64_t haystack_length, const char* needle,
+int64_t soliton_string_find(const char* haystack, int64_t haystack_length, const char* needle,
                           int64_t needle_length) {
     if (needle_length == 0) {
         return 0;  // the empty string is at the start of everything
@@ -104,7 +104,7 @@ int64_t cinder_string_find(const char* haystack, int64_t haystack_length, const 
         return -1;
     }
     // Naive search. A million-character haystack would want something
-    // better; nothing in Cinder has one yet, and this is the version
+    // better; nothing in Soliton has one yet, and this is the version
     // whose correctness is obvious.
     for (int64_t at = 0; at + needle_length <= haystack_length; ++at) {
         if (memcmp(haystack + at, needle, static_cast<size_t>(needle_length)) == 0) {
@@ -114,7 +114,7 @@ int64_t cinder_string_find(const char* haystack, int64_t haystack_length, const 
     return -1;
 }
 
-int8_t cinder_string_eq(const char* left, int64_t left_length, const char* right,
+int8_t soliton_string_eq(const char* left, int64_t left_length, const char* right,
                        int64_t right_length) {
     if (left_length != right_length) {
         return 0;
@@ -125,18 +125,18 @@ int8_t cinder_string_eq(const char* left, int64_t left_length, const char* right
     return memcmp(left, right, static_cast<size_t>(left_length)) == 0 ? 1 : 0;
 }
 
-void cinder_panic_bad_slice(int64_t start, int64_t end, int64_t length) {
+void soliton_panic_bad_slice(int64_t start, int64_t end, int64_t length) {
     fflush(stdout);
     fprintf(stderr,
-            "cinder: slice out of bounds: the length is %" PRId64 " but the range is %" PRId64
+            "soliton: slice out of bounds: the length is %" PRId64 " but the range is %" PRId64
             "..%" PRId64 "\n",
             length, start, end);
     exit(101);
 }
 
-void cinder_panic_index_out_of_bounds(int64_t index, int64_t length) {
+void soliton_panic_index_out_of_bounds(int64_t index, int64_t length) {
     fflush(stdout);
-    fprintf(stderr, "cinder: index out of bounds: the length is %" PRId64 " but the index is %" PRId64 "\n",
+    fprintf(stderr, "soliton: index out of bounds: the length is %" PRId64 " but the index is %" PRId64 "\n",
             length, index);
     exit(101);
 }
@@ -152,25 +152,25 @@ void cinder_panic_index_out_of_bounds(int64_t index, int64_t length) {
 /// would mean passing its position into every call to a contracted
 /// function, which changes the ABI of those functions and would have to
 /// survive separate compilation and interface files.
-void cinder_panic_contract(const char* kind, const char* condition, const char* location,
+void soliton_panic_contract(const char* kind, const char* condition, const char* location,
                           const char* function) {
     fflush(stdout);
-    fprintf(stderr, "cinder: %s contract violated in `%s`: %s\n", kind, function,
+    fprintf(stderr, "soliton: %s contract violated in `%s`: %s\n", kind, function,
             condition);
     fprintf(stderr, "  --> %s\n", location);
     exit(101);
 }
 
-void cinder_panic_divide_by_zero(void) {
+void soliton_panic_divide_by_zero(void) {
     fflush(stdout);
-    fputs("cinder: attempt to divide by zero\n", stderr);
+    fputs("soliton: attempt to divide by zero\n", stderr);
     exit(101);
 }
 
 
 // --- heap -------------------------------------------------------------
 
-void* cinder_alloc(int64_t bytes) {
+void* soliton_alloc(int64_t bytes) {
     if (bytes <= 0) {
         // A zero-length buffer needs no allocation; null is a valid
         // empty buffer everywhere below, and free(null) is a no-op.
@@ -179,13 +179,13 @@ void* cinder_alloc(int64_t bytes) {
     void* buffer = malloc(static_cast<size_t>(bytes));
     if (buffer == nullptr) {
         fflush(stdout);
-        fprintf(stderr, "cinder: out of memory allocating %" PRId64 " bytes\n", bytes);
+        fprintf(stderr, "soliton: out of memory allocating %" PRId64 " bytes\n", bytes);
         exit(101);
     }
     return buffer;
 }
 
-void* cinder_realloc(void* buffer, int64_t bytes) {
+void* soliton_realloc(void* buffer, int64_t bytes) {
     if (bytes <= 0) {
         free(buffer);
         return nullptr;
@@ -193,38 +193,38 @@ void* cinder_realloc(void* buffer, int64_t bytes) {
     void* grown = realloc(buffer, static_cast<size_t>(bytes));
     if (grown == nullptr) {
         fflush(stdout);
-        fprintf(stderr, "cinder: out of memory growing to %" PRId64 " bytes\n", bytes);
+        fprintf(stderr, "soliton: out of memory growing to %" PRId64 " bytes\n", bytes);
         exit(101);
     }
     return grown;
 }
 
-void cinder_free(void* buffer) { free(buffer); }
+void soliton_free(void* buffer) { free(buffer); }
 
-void* cinder_reserve(void* buffer, int64_t element_size, int64_t* capacity, int64_t wanted) {
+void* soliton_reserve(void* buffer, int64_t element_size, int64_t* capacity, int64_t wanted) {
     if (wanted <= *capacity) {
         return buffer;  // never shrinks: what is already there is paid for
     }
-    void* grown = cinder_realloc(buffer, wanted * element_size);
+    void* grown = soliton_realloc(buffer, wanted * element_size);
     *capacity = wanted;
     return grown;
 }
 
-void* cinder_grow(void* buffer, int64_t element_size, int64_t length, int64_t* capacity) {
+void* soliton_grow(void* buffer, int64_t element_size, int64_t length, int64_t* capacity) {
     if (length < *capacity) {
         return buffer;
     }
     // Double, starting at four. Growing by a constant instead would make
     // a run of pushes quadratic.
     int64_t next = (*capacity == 0) ? 4 : *capacity * 2;
-    void* grown = cinder_realloc(buffer, next * element_size);
+    void* grown = soliton_realloc(buffer, next * element_size);
     *capacity = next;
     return grown;
 }
 
-void cinder_panic_empty(const char* what, int64_t what_length) {
+void soliton_panic_empty(const char* what, int64_t what_length) {
     fflush(stdout);
-    fputs("cinder: cannot pop from an empty ", stderr);
+    fputs("soliton: cannot pop from an empty ", stderr);
     if (what != nullptr && what_length > 0) {
         fwrite(what, 1, static_cast<size_t>(what_length), stderr);
     }
@@ -232,7 +232,7 @@ void cinder_panic_empty(const char* what, int64_t what_length) {
     exit(101);
 }
 
-void* cinder_string_append(void* buffer, int64_t* length, int64_t* capacity, const char* bytes,
+void* soliton_string_append(void* buffer, int64_t* length, int64_t* capacity, const char* bytes,
                           int64_t count) {
     if (count <= 0) {
         return buffer;
@@ -243,7 +243,7 @@ void* cinder_string_append(void* buffer, int64_t* length, int64_t* capacity, con
         while (next < needed) {
             next *= 2;
         }
-        buffer = cinder_realloc(buffer, next);
+        buffer = soliton_realloc(buffer, next);
         *capacity = next;
     }
     memcpy(static_cast<char*>(buffer) + *length, bytes, static_cast<size_t>(count));

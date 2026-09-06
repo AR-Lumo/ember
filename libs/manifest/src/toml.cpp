@@ -1,8 +1,8 @@
-#include "cinder/manifest/toml.hpp"
+#include "soliton/manifest/toml.hpp"
 
 #include <cctype>
 
-namespace cinder::manifest::toml {
+namespace soliton::manifest::toml {
 namespace {
 
 using ast::Diagnostic;
@@ -311,9 +311,9 @@ ParseResult parse(const ast::SourceFile& source) {
     return result;
 }
 
-}  // namespace cinder::manifest::toml
+}  // namespace soliton::manifest::toml
 
-namespace cinder::manifest::toml {
+namespace soliton::manifest::toml {
 
 std::string quoted(std::string_view text) {
     std::string out{'"'};
@@ -340,4 +340,4 @@ std::string quoted(std::string_view text) {
     return out;
 }
 
-}  // namespace cinder::manifest::toml
+}  // namespace soliton::manifest::toml

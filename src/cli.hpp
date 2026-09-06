@@ -1,4 +1,4 @@
-// Command-line surface for the `cinder` driver (§6).
+// Command-line surface for the `soliton` driver (§6).
 //
 // Argument parsing lives here rather than inside main() so the test
 // binary can link it directly and assert on the exact wording of usage
@@ -7,8 +7,8 @@
 // dependency-free and keeps full control of diagnostics, matching the
 // parser philosophy in §2.
 
-#ifndef CINDER_CLI_HPP
-#define CINDER_CLI_HPP
+#ifndef SOLITON_CLI_HPP
+#define SOLITON_CLI_HPP
 
 #include <filesystem>
 #include <optional>
@@ -18,7 +18,7 @@
 #include <variant>
 #include <vector>
 
-namespace cinder::cli {
+namespace soliton::cli {
 
 /// Process exit codes. 0/1/2 follows the C convention: success, the work
 /// failed, the invocation was wrong.
@@ -57,7 +57,7 @@ struct BuildOptions {
     /// generated code still resembles the source it came from.
     unsigned optimization_level = 0;
     /// `--link` arguments: object files or libraries to hand the linker
-    /// alongside what cinder compiled. This is how a module imported
+    /// alongside what soliton compiled. This is how a module imported
     /// through an interface gets a body.
     std::vector<std::filesystem::path> link;
     /// `--lib`: compile to an object file rather than an executable, and
@@ -76,7 +76,7 @@ struct BuildOptions {
 /// A successfully parsed command line.
 struct Command {
     CommandKind kind = CommandKind::Help;
-    /// Input `.ci` file. Empty for Help and Version.
+    /// Input `.sn` file. Empty for Help and Version.
     std::filesystem::path input;
     /// `-o` argument. Only ever set for Build.
     std::optional<std::filesystem::path> output;
@@ -87,7 +87,7 @@ struct Command {
     /// front end's problem, not the back end's.
     std::vector<std::filesystem::path> module_path;
     /// `--update`: re-resolve git dependencies instead of using the
-    /// revisions `cinder.lock` pinned.
+    /// revisions `soliton.lock` pinned.
     bool update = false;
     /// `--dry-run`: say what `publish` would record, and record nothing.
     bool dry_run = false;
@@ -109,7 +109,7 @@ using ParseResult = std::variant<Command, UsageError>;
 ParseResult parse_args(std::span<const std::string_view> args);
 
 /// Default output path for `build` when `-o` was not given: the input
-/// path with the platform executable suffix in place of `.ci`.
+/// path with the platform executable suffix in place of `.sn`.
 std::filesystem::path default_output_path(const std::filesystem::path& input);
 
 /// Tell the driver where its own binary is, so a rebuilt compiler does
@@ -121,15 +121,15 @@ std::filesystem::path default_output_path(const std::filesystem::path& input);
 /// path that resolves to nothing simply contributes nothing.
 void set_compiler_path(const std::filesystem::path& path);
 
-/// e.g. "cinder 0.1.0".
+/// e.g. "soliton 0.1.0".
 std::string version_string();
 
 /// Assembles the directories an imported module is looked for in,
 /// after the directory of the file that imported it.
 ///
 /// In order: what `--module-path` asked for, then the packages the
-/// manifest resolved to, then `CINDER_MODULE_PATH` from the environment,
-/// then an `cinder_modules` directory beside the entry file if one
+/// manifest resolved to, then `SOLITON_MODULE_PATH` from the environment,
+/// then an `soliton_modules` directory beside the entry file if one
 /// exists. Explicit beats declared beats ambient beats conventional,
 /// which is the order every toolchain settles on eventually.
 std::vector<std::filesystem::path> module_search_path(
@@ -146,18 +146,18 @@ struct PackageResolution {
 };
 
 /// Find the manifest above `entry`, resolve what it depends on, fetch
-/// anything missing, and write `cinder.lock`.
+/// anything missing, and write `soliton.lock`.
 ///
 /// A program with no manifest is not an error: most of them are one
 /// file and depend on nothing. Diagnostics go to stderr.
 PackageResolution resolve_packages(const std::filesystem::path& entry, bool update,
                                    bool verbose);
 
-/// `cinder fetch` (§6): resolve and download, and stop there. Returns a
+/// `soliton fetch` (§6): resolve and download, and stop there. Returns a
 /// process exit code.
 int fetch_packages(const std::filesystem::path& from, bool update);
 
-/// `cinder interface <file.ci> [-o <out.cii>]` (§6): write the module's
+/// `soliton interface <file.sn> [-o <out.sni>]` (§6): write the module's
 /// public surface, with the implementations taken out.
 ///
 /// The file this produces can be imported in place of the module it
@@ -167,11 +167,11 @@ int write_interface(const std::filesystem::path& input,
                     const std::optional<std::filesystem::path>& output,
                     const std::vector<std::filesystem::path>& module_path = {});
 
-/// `cinder publish` (§6): record this package's version in the registry
+/// `soliton publish` (§6): record this package's version in the registry
 /// index, and stop short of pushing it.
 ///
 /// Everything up to the push is a local, reversible act: the index entry
-/// is written and committed in cinder's own checkout of the index, and
+/// is written and committed in soliton's own checkout of the index, and
 /// the command prints the `git push` that would make it public. Sending
 /// it is the author's to do — publishing is irreversible in the way that
 /// matters, since a version, once out, has to go on meaning what it
@@ -182,15 +182,15 @@ int publish_package(const std::filesystem::path& from, bool dry_run);
 /// any diagnostics to stderr in the §7 format. Returns a process exit
 /// code: 0 when the program is clean, kExitCompileError otherwise.
 ///
-/// This is `cinder check` (§6). `cinder build` runs the same front end and
+/// This is `soliton check` (§6). `soliton build` runs the same front end and
 /// then hands the checked program to codegen.
 int check_file(const std::filesystem::path& input,
                const std::vector<std::filesystem::path>& module_path = {},
                bool update = false);
 
-/// Compile `input` to a native executable at `output` (§6, `cinder build`).
+/// Compile `input` to a native executable at `output` (§6, `soliton build`).
 ///
-/// Each module is lowered to its own object file, cached under `.cinder`
+/// Each module is lowered to its own object file, cached under `.soliton`
 /// beside the entry source and reused when nothing it depends on has
 /// changed. `options.fresh` skips the cache.
 int build_file(const std::filesystem::path& input, const std::filesystem::path& output,
@@ -199,7 +199,7 @@ int build_file(const std::filesystem::path& input, const std::filesystem::path& 
                bool update = false);
 
 /// Compile `input` to a temporary executable, run it, and return its
-/// exit code (§6, `cinder run`).
+/// exit code (§6, `soliton run`).
 int run_file(const std::filesystem::path& input, const BuildOptions& options = {},
              const std::vector<std::filesystem::path>& module_path = {},
              bool update = false);
@@ -207,6 +207,6 @@ int run_file(const std::filesystem::path& input, const BuildOptions& options = {
 /// The linker command the build uses, for diagnostics and the README.
 std::string linker_command();
 
-}  // namespace cinder::cli
+}  // namespace soliton::cli
 
-#endif  // CINDER_CLI_HPP
+#endif  // SOLITON_CLI_HPP

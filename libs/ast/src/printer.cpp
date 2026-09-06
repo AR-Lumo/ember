@@ -1,4 +1,4 @@
-#include "cinder/ast/printer.hpp"
+#include "soliton/ast/printer.hpp"
 
 #include <array>
 #include <charconv>
@@ -6,7 +6,7 @@
 #include <string>
 #include <system_error>
 
-namespace cinder::ast {
+namespace soliton::ast {
 namespace {
 
 std::string format_double(double value) {
@@ -558,4 +558,4 @@ std::string to_sexpr(const Expr& expr, const SourceFile& source) {
     return printer.take();
 }
 
-}  // namespace cinder::ast
+}  // namespace soliton::ast

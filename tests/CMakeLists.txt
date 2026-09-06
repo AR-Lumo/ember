@@ -3,7 +3,7 @@
 # The golden directory is baked in as a compile definition so the test
 # binary works regardless of the directory CTest runs it from.
 
-add_executable(cinder_snapshot_tests
+add_executable(soliton_snapshot_tests
     snapshot_tests.cpp
     lexer_tests.cpp
     parser_tests.cpp
@@ -24,47 +24,47 @@ add_executable(cinder_snapshot_tests
     effects_tests.cpp
 )
 
-target_include_directories(cinder_snapshot_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+target_include_directories(soliton_snapshot_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 
-target_compile_definitions(cinder_snapshot_tests
+target_compile_definitions(soliton_snapshot_tests
     PRIVATE
-        CINDER_GOLDEN_DIR="${CMAKE_CURRENT_SOURCE_DIR}/golden"
+        SOLITON_GOLDEN_DIR="${CMAKE_CURRENT_SOURCE_DIR}/golden"
         # Phase 4 tests drive the real compiler binary end to end.
-        CINDER_BINARY="$<TARGET_FILE:cinder>"
+        SOLITON_BINARY="$<TARGET_FILE:soliton>"
 )
 
-add_dependencies(cinder_snapshot_tests cinder cinder_std)
+add_dependencies(soliton_snapshot_tests soliton soliton_std)
 
-target_link_libraries(cinder_snapshot_tests
+target_link_libraries(soliton_snapshot_tests
     PRIVATE
-        cinder::driver
-        cinder::ast
-        cinder::lexer
-        cinder::parser
-        cinder::typeck
-        cinder::codegen
-        cinder::manifest
-        cinder::link
+        soliton::driver
+        soliton::ast
+        soliton::lexer
+        soliton::parser
+        soliton::typeck
+        soliton::codegen
+        soliton::manifest
+        soliton::link
 )
 
-add_test(NAME snapshot_tests COMMAND cinder_snapshot_tests)
+add_test(NAME snapshot_tests COMMAND soliton_snapshot_tests)
 
-# `cinder --version` must at least start up and exit cleanly.
-add_test(NAME cli_smoke COMMAND cinder --version)
-set_tests_properties(cli_smoke PROPERTIES PASS_REGULAR_EXPRESSION "^cinder [0-9]+\.[0-9]+\.[0-9]+")
+# `soliton --version` must at least start up and exit cleanly.
+add_test(NAME cli_smoke COMMAND soliton --version)
+set_tests_properties(cli_smoke PROPERTIES PASS_REGULAR_EXPRESSION "^soliton [0-9]+\.[0-9]+\.[0-9]+")
 
 # End-to-end checks of the driver itself: a clean program must exit 0,
 # and a broken one must exit non-zero with a diagnostic on stderr.
 add_test(NAME cli_check_accepts_a_valid_program
-         COMMAND cinder check "${CMAKE_SOURCE_DIR}/examples/point.ci")
+         COMMAND soliton check "${CMAKE_SOURCE_DIR}/examples/point.sn")
 
 add_test(NAME cli_check_rejects_a_broken_program
-         COMMAND cinder check "${CMAKE_CURRENT_SOURCE_DIR}/golden/type_errors.ci")
+         COMMAND soliton check "${CMAKE_CURRENT_SOURCE_DIR}/golden/type_errors.sn")
 set_tests_properties(cli_check_rejects_a_broken_program PROPERTIES WILL_FAIL TRUE)
 
 # A multi-file program must build and run from the entry file alone.
 add_test(NAME cli_runs_a_multi_module_program
-         COMMAND cinder run "${CMAKE_SOURCE_DIR}/examples/modules/main.ci")
+         COMMAND soliton run "${CMAKE_SOURCE_DIR}/examples/modules/main.sn")
 set_tests_properties(cli_runs_a_multi_module_program
                      PROPERTIES PASS_REGULAR_EXPRESSION "distance_sq: 25")
 
@@ -72,9 +72,9 @@ set_tests_properties(cli_runs_a_multi_module_program
 #
 # An OBJECT library's objects do not travel through a static library:
 # CMake gives them to whatever links the object library *directly*, and
-# cinder_link is a static archive in between. So the executables name
+# soliton_link is a static archive in between. So the executables name
 # them here. Without this the stub compiles, defines exactly the right
 # symbols, and is never looked at.
-if(TARGET cinder_link_stubs)
-    target_sources(cinder_snapshot_tests PRIVATE $<TARGET_OBJECTS:cinder_link_stubs>)
+if(TARGET soliton_link_stubs)
+    target_sources(soliton_snapshot_tests PRIVATE $<TARGET_OBJECTS:soliton_link_stubs>)
 endif()
