@@ -257,9 +257,10 @@ EMBER_TEST(a_generic_function_may_carry_a_bound) {
             "pub fn main() { println(identity(1)); }\n");
 }
 
-EMBER_TEST(calling_a_function_value_counts_as_effectful) {
-    // Rule 6. A `fn(int) -> int` carries no effect information, so a
-    // bound that ignored this would be quietly untrue.
+EMBER_TEST(calling_an_unbounded_function_value_counts_as_effectful) {
+    // An unbounded `fn(int) -> int` carries no effect information, so a
+    // bound that ignored it would be quietly untrue. This is every
+    // function type written before effects entered them.
     EMBER_CHECK_EQ(rejects("pub fn apply(f: fn(int) -> int, x: int) -> int uses nothing {\n"
                            "    return f(x);\n"
                            "}\n"),
@@ -268,6 +269,121 @@ EMBER_TEST(calling_a_function_value_counts_as_effectful) {
     // And `uses io` still permits it, so closures remain usable.
     accepts(
         "pub fn apply(f: fn(int) -> int, x: int) -> int uses io {\n"
+        "    return f(x);\n"
+        "}\n");
+}
+
+// ---------------------------------------------------------------------
+// Effects in function types
+// ---------------------------------------------------------------------
+
+EMBER_TEST(a_bounded_function_type_makes_a_pure_higher_order_function_possible) {
+    // The hole that putting effects in the type closes. Before it, no
+    // function taking a callback could be `uses nothing`, because the
+    // call through it counted as anything.
+    accepts(
+        "pub fn apply(f: fn(int) -> int uses nothing, x: int) -> int uses nothing {\n"
+        "    return f(x);\n"
+        "}\n");
+}
+
+EMBER_TEST(a_bound_on_a_type_permits_exactly_what_it_says) {
+    // `uses io` on the type means the call performs `io` - no more, so
+    // an `io` caller is fine, and no less, so a pure one is not.
+    accepts(
+        "pub fn apply(f: fn(int) -> int uses io, x: int) -> int uses io {\n"
+        "    return f(x);\n"
+        "}\n");
+
+    EMBER_CHECK_EQ(rejects("pub fn apply(f: fn(int) -> int uses io, x: int) -> int uses nothing {\n"
+                           "    return f(x);\n"
+                           "}\n"),
+                   std::string{"`io` is not permitted here"});
+}
+
+EMBER_TEST(an_impure_closure_does_not_fit_a_pure_bound) {
+    const std::string message = rejects(
+        "pub fn apply(f: fn(int) -> int uses nothing, x: int) -> int uses nothing {\n"
+        "    return f(x);\n"
+        "}\n"
+        "pub fn main() {\n"
+        "    println(apply(|x: int| { println(x); return x; }, 3));\n"
+        "}\n");
+    EMBER_CHECK_EQ(message, std::string{"this closure performs `io`"});
+}
+
+EMBER_TEST(a_pure_closure_fits_a_pure_bound) {
+    accepts(
+        "pub fn apply(f: fn(int) -> int uses nothing, x: int) -> int uses nothing {\n"
+        "    return f(x);\n"
+        "}\n"
+        "pub fn main() {\n"
+        "    println(apply(|x: int| { return x * 2; }, 21));\n"
+        "}\n");
+}
+
+EMBER_TEST(a_function_that_does_less_fits_where_more_is_allowed) {
+    // Width subtyping on the effect set: a pure closure satisfies a
+    // parameter that merely permits `io`. Without this a bound would be
+    // a straitjacket rather than a ceiling.
+    accepts(
+        "pub fn apply(f: fn(int) -> int uses io, x: int) -> int uses io {\n"
+        "    return f(x);\n"
+        "}\n"
+        "pub fn pure_one(f: fn(int) -> int uses nothing, x: int) -> int uses io {\n"
+        "    return apply(f, x);\n"
+        "}\n");
+}
+
+EMBER_TEST(defining_a_closure_is_not_calling_it) {
+    // A factory may be pure even though what it hands back is not.
+    // Before effects were in types, the closure's `println` was charged
+    // to the function that merely wrote it down.
+    accepts(
+        "pub fn make(limit: int) -> fn(int) -> int uses nothing {\n"
+        "    return |x: int| { println(x); return x + limit; };\n"
+        "}\n");
+}
+
+EMBER_TEST(a_bound_is_part_of_how_a_function_type_is_written) {
+    // Two types that differ only in their bound must not print the
+    // same, or a mismatch between them reads as nonsense.
+    const std::string message = rejects(
+        "pub fn apply(f: fn(int) -> int uses nothing) -> int { return f(1); }\n"
+        "pub fn main() {\n"
+        "    let g: fn(int) -> int uses io = |x: int| { println(x); return x; };\n"
+        "    println(apply(g));\n"
+        "}\n");
+    EMBER_CHECK_EQ(message, std::string{"type mismatch"});
+}
+
+EMBER_TEST(a_return_type_bounds_the_function_not_the_type_it_returns) {
+    // `fn f() -> fn(int) -> int uses nothing` binds the clause to `f`.
+    // Binding it to the returned type instead would leave `f` unbounded
+    // while looking like it had been constrained.
+    const SourceFile source = effect_source(
+        "pub fn make() -> fn(int) -> int uses nothing {\n"
+        "    return |x: int| { return x; };\n"
+        "}\n");
+    const ember::parser::ParseResult parsed = ember::parser::parse_source(source);
+    EMBER_CHECK(parsed.ok());
+    EMBER_CHECK(first_function(*parsed.program).effects.present);
+    EMBER_CHECK(first_function(*parsed.program).effects.effects.empty());
+}
+
+EMBER_TEST(a_bounded_type_in_a_parameter_list_does_not_eat_the_comma) {
+    // `f: fn(int) -> int uses nothing, x: int` - a greedy clause reads
+    // the separator as another effect and then `x` as its name.
+    accepts(
+        "pub fn apply(f: fn(int) -> int uses nothing, x: int) -> int uses nothing {\n"
+        "    return f(x);\n"
+        "}\n");
+
+    // And with two effects listed, where the comma really does
+    // continue. The caller has to permit both, since calling a type
+    // bounded `io, mut` performs both.
+    accepts(
+        "pub fn apply(f: fn(int) -> int uses io, mut, x: int) -> int uses io, mut {\n"
         "    return f(x);\n"
         "}\n");
 }

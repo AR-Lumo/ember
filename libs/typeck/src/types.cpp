@@ -147,8 +147,9 @@ void TypeContext::mark_owning(TypePtr type) {
     }
 }
 
-TypePtr TypeContext::function_of(const std::vector<TypePtr>& params, TypePtr result) {
-    const auto key = std::make_pair(params, result);
+TypePtr TypeContext::function_of(const std::vector<TypePtr>& params, TypePtr result,
+                                 bool effects_bounded, EffectMask effects) {
+    const auto key = std::make_tuple(params, result, effects_bounded, effects);
     const auto found = functions_.find(key);
     if (found != functions_.end()) {
         return found->second;
@@ -157,6 +158,8 @@ TypePtr TypeContext::function_of(const std::vector<TypePtr>& params, TypePtr res
     type.kind = TypeKind::Function;
     type.args = params;
     type.result = result;
+    type.effects_bounded = effects_bounded;
+    type.effects = effects;
     const TypePtr interned = intern(std::move(type));
     functions_.emplace(key, interned);
     return interned;
@@ -207,6 +210,24 @@ bool is_generic(TypePtr type) noexcept {
     }
 }
 
+/// `io`, `io, mut`, or `nothing` for the empty bound.
+///
+/// The bit assignment is fixed in typeck.cpp; this only has to agree
+/// with it, which is why both live behind one name each.
+std::string effects_string(EffectMask effects) {
+    static const char* kNames[] = {"io", "mut"};
+    std::string out;
+    for (unsigned bit = 0; bit < 2; ++bit) {
+        if ((effects & (EffectMask{1} << bit)) != 0) {
+            if (!out.empty()) {
+                out += ", ";
+            }
+            out += kNames[bit];
+        }
+    }
+    return out.empty() ? "nothing" : out;
+}
+
 std::string to_string(TypePtr type) {
     if (type == nullptr) {
         return "?";
@@ -250,6 +271,12 @@ std::string to_string(TypePtr type) {
             out += ")";
             if (type->result != nullptr && type->result->kind != TypeKind::Void) {
                 out += " -> " + to_string(type->result);
+            }
+            // The bound is part of the type, so it has to be part of
+            // how the type is written - otherwise two different types
+            // print identically and a mismatch reads as nonsense.
+            if (type->effects_bounded) {
+                out += " uses " + effects_string(type->effects);
             }
             return out;
         }

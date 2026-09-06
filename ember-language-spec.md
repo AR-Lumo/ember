@@ -146,7 +146,9 @@ type           = ( "int" | "float" ) [ "<" unit_expr ">" ]
                                               double either way *)
                | "bool" | "string"
                | "fn" "(" [ type { "," type } ] ")" [ "->" type ]
-                                           (* function value, v2 *)
+                 [ effect_clause ]         (* function value, v2; the
+                                              clause bounds what calling
+                                              it may do, v1.1 *)
                | "Vec" "<" type ">"        (* growable array, v2 *)
                | "String"                  (* growable string, v2 *)
                | qualified [ type_args ]   (* struct type, optionally
@@ -648,11 +650,12 @@ bound.**
    have it enforced. This is the spec's `distance_sq` example, made
    explicit rather than implied by absence.
 
-6. **An indirect call contributes every effect a function can perform**,
-   which today is `io`. A `fn(int) -> int` type carries no effect
-   information, so calling through a function value could do anything.
-   Treating it as unknown-and-therefore-worst keeps a bound honest:
-   `uses io` still permits it, `uses nothing` refuses it and says why.
+6. **An indirect call contributes whatever the function type
+   permits.** A type carrying a bound - `fn(int) -> int uses nothing` -
+   contributes exactly that. An *unbounded* one says nothing about what
+   it does, so it contributes every effect a function can perform, which
+   today is `io`: unknown-and-therefore-worst, which keeps a bound
+   honest rather than quietly wrong.
 
 7. **`mut` is accepted and inert.** Nothing produces it, because Ember
    has no `&mut` for it to be about - exactly as the paragraph above
@@ -685,9 +688,48 @@ pub fn main() {
 
 **What this does not do.** A bound says what a function may do, not what
 it must; `uses io` on something that never prints is allowed, the way an
-unused `throws` is in Java. And effects are not part of a function type,
-which is why rule 6 has to be so blunt - putting them there is the
-obvious next step and a much larger one.
+unused `throws` is in Java.
+
+**Effects in function types.** A function type may carry a bound, which
+is what makes a higher-order function bounded at all:
+
+```ember
+pub fn apply(f: fn(int) -> int uses nothing, x: int) -> int uses nothing {
+    return f(x);            // ok: the type says the call is pure
+}
+```
+
+Three consequences worth stating.
+
+*Width subtyping on the effect set.* A function that does less goes
+where one that may do more is wanted, so a pure closure satisfies a
+`uses io` parameter. Parameters and results stay invariant; only the
+bound varies.
+
+*A closure takes the bound it is handed to*, the same way it already
+takes its parameter types from there, and what it actually performs is
+checked against that bound after the fixpoint. It has to be after: what
+a closure performs includes what the functions it calls perform, and
+that is not known while the closure is being checked.
+
+*Defining a closure is not calling it.* A closure's body belongs to the
+closure, not to the function that wrote it down, so this is honest
+rather than absurd:
+
+```ember
+pub fn make(limit: int) -> fn(int) -> int uses nothing {
+    return |x: int| { println(x); return x + limit; };
+}
+```
+
+`make` performs no IO. What it returns does, and a caller of *that* is
+where the `io` shows up.
+
+**One ambiguity, resolved by refusing.** `fn f() -> fn(int) -> int uses
+io` could bind the clause to `f` or to the type it returns. It binds to
+`f`, because the other reading leaves `f` unbounded while looking
+constrained - a misreading is worse than a gap. The cost is that a
+bounded function type cannot be written as a return type.
 
 **As built.** Two details the rules above do not fix.
 
@@ -701,3 +743,9 @@ contributes nothing, because there is no body to infer from. An
 unannotated library function is therefore assumed pure, which is the
 same bargain as rule 4: no clause is no claim. A `uses` clause does
 survive into an interface, so a library that annotates is believed.
+
+An effect clause on a function type stops at a comma that is not
+followed by an effect, so that `f: fn(int) -> int uses nothing, x: int`
+does not read the parameter separator as another effect. A parameter
+that is genuinely named `io` after such a type would be taken as one;
+that is the one place the lookahead can be wrong.

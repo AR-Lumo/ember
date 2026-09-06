@@ -303,7 +303,9 @@ private:
         expect(TokenKind::RParen);
 
         if (match(TokenKind::Arrow)) {
-            function->return_type = parse_type();
+            // false: a `uses` after this belongs to the function, not
+            // to the type - see parse_type.
+            function->return_type = parse_type(false);
         }
 
         function->effects = parse_effect_clause();
@@ -449,9 +451,24 @@ private:
                                "each effect is named once");
             }
             clause.effects.push_back(effect);
-        } while (match(TokenKind::Comma));
+            // Only continue over a comma that is followed by another
+            // effect. A function type carrying a bound can sit in a
+            // parameter list - `f: fn(int) -> int uses nothing, x: int`
+            // - and a greedy `,` would eat the separator and then read
+            // `x` as an effect. Looking first costs one token and keeps
+            // the two commas apart.
+        } while (check(TokenKind::Comma) && starts_effect(peek(1)) && match(TokenKind::Comma));
 
         return clause;
+    }
+
+    /// Could this token be the name of an effect?
+    static bool starts_effect(const Token& token) noexcept {
+        if (token.kind == TokenKind::KwMut) {
+            return true;  // `mut` is a keyword; see parse_effect_clause
+        }
+        return token.kind == TokenKind::Identifier &&
+               (token.text == "io" || token.text == "nothing");
     }
 
     /// `{ contract }` - the `requires` and `ensures` clauses that may
@@ -649,7 +666,15 @@ private:
     // Types
     // -----------------------------------------------------------------
 
-    ast::TypeRefPtr parse_type() {
+    /// `type`, per section 3.
+    ///
+    /// `allow_effects` is false in return-type position. Otherwise
+    /// `fn f() -> fn(int) -> int uses io` binds the clause to the
+    /// returned function type, leaving `f` unbounded when the obvious
+    /// reading is that `f` is the io-bounded one. Refusing it there
+    /// costs the ability to write a bounded function type as a return
+    /// type - a gap, but a visible one rather than a misreading.
+    ast::TypeRefPtr parse_type(bool allow_effects = true) {
         const Span start = peek().span;
         auto type = std::make_unique<ast::TypeRef>();
         type->span = start;
@@ -729,8 +754,18 @@ private:
                 type->span = start.merge(close.span);
 
                 if (match(TokenKind::Arrow)) {
+                    // The result of a function *type* may itself carry
+                    // a bound, so no flag is threaded through here -
+                    // only a function *declaration's* return type has
+                    // the ambiguity, and it passes false itself.
                     type->result = parse_type();
                     type->span = start.merge(type->result->span);
+                }
+                if (allow_effects) {
+                    type->effects = parse_effect_clause();
+                    if (type->effects.present) {
+                        type->span = start.merge(type->effects.span);
+                    }
                 }
                 return type;
             }

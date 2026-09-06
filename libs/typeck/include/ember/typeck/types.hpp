@@ -15,12 +15,20 @@
 
 #include <cstdint>
 #include <map>
+#include <tuple>
 #include <memory>
 #include <string>
 #include <utility>
 #include <vector>
 
 namespace ember::typeck {
+
+/// The effects a function type permits, as a bitmask (§10.3).
+///
+/// A bitmask rather than `std::vector<ast::Effect>` so that this header
+/// does not have to know about the AST. The bits are assigned in
+/// typeck.cpp, which is the only place that translates between the two.
+using EffectMask = std::uint32_t;
 
 /// A unit and the power it appears to, as a canonical list.
 ///
@@ -103,6 +111,15 @@ struct Type {
     /// Filled in when the struct is laid out, since a Type alone does
     /// not know its own fields.
     bool owns_heap = false;
+    /// For Function: whether a `uses` clause was written on the type,
+    /// and what it permits (§10.3).
+    ///
+    /// Unbounded - no clause - permits everything, which is what keeps
+    /// every `fn(int) -> int` written before effects existed meaning
+    /// what it did. Part of the interning key, so a bounded function
+    /// type is a different type from an unbounded one.
+    bool effects_bounded = false;
+    EffectMask effects = 0;
     /// For Int and Float: the unit, canonical. Empty for an ordinary
     /// number.
     ///
@@ -115,6 +132,9 @@ struct Type {
 };
 
 using TypePtr = const Type*;
+
+/// An effect bound as it is written: `io`, `io, mut`, or `nothing`.
+std::string effects_string(EffectMask effects);
 
 /// How a type is written in source: `int`, `&Point`, `[float; 8]`.
 std::string to_string(TypePtr type);
@@ -143,7 +163,9 @@ public:
     TypePtr reference_to(TypePtr element);
     TypePtr array_of(TypePtr element, std::int64_t length);
     TypePtr vec_of(TypePtr element);
-    TypePtr function_of(const std::vector<TypePtr>& params, TypePtr result);
+    /// `fn(A, B) -> R`, optionally carrying an effect bound.
+    TypePtr function_of(const std::vector<TypePtr>& params, TypePtr result,
+                        bool effects_bounded = false, EffectMask effects = 0);
     /// Record that a struct type owns heap memory through its fields.
     void mark_owning(TypePtr type);
     TypePtr string_buf_type() const noexcept { return string_buf_; }
@@ -156,7 +178,7 @@ private:
     std::map<std::string, TypePtr> generics_;
     std::map<TypePtr, TypePtr> references_;
     std::map<TypePtr, TypePtr> vecs_;
-    std::map<std::pair<std::vector<TypePtr>, TypePtr>, TypePtr> functions_;
+    std::map<std::tuple<std::vector<TypePtr>, TypePtr, bool, EffectMask>, TypePtr> functions_;
     std::map<std::pair<TypePtr, std::int64_t>, TypePtr> arrays_;
     std::map<std::pair<bool, Dimension>, TypePtr> numbers_;
 
@@ -177,6 +199,15 @@ inline const Dimension& dimension_of(TypePtr type) noexcept {
         return none;
     }
     return type->dimension;
+}
+
+/// Does a function type of bound `permitted` accept one that performs
+/// `performed`?
+///
+/// An unbounded type accepts anything, which is what an absent clause
+/// has meant since §10.3: no clause is no claim.
+inline bool effects_within(bool bounded, EffectMask permitted, EffectMask performed) noexcept {
+    return !bounded || (performed & ~permitted) == 0;
 }
 
 /// True for the poison type, which suppresses follow-on diagnostics.

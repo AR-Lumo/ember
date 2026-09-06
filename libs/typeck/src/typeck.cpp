@@ -251,6 +251,31 @@ private:
     /// `result` that did not resolve - which is the whole reason
     /// `result` is not a keyword.
     const ast::Contract* current_contract_ = nullptr;
+    /// The bit an effect occupies in a `typeck::EffectMask`.
+    ///
+    /// types.hpp deliberately does not know about `ast::Effect`, so the
+    /// translation lives here and nowhere else.
+    static EffectMask bit_of(ast::Effect effect) noexcept {
+        switch (effect) {
+            case ast::Effect::Io:
+                return EffectMask{1} << 0;
+            case ast::Effect::Mut:
+                return EffectMask{1} << 1;
+        }
+        return 0;
+    }
+
+    static EffectMask mask_of(const ast::EffectClause& clause) noexcept {
+        EffectMask mask = 0;
+        for (const ast::Effect effect : clause.effects) {
+            mask |= bit_of(effect);
+        }
+        return mask;
+    }
+
+    /// Every effect anything can currently perform.
+    static EffectMask every_effect() noexcept { return bit_of(ast::Effect::Io); }
+
     /// What one function does, for the effect pass (§10.3).
     struct EffectFacts {
         /// Effects known to be performed. Grows during the fixpoint as
@@ -269,8 +294,22 @@ private:
         /// The declaration, for its `uses` clause and its name.
         const ast::FunctionDecl* decl = nullptr;
     };
-    /// Every function that has a body, by mangled name.
+    /// Every function that has a body, by mangled name. Closures are
+    /// in here too, under a synthetic name.
     std::map<std::string, EffectFacts> effects_;
+
+    /// A closure that has to fit an effect bound (§10.3).
+    ///
+    /// Checked after the fixpoint rather than at the closure, because
+    /// what a closure performs includes what the functions it calls
+    /// perform, and that is not known until every body has been walked.
+    struct ClosureBound {
+        std::string key;
+        EffectMask permitted = 0;
+        Span span;
+    };
+    std::vector<ClosureBound> closure_bounds_;
+    int next_closure_effects_ = 0;
     /// The one being checked, so a call deep in an expression can find
     /// it without threading a parameter through everything.
     EffectFacts* current_effects_ = nullptr;
@@ -452,6 +491,26 @@ private:
                         }
                     }
                 }
+            }
+        }
+
+        for (const ClosureBound& bound : closure_bounds_) {
+            const auto found = effects_.find(bound.key);
+            if (found == effects_.end()) {
+                continue;
+            }
+            for (const ast::Effect effect : found->second.performed) {
+                if ((bound.permitted & bit_of(effect)) != 0) {
+                    continue;
+                }
+                const std::string named{ast::effect_name(effect)};
+                const auto where = found->second.blame.find(effect);
+                Diagnostic& diagnostic =
+                    report("this closure performs `" + named + "`",
+                           where != found->second.blame.end() ? where->second : bound.span,
+                           "`" + named + "` happens here");
+                diagnostic.with_note("it is being used where `uses " +
+                                     effects_string(bound.permitted) + "` is required");
             }
         }
 
@@ -1643,7 +1702,8 @@ private:
                     params.push_back(resolve_type(*param));
                 }
                 return types().function_of(
-                    params, type.result ? resolve_type(*type.result) : types().void_type());
+                    params, type.result ? resolve_type(*type.result) : types().void_type(),
+                    type.effects.present, mask_of(type.effects));
             }
         }
         return types().error_type();
@@ -2109,7 +2169,11 @@ private:
             return;
         }
 
-        const TypePtr actual = check_expr(*statement.value);
+        // The return type is a hint, exactly as a parameter type is at
+        // a call. Without it `return |x| ...;` has nothing to take the
+        // closure's parameter and result types from, and now nothing to
+        // take its effect bound from either.
+        const TypePtr actual = check_expr(*statement.value, expected);
         move_out_of(*statement.value);
         if (expected != nullptr && expected->kind == TypeKind::Void) {
             report("returning a value from a function with no return type",
@@ -2644,9 +2708,24 @@ private:
         // through one could do anything. Counting it as the worst case
         // keeps a declared bound honest rather than quietly wrong:
         // `uses io` still permits this, `uses nothing` does not.
-        note_effect(ast::Effect::Io, expr.span,
-                    "a function value's type does not say what it does, so calling one "
-                    "counts as performing any effect");
+        // What this call performs is whatever the function type
+        // permits. An unbounded one - `fn(int) -> int`, as every such
+        // type was written before §10.3 - could do anything, so it
+        // counts as everything; a bounded one counts as exactly its
+        // bound, which is the point of putting effects in the type.
+        const TypePtr called = strip_reference(binding.type);
+        if (called != nullptr && called->kind == TypeKind::Function &&
+            called->effects_bounded) {
+            for (const ast::Effect effect : {ast::Effect::Io, ast::Effect::Mut}) {
+                if ((called->effects & bit_of(effect)) != 0) {
+                    note_effect(effect, expr.span);
+                }
+            }
+        } else {
+            note_effect(ast::Effect::Io, expr.span,
+                        "this calls a function value whose type carries no `uses` clause, "
+                        "so it counts as performing any effect");
+        }
 
         for (const ast::ExprPtr& arg : expr.args) {
             check_expr(*arg);
@@ -3453,12 +3532,28 @@ private:
         signature.return_type = result;
         current_function_ = &signature;
 
+        // And so do its effects. Defining a closure is not calling it,
+        // so a `println` in the body belongs to the closure rather than
+        // to the function that wrote it down - which is what makes
+        // `uses nothing` on a factory that returns an io closure
+        // truthful rather than absurd.
+        const std::string effect_key = "closure#" + std::to_string(next_closure_effects_++);
+        EffectFacts* outer_effects = current_effects_;
+        current_effects_ = &effects_[effect_key];
+
         check_block(closure.body);
 
         if (result != nullptr && result->kind != TypeKind::Void && !is_error(result) &&
             !always_returns(closure.body)) {
             report("missing return", expr.span,
                    "this closure must return `" + to_string(result) + "` on every path");
+        }
+
+        current_effects_ = outer_effects;
+
+        // If it is going somewhere with a bound, it has to fit.
+        if (expected != nullptr && expected->effects_bounded) {
+            closure_bounds_.push_back(ClosureBound{effect_key, expected->effects, expr.span});
         }
 
         current_function_ = enclosing;
@@ -3484,7 +3579,18 @@ private:
             }
         }
 
-        const TypePtr type = types().function_of(params, result);
+        // The closure takes the bound it is being handed to, the same
+        // way it takes its parameter types from there. What it actually
+        // performs is verified separately, after the fixpoint - a
+        // closure cannot be given its own inferred bound here, because
+        // what it calls may not have been walked yet.
+        //
+        // With no expectation to take one from it stays unbounded,
+        // which is what every closure written before §10.3 was.
+        const TypePtr type =
+            expected != nullptr && expected->effects_bounded
+                ? types().function_of(params, result, true, expected->effects)
+                : types().function_of(params, result);
         result_.closure_captures[{current_instance_, &expr}] = std::move(capture_types);
         return record(expr, type);
     }
@@ -3746,6 +3852,15 @@ private:
         if (expected->kind == TypeKind::String &&
             strip_reference(found)->kind == TypeKind::StringBuf) {
             return true;
+        }
+        // A function that does less goes where one that may do more is
+        // wanted. Everything but the bound has to match exactly - this
+        // is width subtyping on the effect set only, not on parameters
+        // or results, which stay invariant as they were.
+        if (expected->kind == TypeKind::Function && found->kind == TypeKind::Function &&
+            expected->args == found->args && expected->result == found->result) {
+            return effects_within(expected->effects_bounded, expected->effects,
+                                  found->effects_bounded ? found->effects : every_effect());
         }
         return false;
     }

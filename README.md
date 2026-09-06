@@ -1210,12 +1210,34 @@ checked until you ask.
 ceiling and not a quota, so `uses io` on something that never prints is
 fine, like an unused `throws` in Java.
 
-**Two honest limits.** Effects are not part of a function type, so
-calling through a `fn(int) -> int` counts as performing any effect —
-`uses io` still permits it, `uses nothing` refuses and explains why.
-And a function declared without a body contributes nothing, so an
-unannotated library is assumed pure. Both follow from effects living on
-declarations rather than in types, which is the next thing to change.
+**Effects are part of a function type**, which is what makes a
+higher-order function bounded at all:
+
+```ember
+pub fn apply(f: fn(int) -> int uses nothing, x: int) -> int uses nothing {
+    return f(x);            // the type says the call is pure
+}
+```
+
+A function that does less goes where one that may do more is wanted, so
+a pure closure satisfies a `uses io` parameter. An *unbounded*
+`fn(int) -> int` still counts as performing anything — it says nothing
+about itself — which is why every such type written before this still
+means what it did.
+
+And defining a closure is not calling it, so a factory can be pure even
+though what it hands back is not:
+
+```ember
+pub fn make(limit: int) -> fn(int) -> int uses nothing {
+    return |x: int| { println(x); return x + limit; };
+}
+```
+
+**One honest limit.** A function declared without a body contributes
+nothing, so an unannotated library is assumed pure — the same bargain as
+"no clause is no claim". A `uses` clause does survive into an interface
+file, so a library that annotates is believed.
 
 `mut` is declarable and inert: Ember has no `&mut` for it to be about
 yet, and it is accepted now so programs need not change when it gains
