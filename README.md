@@ -11,7 +11,7 @@ arrays, references, and error messages that tell you what went wrong.
 **[Website &rarr;][site]** &nbsp;·&nbsp; [Download 0.1.0 for Windows][dl]
 &nbsp;·&nbsp; [Getting started](GETTING_STARTED.md)
 
-[site]: https://claude.ai/code/artifact/f9772fd1-ee29-4946-9408-a6092438515a
+[site]: https://ar-lumo.github.io/cinder/
 [dl]: https://github.com/AR-Lumo/cinder/releases/latest
 
 ```cinder
