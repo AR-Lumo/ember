@@ -4,4 +4,5 @@
 .soliton/**
 sample.sn
 sample.exe
+check-grammar.py
 *.vsix
