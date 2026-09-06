@@ -21,6 +21,7 @@ add_executable(ember_snapshot_tests
     link_tests.cpp
     contracts_tests.cpp
     units_tests.cpp
+    effects_tests.cpp
 )
 
 target_include_directories(ember_snapshot_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")

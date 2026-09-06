@@ -224,6 +224,11 @@ public:
         check_pending_instances();
         resolve_instance_demand();
 
+        // Effects after all of that: the fixpoint needs every body
+        // walked, instantiations included, before it can carry a
+        // callee's effects up to its callers (§10.3).
+        check_effects();
+
         current_module_.clear();
         return std::move(result_);
     }
@@ -246,6 +251,30 @@ private:
     /// `result` that did not resolve - which is the whole reason
     /// `result` is not a keyword.
     const ast::Contract* current_contract_ = nullptr;
+    /// What one function does, for the effect pass (§10.3).
+    struct EffectFacts {
+        /// Effects known to be performed. Grows during the fixpoint as
+        /// callees' effects arrive.
+        std::set<ast::Effect> performed;
+        /// Where each effect came from, for the diagnostic. For one
+        /// performed directly this is the `println`; for one that
+        /// arrived through a call it is the call.
+        std::map<ast::Effect, Span> blame;
+        /// An extra line explaining a blame that is not self-evident -
+        /// a call through a function value looks innocent, so it says
+        /// why it counts.
+        std::map<ast::Effect, std::string> because;
+        /// Functions called from here, by mangled name.
+        std::vector<std::pair<std::string, Span>> calls;
+        /// The declaration, for its `uses` clause and its name.
+        const ast::FunctionDecl* decl = nullptr;
+    };
+    /// Every function that has a body, by mangled name.
+    std::map<std::string, EffectFacts> effects_;
+    /// The one being checked, so a call deep in an expression can find
+    /// it without threading a parameter through everything.
+    EffectFacts* current_effects_ = nullptr;
+
     /// Declared units, by name, with where each was declared (§10.2).
     ///
     /// Not module-qualified: a unit is a bare tag with no members, and
@@ -372,6 +401,98 @@ private:
     // -----------------------------------------------------------------
     // Pass 1: struct names and fields
     // -----------------------------------------------------------------
+
+    /// Record that the function being checked performs `effect`.
+    void note_effect(ast::Effect effect, Span span, const std::string& because = {}) {
+        if (current_effects_ == nullptr) {
+            return;
+        }
+        if (current_effects_->performed.insert(effect).second) {
+            current_effects_->blame.emplace(effect, span);
+            if (!because.empty()) {
+                current_effects_->because.emplace(effect, because);
+            }
+        }
+    }
+
+    /// Record a call, so the fixpoint can carry the callee's effects up.
+    void note_call(const FunctionInfo* callee, Span span) {
+        if (current_effects_ == nullptr || callee == nullptr) {
+            return;
+        }
+        current_effects_->calls.emplace_back(callee->mangled_name, span);
+    }
+
+    /// Effects flow from callee to caller until nothing changes, then
+    /// every declared bound is checked (§10.3).
+    ///
+    /// A least fixed point rather than a walk: two functions may call
+    /// each other, and a walk would either recurse forever or have to
+    /// pick an order that does not exist.
+    void check_effects() {
+        bool changed = true;
+        while (changed) {
+            changed = false;
+            for (auto& [name, facts] : effects_) {
+                for (const auto& [callee, span] : facts.calls) {
+                    const auto target = effects_.find(callee);
+                    if (target == effects_.end()) {
+                        // A function with no body - an interface file's
+                        // signature. It claims nothing, so nothing
+                        // arrives; see the limitation in the README.
+                        continue;
+                    }
+                    for (const ast::Effect effect : target->second.performed) {
+                        if (facts.performed.insert(effect).second) {
+                            // Blamed on the call, not on whatever the
+                            // callee did: the call is the line the
+                            // reader has to change.
+                            facts.blame.emplace(effect, span);
+                            changed = true;
+                        }
+                    }
+                }
+            }
+        }
+
+        for (const auto& [name, facts] : effects_) {
+            if (facts.decl == nullptr || !facts.decl->effects.present) {
+                continue;  // no clause is no bound
+            }
+            for (const ast::Effect effect : facts.performed) {
+                if (facts.decl->effects.permits(effect)) {
+                    continue;
+                }
+                const std::string named{ast::effect_name(effect)};
+                const auto where = facts.blame.find(effect);
+                Diagnostic& diagnostic =
+                    report("`" + named + "` is not permitted here",
+                           where != facts.blame.end() ? where->second : facts.decl->name_span,
+                           "this performs `" + named + "`");
+                const auto why = facts.because.find(effect);
+                if (why != facts.because.end()) {
+                    diagnostic.with_note(why->second);
+                }
+                diagnostic.with_note(
+                    "`" + facts.decl->name + "` is declared `uses " +
+                    (facts.decl->effects.effects.empty() ? std::string{"nothing"}
+                                                         : declared_effects(*facts.decl)) +
+                    "`");
+            }
+        }
+    }
+
+    /// The effects a function declares, as written.
+    static std::string declared_effects(const ast::FunctionDecl& function) {
+        std::string listed;
+        for (const ast::Effect effect : function.effects.effects) {
+            if (!listed.empty()) {
+                listed += ", ";
+            }
+            listed += ast::effect_name(effect);
+        }
+        return listed;
+    }
 
     /// `unit meters;` - a name and nothing else (§10.2).
     ///
@@ -1834,6 +1955,8 @@ private:
         // private item from another module becomes an error - the
         // syntax and the AST already carry everything that needs.
         current_function_ = &info;
+        current_effects_ = &effects_[info.mangled_name];
+        current_effects_->decl = &function;
         scopes_.push();
 
         for (std::size_t i = 0; i < function.params.size(); ++i) {
@@ -1870,6 +1993,7 @@ private:
 
         scopes_.pop();
         current_function_ = nullptr;
+        current_effects_ = nullptr;
     }
 
     /// Whether control can leave a block only by returning.
@@ -2506,6 +2630,7 @@ private:
             return record(expr, types().error_type());
         }
         result_.call_targets[{current_instance_, &expr}] = &info;
+        note_call(&info, expr.span);
         check_arguments(expr.span, expr.args, info, 0);
         return record(expr, info.return_type);
     }
@@ -2515,6 +2640,14 @@ private:
     /// Calling reads the closure rather than consuming it, so `f` is
     /// still usable afterwards - only assigning or passing it moves it.
     TypePtr check_indirect_call(const ast::CallExpr& expr, const Binding& binding) {
+        // A `fn(int) -> int` says nothing about what it does, so a call
+        // through one could do anything. Counting it as the worst case
+        // keeps a declared bound honest rather than quietly wrong:
+        // `uses io` still permits this, `uses nothing` does not.
+        note_effect(ast::Effect::Io, expr.span,
+                    "a function value's type does not say what it does, so calling one "
+                    "counts as performing any effect");
+
         for (const ast::ExprPtr& arg : expr.args) {
             check_expr(*arg);
         }
@@ -2645,6 +2778,7 @@ private:
             return record(expr, types().error_type());
         }
         result_.call_targets[{current_instance_, &expr}] = instance;
+        note_call(instance, expr.span);
 
         check_arguments(expr.span, expr.args, *instance, 1);
         return record(expr, instance->return_type);
@@ -2721,6 +2855,7 @@ private:
 
         const FunctionInfo* info = instantiate(tmpl, args, expr.span);
         result_.call_targets[{current_instance_, &expr}] = info;
+        note_call(info, expr.span);
         check_arguments(expr.span, expr.args, *info, 0);
         return record(expr, info->return_type);
     }
@@ -2771,6 +2906,7 @@ private:
             return record(expr, types().error_type());
         }
         result_.call_targets[{current_instance_, &expr}] = &info;
+        note_call(&info, expr.span);
 
         if (info.self_kind == ast::SelfKind::None) {
             Diagnostic& diagnostic =
@@ -2842,6 +2978,13 @@ private:
     /// they do accept several unrelated types, which no user-declared
     /// signature can express in v1.
     TypePtr check_intrinsic(const ast::CallExpr& expr, TypePtr hint = nullptr) {
+        // The only sources of an effect in the language. Everything
+        // else an intrinsic does is arithmetic or memory, which no
+        // effect is about (§10.3).
+        if (expr.callee == "println" || expr.callee == "print") {
+            note_effect(ast::Effect::Io, expr.span);
+        }
+
         if (expr.callee == "new_vec" || expr.callee == "new_string") {
             return check_constructor(expr, hint);
         }

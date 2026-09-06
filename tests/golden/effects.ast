@@ -1,0 +1,135 @@
+(program
+  (fn @14:1 pub area
+    (params
+      (param @14:13 width
+        (int @14:20))
+      (param @14:25 height
+        (int @14:33)))
+    (returns
+      (int @14:41))
+    (uses @14:45 nothing)
+    (block @14:58
+      (return @15:5
+        (binary @15:12 mul
+          (name @15:12 width)
+          (name @15:20 height)))))
+  (fn @20:1 pub volume
+    (params
+      (param @20:15 width
+        (int @20:22))
+      (param @20:27 height
+        (int @20:35))
+      (param @20:40 depth
+        (int @20:47)))
+    (returns
+      (int @20:55))
+    (uses @20:59 nothing)
+    (block @20:72
+      (return @21:5
+        (binary @21:12 mul
+          (call @21:12 area
+            (name @21:17 width)
+            (name @21:24 height))
+          (name @21:34 depth)))))
+  (fn @25:1 pub report
+    (params
+      (param @25:15 width
+        (int @25:22))
+      (param @25:27 height
+        (int @25:35)))
+    (uses @25:40 io)
+    (block @25:48
+      (expr-stmt @26:5
+        (call @26:5 print
+          (string-lit @26:11 "area: ")))
+      (expr-stmt @27:5
+        (call @27:5 println
+          (call @27:13 area
+            (name @27:18 width)
+            (name @27:25 height))))))
+  (fn @32:1 pub silent
+    (params
+      (param @32:15 width
+        (int @32:22)))
+    (returns
+      (int @32:30))
+    (uses @32:34 io)
+    (block @32:42
+      (return @33:5
+        (name @33:12 width))))
+  (struct @38:1 Room
+    (field @39:5 pub width
+      (int @39:16))
+    (field @40:5 pub height
+      (int @40:17)))
+  (impl @43:1 Room
+    (fn @44:5 pub area
+      (params
+        (self-ref @44:17))
+      (returns
+        (int @44:27))
+      (uses @44:31 nothing)
+      (block @44:44
+        (return @45:9
+          (binary @45:16 mul
+            (field-get @45:16 width
+              (name @45:16 self))
+            (field-get @45:29 height
+              (name @45:29 self))))))
+    (fn @48:5 pub describe
+      (params
+        (self-ref @48:21))
+      (uses @48:28 io)
+      (block @48:36
+        (expr-stmt @49:9
+          (call @49:9 print
+            (string-lit @49:15 "room: ")))
+        (expr-stmt @50:9
+          (call @50:9 println
+            (method-call @50:17 area
+              (name @50:17 self)))))))
+  (fn @55:1 pub identity
+    (params
+      (param @55:20 value
+        (named @55:27 T)))
+    (returns
+      (named @55:33 T))
+    (uses @55:35 nothing)
+    (block @55:48
+      (return @56:5
+        (name @56:12 value))))
+  (fn @61:1 pub main
+    (params)
+    (block @61:15
+      (expr-stmt @62:5
+        (call @62:5 println
+          (call @62:13 area
+            (int-lit @62:18 3)
+            (int-lit @62:21 4))))
+      (expr-stmt @63:5
+        (call @63:5 println
+          (call @63:13 volume
+            (int-lit @63:20 2)
+            (int-lit @63:23 3)
+            (int-lit @63:26 4))))
+      (expr-stmt @64:5
+        (call @64:5 report
+          (int-lit @64:12 5)
+          (int-lit @64:15 6)))
+      (expr-stmt @65:5
+        (call @65:5 println
+          (call @65:13 silent
+            (int-lit @65:20 7))))
+      (let @67:5 room
+        (struct-lit @67:16 Room
+          (init @67:23 width
+            (int-lit @67:30 3))
+          (init @67:33 height
+            (int-lit @67:41 5))))
+      (expr-stmt @68:5
+        (method-call @68:5 describe
+          (name @68:5 room)))
+      (expr-stmt @70:5
+        (call @70:5 println
+          (call @70:13 identity
+            (int-lit @70:22 42)))))))

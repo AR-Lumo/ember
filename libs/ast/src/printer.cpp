@@ -464,6 +464,17 @@ private:
             close();
         }
 
+        if (function.effects.present) {
+            std::string listed;
+            for (const Effect effect : function.effects.effects) {
+                if (!listed.empty()) {
+                    listed += ", ";
+                }
+                listed += effect_name(effect);
+            }
+            leaf("uses", function.effects.span, listed.empty() ? "nothing" : listed);
+        }
+
         for (const Contract& contract : function.contracts) {
             open(contract.is_ensures() ? "ensures" : "requires", contract.span);
             print_expr(*contract.condition);

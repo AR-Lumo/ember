@@ -54,6 +54,11 @@ enum class TokenKind {
     KwEnsures,
     /// `unit`, which introduces a unit of measure (section 10.2).
     KwUnit,
+    /// `uses`, which bounds the effects a function may perform
+    /// (section 10.3). The effect names themselves - `io`, `mut`,
+    /// `nothing` - are ordinary identifiers, so a program with a
+    /// variable called `io` keeps working.
+    KwUses,
 
     // Primitive type names. The grammar spells these as terminals, so
     // they are reserved words rather than ordinary identifiers.

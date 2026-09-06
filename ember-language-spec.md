@@ -114,9 +114,13 @@ function_decl  = visibility "fn" identifier [ generic_params ]
                                                way, v2 *)
 
 effect_clause  = "uses" effect { "," effect } ;            (* v1.1 *)
-effect         = "io" | "mut" ;              (* a closed set for now:
+effect         = "io" | "mut" | "nothing" ;  (* a closed set for now:
                                                 easy to add to, hard to
-                                                take away once relied on *)
+                                                take away once relied on.
+                                                `nothing` is the empty
+                                                bound and cannot be
+                                                combined with either of
+                                                the others *)
 
 contract       = ( "requires" | "ensures" ) expression ;   (* v1.1 *)
                                             (* `requires` is checked on
@@ -441,11 +445,9 @@ moving to the next. Don't let phases blend together.
 
 ## 10. v1.1 Roadmap - Signature Features
 
-**Status: 10.1 and 10.2 are implemented; 10.3 is specified only.** The
-grammar in §3 carries all three, so adding effects later is not a
-breaking change to it - but nothing in the lexer, parser, checker or
-codegen understands `uses` yet, and a program with one is a syntax
-error.
+**Status: all three are implemented.** §10.3's inference rule was
+written down before any of its code, as that section asked, and the
+resolution it reached is recorded there.
 
 These three are what would make Ember distinctive rather than
 "Rust-flavoured syntax on LLVM". Treat this as its own miniature version
@@ -570,7 +572,7 @@ so the claim stays true rather than merely having been true once.
 `pub unit` is accepted, because a unit that cannot cross a module
 boundary is useless the moment a program has two files.
 
-### 10.3 Effect annotations (`uses io`, `uses mut`) - last, and hardest
+### 10.3 Effect annotations (`uses io`, `uses mut`) - **implemented**
 
 Functions declare the side effects they perform, and the compiler stops
 an effectful call from a function that has not declared it.
@@ -598,3 +600,104 @@ pub fn distance_sq(a: Point, b: Point) -> int {
   touching the least code.
 - Worth prototyping on paper first. Effect systems are where "seemed
   simple, turned out to have edge cases" bites hardest.
+
+#### The inference rule, written down first
+
+The two paragraphs above contradict each other, and the contradiction
+has to be settled before any code is written - which is what this
+section is for.
+
+> "the type checker computes this, it isn't hand-annotated everywhere"
+
+says effects are **inferred**. But the worked example says
+
+> "no `uses` clause: this function is pure - calling an `io`-effect
+> function here would be a compile error"
+
+which says an absent clause **declares purity**. Those give opposite
+answers for `pub fn main() { println(1); }`: inferred, it quietly has
+`io`; declared, it is an error.
+
+Declared-by-absence is not viable. Every one of the 31 programs in
+`examples/` and `tests/golden/` prints, across 130 functions, so it
+would break every Ember program ever written - and every program anyone
+else has written, since the language is published and has a registry.
+A v1.1 feature does not get to do that.
+
+So: **effects are inferred, and a `uses` clause is a checked upper
+bound.**
+
+1. **Inference.** Every function has an effect set. `println` and
+   `print` contribute `io`. A call contributes the callee's effect set.
+   Contracts count - a `requires` that prints performs IO. Everything
+   else contributes nothing.
+
+2. **Recursion.** The set is the least fixed point: start every function
+   at empty and iterate until nothing changes. Mutual recursion
+   therefore terminates instead of chasing its own tail.
+
+3. **A clause is a bound.** `uses io` means *at most* `io`. The checker
+   compares the inferred set against it and reports the effect together
+   with the call that introduced it.
+
+4. **No clause means no bound.** The function still has an inferred set,
+   which its callers see. This is what keeps existing code compiling:
+   nothing is checked until somebody asks for it.
+
+5. **`uses nothing` is the empty bound** - the way to say "pure" and
+   have it enforced. This is the spec's `distance_sq` example, made
+   explicit rather than implied by absence.
+
+6. **An indirect call contributes every effect a function can perform**,
+   which today is `io`. A `fn(int) -> int` type carries no effect
+   information, so calling through a function value could do anything.
+   Treating it as unknown-and-therefore-worst keeps a bound honest:
+   `uses io` still permits it, `uses nothing` refuses it and says why.
+
+7. **`mut` is accepted and inert.** Nothing produces it, because Ember
+   has no `&mut` for it to be about - exactly as the paragraph above
+   says. It is declarable so that programs written now do not have to
+   change when it grows meaning.
+
+**Worked examples.**
+
+```ember
+pub fn area(w: int, h: int) -> int uses nothing {
+    return w * h;              // ok: pure, and says so
+}
+
+pub fn report(w: int, h: int) uses io {
+    println(area(w, h));       // ok: io is within the bound
+}
+
+pub fn quiet(w: int) uses nothing {
+    println(w);                // error: `io` is not permitted here
+}
+
+pub fn shout(w: int) uses nothing {
+    report(w, 1);              // error: `io`, through the call to `report`
+}
+
+pub fn main() {
+    println(area(2, 3));       // no clause, no bound, no error
+}
+```
+
+**What this does not do.** A bound says what a function may do, not what
+it must; `uses io` on something that never prints is allowed, the way an
+unused `throws` is in Java. And effects are not part of a function type,
+which is why rule 6 has to be so blunt - putting them there is the
+obvious next step and a much larger one.
+
+**As built.** Two details the rules above do not fix.
+
+`mut` is already a keyword - `let mut x` - so in effect position it
+arrives as one rather than as an identifier and is accepted specially.
+`io` and `nothing` stay ordinary identifiers, so a program with a
+variable called `io` keeps compiling.
+
+A function declared without a body - what an interface file is made of -
+contributes nothing, because there is no body to infer from. An
+unannotated library function is therefore assumed pure, which is the
+same bargain as rule 4: no clause is no claim. A `uses` clause does
+survive into an interface, so a library that annotates is believed.

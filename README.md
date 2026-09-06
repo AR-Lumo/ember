@@ -1167,6 +1167,60 @@ That keeps `f(5<x, 3)` — a comparison written without spaces — parsing as
 it always did, and stops `5 < meters` from changing meaning the day
 somebody declares a unit called `meters`.
 
+### Effects
+
+A `uses` clause bounds what a function is allowed to do:
+
+```ember
+pub fn area(w: int, h: int) -> int uses nothing {
+    return w * h;                  // pure, and held to it
+}
+
+pub fn report(w: int, h: int) uses io {
+    println(area(w, h));           // allowed to print, and does
+}
+```
+
+The compiler infers what each function actually does — `println`
+performs `io`, a call performs whatever the callee performs — and
+reports anything the clause does not permit:
+
+```console
+$ ember check effects.em
+error: `io` is not permitted here
+ --> effects.em:6:5
+  |
+6 |     println(w);
+  |     ^^^^^^^^^^ this performs `io`
+  = note: `quiet` is declared `uses nothing`
+```
+
+It works at any distance. An effect three calls away is still caught,
+and the blame lands on the call you would have to change rather than on
+the distant `println`. Mutual recursion is fine — inference is a least
+fixed point, not a walk.
+
+**A function with no clause has no bound.** That is the whole reason
+this could be added to a language that already had programs: every one
+of the 31 in `examples/` and `tests/golden/` prints, and none of them
+needed changing. Effects go on one function at a time, and nothing is
+checked until you ask.
+
+`uses nothing` is how you ask for the strongest answer. A bound is a
+ceiling and not a quota, so `uses io` on something that never prints is
+fine, like an unused `throws` in Java.
+
+**Two honest limits.** Effects are not part of a function type, so
+calling through a `fn(int) -> int` counts as performing any effect —
+`uses io` still permits it, `uses nothing` refuses and explains why.
+And a function declared without a body contributes nothing, so an
+unannotated library is assumed pure. Both follow from effects living on
+declarations rather than in types, which is the next thing to change.
+
+`mut` is declarable and inert: Ember has no `&mut` for it to be about
+yet, and it is accepted now so programs need not change when it gains
+meaning.
+
 ### Standard library
 
 The whole of it, recognized directly by the compiler:
@@ -1197,6 +1251,7 @@ also a regression test in the suite.
 | [`closures.em`](examples/closures.em) | Function values, captures, higher-order functions |
 | [`contracts.em`](examples/contracts.em) | `requires` and `ensures` on functions and methods |
 | [`units.em`](examples/units.em) | Units of measure, combined by `*` and `/` |
+| [`effects.em`](examples/effects.em) | `uses` clauses bounding what a function may do |
 
 ```console
 $ ember run examples/bubble_sort.em

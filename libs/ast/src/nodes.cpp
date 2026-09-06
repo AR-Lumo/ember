@@ -62,6 +62,16 @@ std::string_view unary_op_name(UnaryOp op) noexcept {
     return "?";
 }
 
+std::string_view effect_name(Effect effect) noexcept {
+    switch (effect) {
+        case Effect::Io:
+            return "io";
+        case Effect::Mut:
+            return "mut";
+    }
+    return "?";
+}
+
 std::string_view binary_op_symbol(BinaryOp op) noexcept {
     switch (op) {
         case BinaryOp::Or:

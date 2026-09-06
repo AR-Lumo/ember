@@ -518,6 +518,42 @@ struct ClosureExpr : Expr {
 };
 
 
+/// A side effect a function may perform (section 10.3).
+enum class Effect {
+    /// Printing. `println` and `print` are the only sources.
+    Io,
+    /// Mutation through a reference. Declarable, but nothing produces
+    /// it yet: Ember has no `&mut` for it to be about.
+    Mut,
+};
+
+/// The `uses` clause on a signature.
+///
+/// Absence and emptiness are different, which is the whole design.
+/// No clause is no bound - the function's effects are inferred and its
+/// callers see them, but nothing is checked. `uses nothing` is the
+/// empty bound, and is how a function is declared pure.
+struct EffectClause {
+    /// Whether `uses` was written at all.
+    bool present = false;
+    /// The effects permitted. Empty with `present` set means
+    /// `uses nothing`.
+    std::vector<Effect> effects;
+    Span span;
+
+    bool permits(Effect effect) const noexcept {
+        for (const Effect allowed : effects) {
+            if (allowed == effect) {
+                return true;
+            }
+        }
+        return false;
+    }
+};
+
+/// `io`, for a diagnostic.
+std::string_view effect_name(Effect effect) noexcept;
+
 /// Which end of a call a contract is checked at.
 enum class ContractKind {
     /// `requires` - checked on entry, before the body runs.
@@ -579,6 +615,8 @@ struct FunctionDecl : Item {
     /// `requires` and `ensures` clauses, in source order (10.1). Empty
     /// for a function that promises nothing.
     std::vector<Contract> contracts;
+    /// The `uses` clause, if one was written (10.3).
+    EffectClause effects;
 
     /// Whether any `ensures` clause is present, which is what decides
     /// if a return has to be routed through a check.

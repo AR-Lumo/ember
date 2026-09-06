@@ -306,6 +306,7 @@ private:
             function->return_type = parse_type();
         }
 
+        function->effects = parse_effect_clause();
         function->contracts = parse_contracts();
 
         // `;` instead of a block declares the function without
@@ -385,6 +386,72 @@ private:
         }
         expect(TokenKind::Gt);
         return factors;
+    }
+
+    /// `effect_clause = "uses" effect { "," effect }` (10.3).
+    ///
+    /// The effect names are ordinary identifiers rather than keywords,
+    /// so a program with a variable called `io` keeps compiling. Only
+    /// `uses` itself is reserved, and it can only appear here.
+    ast::EffectClause parse_effect_clause() {
+        ast::EffectClause clause;
+        if (!check(TokenKind::KwUses)) {
+            return clause;
+        }
+        const Token& keyword = advance();
+        clause.present = true;
+        clause.span = keyword.span;
+
+        bool saw_nothing = false;
+        do {
+            // `mut` is already a keyword - `let mut x` - so it arrives
+            // as one here rather than as an identifier. In effect
+            // position there is nothing for it to be confused with, so
+            // it is simply accepted. `io` and `nothing` are ordinary
+            // identifiers and stay that way, so a program with a
+            // variable called `io` keeps compiling.
+            const Token& name =
+                check(TokenKind::KwMut) ? advance() : expect(TokenKind::Identifier);
+            clause.span = clause.span.merge(name.span);
+
+            if (name.text == "nothing") {
+                // The empty bound. Written as a word rather than as an
+                // absent list because `uses` followed by nothing at all
+                // would be indistinguishable from a typo.
+                saw_nothing = true;
+                if (!clause.effects.empty()) {
+                    throw error_at(name.span, "`nothing` cannot be combined with an effect",
+                                   "`uses nothing` means this function performs none");
+                }
+                continue;
+            }
+            if (saw_nothing) {
+                // The other order. Without this the list would quietly
+                // come out as `uses io`, which is the opposite of what
+                // was written.
+                throw error_at(name.span, "`nothing` cannot be combined with an effect",
+                               "`uses nothing` means this function performs none");
+            }
+
+            ast::Effect effect{};
+            if (name.text == "io") {
+                effect = ast::Effect::Io;
+            } else if (name.text == "mut") {
+                effect = ast::Effect::Mut;
+            } else {
+                throw error_at(name.span, "unknown effect `" + std::string{name.text} + "`",
+                               "the effects are `io`, `mut`, and `nothing` for none");
+            }
+
+            if (clause.permits(effect)) {
+                throw error_at(name.span,
+                               "`" + std::string{name.text} + "` is listed twice",
+                               "each effect is named once");
+            }
+            clause.effects.push_back(effect);
+        } while (match(TokenKind::Comma));
+
+        return clause;
     }
 
     /// `{ contract }` - the `requires` and `ensures` clauses that may
