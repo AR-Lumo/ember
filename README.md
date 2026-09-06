@@ -35,6 +35,10 @@ $ cinder run examples/point.ci
 
 ---
 
+> **New here?** [Getting started](GETTING_STARTED.md) walks from an
+> empty file to a multi-file program in about twenty minutes. This
+> README is the reference; that is the tutorial.
+
 ## Installing
 
 Cinder is a C++20 project built with CMake. You need:
@@ -58,8 +62,8 @@ unavailable.
 ### Linux / macOS
 
 ```bash
-# Debian/Ubuntu: apt install llvm-dev clang cmake ninja-build
-# macOS:         brew install llvm cmake ninja
+# Debian/Ubuntu: apt install llvm-dev lld clang cmake ninja-build
+# macOS:         brew install llvm lld cmake ninja
 
 cmake -S . -B build -G Ninja
 cmake --build build
@@ -78,7 +82,8 @@ The toolchain used to develop Cinder. From an ordinary PowerShell prompt:
 
 ```powershell
 # One-time: install the compiler and LLVM
-C:\msys64\usr\bin\pacman -S --needed mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-llvm
+C:\msys64\usr\bin\pacman -S --needed mingw-w64-ucrt-x86_64-gcc `
+    mingw-w64-ucrt-x86_64-llvm mingw-w64-ucrt-x86_64-lld
 
 $env:PATH = "C:\msys64\ucrt64\bin;" + $env:PATH
 cmake -S . -B build -G Ninja -DCMAKE_CXX_COMPILER=g++ `
