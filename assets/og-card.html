@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=JetBrains+Mono:wght@400;700&family=Source+Sans+3:wght@400&display=swap">
+<style>
+  * { box-sizing: border-box; margin: 0; }
+  html, body { width: 1200px; height: 630px; overflow: hidden; }
+  body {
+    background: #17110f;
+    color: #f2e9e1;
+    font-family: "Source Sans 3", system-ui, sans-serif;
+    /* Content sits inside a safe area; some feeds crop the edges. */
+    padding: 62px 72px;
+    display: flex; flex-direction: column; justify-content: space-between;
+    position: relative;
+  }
+  /* A single warm bloom, bottom-right, so the card is not a flat rectangle. */
+  .glow {
+    position: absolute; right: -180px; bottom: -240px;
+    width: 700px; height: 700px; border-radius: 50%;
+    background: radial-gradient(circle, rgba(249,115,22,.18) 0%, rgba(249,115,22,0) 68%);
+  }
+  .top { display: flex; align-items: center; gap: 26px; position: relative; }
+  .name {
+    font-family: "Bricolage Grotesque", system-ui, sans-serif;
+    font-weight: 800; font-size: 86px; letter-spacing: -.035em; line-height: 1;
+  }
+  .line { position: relative; }
+  .tagline {
+    font-family: "Bricolage Grotesque", system-ui, sans-serif;
+    font-weight: 600; font-size: 46px; line-height: 1.14;
+    letter-spacing: -.02em; max-width: 21ch;
+  }
+  .tagline em { font-style: normal; color: #fb923c; }
+  .sub { margin-top: 18px; font-size: 25px; color: #c0aea3; max-width: 46ch; }
+
+  .code {
+    position: relative;
+    background: #0e0a09; border: 1px solid #382c27; border-radius: 12px;
+    padding: 22px 26px;
+    font-family: "JetBrains Mono", monospace; font-size: 21px; line-height: 1.55;
+    white-space: pre;
+  }
+  .k { color: #f0a35e; } .t { color: #93c7b4; } .s { color: #cbb7e0; }
+  .e { color: #fca5a5; font-weight: 700; } .n { color: #93a7c7; } .u { color: #fca5a5; }
+</style>
+</head>
+<body>
+  <div class="glow"></div>
+
+  <div class="top">
+    <svg viewBox="0 0 64 64" width="82" height="82">
+      <defs>
+        <linearGradient id="c" x1="12" y1="6" x2="52" y2="58" gradientUnits="userSpaceOnUse">
+          <stop offset="0" stop-color="#44231b"/><stop offset=".5" stop-color="#26140f"/>
+          <stop offset="1" stop-color="#140a08"/>
+        </linearGradient>
+        <radialGradient id="h" cx="30" cy="33" r="20" gradientUnits="userSpaceOnUse">
+          <stop offset="0" stop-color="#fffbeb"/><stop offset=".3" stop-color="#fde047"/>
+          <stop offset=".65" stop-color="#f97316"/><stop offset="1" stop-color="#dc2626"/>
+        </radialGradient>
+      </defs>
+      <path d="M30 3 L53 14 L58 34 L47 55 L26 61 L8 47 L4 24 Z" fill="url(#c)"/>
+      <path d="M28 11 L44 21 L40 34 L46 46 L27 52 L15 41 L18 25 Z" fill="#f97316" opacity=".25"/>
+      <path d="M29 15 L41 23 L36 33 L42 44 L27 48 L19 39 L22 26 Z" fill="url(#h)"/>
+      <path d="M24 17 L34 32 L28 34 L33 47 L23 33 L29 31 Z" fill="#1c0f0b" opacity=".85"/>
+    </svg>
+    <span class="name">Cinder</span>
+  </div>
+
+  <div class="line">
+    <div class="tagline">A compiler that <em>argues back</em>.</div>
+    <div class="sub">Statically typed, compiled through LLVM &mdash; with contracts, units of measure and effect annotations.</div>
+  </div>
+
+  <div class="code"><span class="k">let</span> total = <span class="s">1500.0&lt;meters&gt;</span> + <span class="s">300.0&lt;seconds&gt;</span>;
+
+<span class="e">error:</span> cannot apply `+` to `float&lt;meters&gt;` and `float&lt;seconds&gt;`
+  <span class="n">= note:</span> `+` needs the same unit on both sides</div>
+</body>
+</html>

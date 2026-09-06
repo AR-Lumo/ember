@@ -30,3 +30,23 @@ renders black on black in a dark README. Select between them with
 `#fffbeb`. The gradients carry the rest.
 
 Everything here is MIT-licensed along with the rest of the project.
+
+## The social card
+
+`og-card.html` is the source; `docs/og-image.png` is the render that the
+site actually serves. Rebuild it with headless Chrome after editing the
+card:
+
+```bash
+chrome --headless=new --disable-gpu --hide-scrollbars \
+       --force-device-scale-factor=1 --window-size=1200,630 \
+       --virtual-time-budget=6000 \
+       --screenshot=docs/og-image.png assets/og-card.html
+```
+
+`--virtual-time-budget` is not optional: without it the shot is taken
+before the webfonts arrive and the card renders in Times.
+
+It is a PNG rather than the SVG mark because most platforms will not
+render an SVG in a link preview, and a broken preview is worse than
+none. 1200x630 is the size Open Graph, Slack and Twitter all agree on.
