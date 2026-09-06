@@ -8,6 +8,12 @@ A small statically-typed, compiled language that produces real native
 executables via LLVM. Structs, methods in `impl` blocks, fixed-size
 arrays, references, and error messages that tell you what went wrong.
 
+**[Website &rarr;][site]** &nbsp;·&nbsp; [Download 0.1.0 for Windows][dl]
+&nbsp;·&nbsp; [Getting started](GETTING_STARTED.md)
+
+[site]: https://claude.ai/code/artifact/f9772fd1-ee29-4946-9408-a6092438515a
+[dl]: https://github.com/AR-Lumo/cinder/releases/latest
+
 ```cinder
 /// A point in 2D space.
 struct Point {
@@ -42,6 +48,10 @@ $ cinder run examples/point.ci
 > **New here?** [Getting started](GETTING_STARTED.md) walks from an
 > empty file to a multi-file program in about twenty minutes. This
 > README is the reference; that is the tutorial.
+>
+> Prebuilt Windows binaries are on the
+> [releases page](https://github.com/AR-Lumo/cinder/releases/latest);
+> everything below is for building from source.
 
 ## Installing
 
