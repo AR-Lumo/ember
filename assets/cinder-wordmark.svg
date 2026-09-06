@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 260 64" width="260" height="64"
+     role="img" aria-label="Cinder">
+  <title>Cinder</title>
+  <defs>
+    <linearGradient id="wmCoal" x1="12" y1="6" x2="52" y2="58" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#44231b"/>
+      <stop offset="0.5" stop-color="#26140f"/>
+      <stop offset="1" stop-color="#140a08"/>
+    </linearGradient>
+    <radialGradient id="wmHeat" cx="30" cy="33" r="20" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#fffbeb"/>
+      <stop offset="0.3" stop-color="#fde047"/>
+      <stop offset="0.65" stop-color="#f97316"/>
+      <stop offset="1" stop-color="#dc2626"/>
+    </radialGradient>
+  </defs>
+
+  <!-- The mark, unchanged, at its native size. -->
+  <path d="M30 3 L53 14 L58 34 L47 55 L26 61 L8 47 L4 24 Z" fill="url(#wmCoal)"/>
+  <path d="M28 11 L44 21 L40 34 L46 46 L27 52 L15 41 L18 25 Z" fill="#f97316" opacity="0.25"/>
+  <path d="M29 15 L41 23 L36 33 L42 44 L27 48 L19 39 L22 26 Z" fill="url(#wmHeat)"/>
+  <path d="M24 17 L34 32 L28 34 L33 47 L23 33 L29 31 Z" fill="#1c0f0b" opacity="0.85"/>
+
+  <!--
+    Explicit ink rather than `currentColor`: an SVG embedded with <img>
+    does not inherit colour from the page, so a README in dark mode
+    would render this black on black. The dark-ground twin is
+    cinder-wordmark-dark.svg, chosen with <picture>.
+  -->
+  <text x="76" y="44"
+        font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Inter, sans-serif"
+        font-size="38" font-weight="650" letter-spacing="-0.5" fill="#1a1210">Cinder</text>
+</svg>

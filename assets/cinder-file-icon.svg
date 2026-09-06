@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64"
+     role="img" aria-label="Cinder source file">
+  <title>Cinder source file (.ci)</title>
+  <defs>
+    <linearGradient id="fileSheet" x1="10" y1="2" x2="54" y2="62" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#292524"/>
+      <stop offset="1" stop-color="#16100e"/>
+    </linearGradient>
+    <linearGradient id="fileFold" x1="42" y1="2" x2="58" y2="18" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#57534e"/>
+      <stop offset="1" stop-color="#34302c"/>
+    </linearGradient>
+    <radialGradient id="fileHeat" cx="26" cy="28" r="14" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#fffbeb"/>
+      <stop offset="0.32" stop-color="#fde047"/>
+      <stop offset="0.7" stop-color="#f97316"/>
+      <stop offset="1" stop-color="#dc2626"/>
+    </radialGradient>
+  </defs>
+
+  <!--
+    A page with a turned corner, which is what every file icon has to be
+    to read as a file at 16px, carrying the mark rather than a letter.
+    The mark is simplified here: the outer chip is dropped, because at
+    icon sizes the page is already the silhouette and a second outline
+    inside it turns to mud.
+  -->
+  <path d="M10 3 h30 l14 14 v44 a3 3 0 0 1 -3 3 h-41 a3 3 0 0 1 -3 -3 v-55 a3 3 0 0 1 3 -3 z"
+        fill="url(#fileSheet)"/>
+  <path d="M40 3 l14 14 h-11 a3 3 0 0 1 -3 -3 z" fill="url(#fileFold)"/>
+
+  <!-- The break, glowing, sized to sit in the upper half of the page. -->
+  <path d="M25 15 L37 23 L32 32 L38 42 L23 46 L15 38 L18 25 Z"
+        fill="#f97316" opacity="0.22"/>
+  <path d="M26 18 L35 24 L31 32 L36 40 L24 43 L18 36 L21 26 Z"
+        fill="url(#fileHeat)"/>
+  <path d="M22 20 L30 31 L26 33 L29 42 L21 32 L26 30 Z"
+        fill="#1c0f0b" opacity="0.85"/>
+
+  <!--
+    The extension, because a file icon has one job at a glance and a
+    person scanning a folder is looking for the name of the thing.
+  -->
+  <text x="32" y="57" text-anchor="middle"
+        font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace"
+        font-size="13" font-weight="700" fill="#fed7aa" letter-spacing="0.5">.ci</text>
+</svg>

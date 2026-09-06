@@ -1,4 +1,8 @@
-# Cinder
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/cinder-wordmark-dark.svg">
+  <img src="assets/cinder-wordmark.svg" alt="Cinder" width="230">
+</picture>
+
 
 A small statically-typed, compiled language that produces real native
 executables via LLVM. Structs, methods in `impl` blocks, fixed-size
