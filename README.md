@@ -1189,3 +1189,16 @@ namespaces, the CLI binary name, `kLanguageName` / `kFileExtension` in
 and the spec document. The extension check in the CLI reads
 `kFileExtension`, so changing that constant is enough to move the file
 extension.
+
+---
+
+## License
+
+MIT — see [LICENSE](LICENSE). Use it for anything, including commercially;
+just keep the copyright notice.
+
+One thing to read first, if you are thinking of depending on this:
+references are unchecked. Ember has ownership and moves, but no borrow
+checker, so a reference outliving what it points at is a use-after-free
+that nothing diagnoses. That is a deliberate design choice, not a bug
+queue — see [Known limitations](#known-limitations) for the rest of them.
