@@ -18,6 +18,7 @@ add_executable(ember_snapshot_tests
     package_tests.cpp
     interface_tests.cpp
     string_tests.cpp
+    link_tests.cpp
 )
 
 target_include_directories(ember_snapshot_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
@@ -40,6 +41,7 @@ target_link_libraries(ember_snapshot_tests
         ember::typeck
         ember::codegen
         ember::manifest
+        ember::link
 )
 
 add_test(NAME snapshot_tests COMMAND ember_snapshot_tests)
@@ -62,3 +64,14 @@ add_test(NAME cli_runs_a_multi_module_program
          COMMAND ember run "${CMAKE_SOURCE_DIR}/examples/modules/main.em")
 set_tests_properties(cli_runs_a_multi_module_program
                      PROPERTIES PASS_REGULAR_EXPRESSION "distance_sq: 25")
+
+# The manifest stub's objects, if this build has LLD in it.
+#
+# An OBJECT library's objects do not travel through a static library:
+# CMake gives them to whatever links the object library *directly*, and
+# ember_link is a static archive in between. So the executables name
+# them here. Without this the stub compiles, defines exactly the right
+# symbols, and is never looked at.
+if(TARGET ember_link_stubs)
+    target_sources(ember_snapshot_tests PRIVATE $<TARGET_OBJECTS:ember_link_stubs>)
+endif()

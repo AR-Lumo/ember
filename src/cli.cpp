@@ -5,6 +5,7 @@
 #include "ember/ast/span.hpp"
 #include "ember/ast/interface.hpp"
 #include "ember/codegen/codegen.hpp"
+#include "ember/link/link.hpp"
 #include "ember/manifest/manifest.hpp"
 #include "ember/manifest/registry.hpp"
 #include "ember/parser/parser.hpp"
@@ -578,8 +579,34 @@ private:
 
 /// Link the program's object files against the Ember runtime to produce
 /// `output`. Returns an exit code.
+///
+/// The linker is compiled into this binary, so nothing outside the
+/// Ember install is consulted and no C++ toolchain need be present. A
+/// build without LLD falls back to invoking one, which works only on a
+/// machine that has one - the situation this replaced.
 int link_executable(const std::vector<std::filesystem::path>& objects,
                     const std::filesystem::path& output) {
+    if (link::is_available()) {
+        const link::Toolchain toolchain = link::discover();
+        if (!toolchain.complete) {
+            std::cerr << "error: this Ember installation is incomplete\n";
+            std::cerr << "note: " << toolchain.note << "\n";
+            std::cerr << "note: the runtime and system archives belong in "
+                         "`lib/ember`, beside `bin/ember`\n";
+            return kExitCompileError;
+        }
+
+        const link::Result linked = link::link_executable(objects, output, toolchain);
+        if (!linked.ok) {
+            std::cerr << "error: linking failed\n";
+            if (!linked.diagnostics.empty()) {
+                std::cerr << linked.diagnostics;
+            }
+            return kExitCompileError;
+        }
+        return kExitSuccess;
+    }
+
     const std::filesystem::path runtime{EMBER_RUNTIME_LIBRARY};
     if (runtime.empty() || !std::filesystem::exists(runtime)) {
         std::cerr << "error: cannot find the Ember runtime library\n";

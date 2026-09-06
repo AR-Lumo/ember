@@ -17,6 +17,7 @@ target_link_libraries(ember_driver
         ember::typeck
         ember::codegen
         ember::manifest
+        ember::link
 )
 
 # The driver has to know where the runtime it links into every compiled
@@ -39,4 +40,26 @@ target_link_libraries(ember
         ember::typeck
         ember::codegen
         ember::manifest
+        ember::link
 )
+
+# Declared at the top level, because forcing static zlib and zstd has to
+# happen before find_package(LLVM).
+if(EMBER_STATIC_DRIVER AND MINGW)
+    target_link_options(ember PRIVATE
+        -static-libgcc
+        -static-libstdc++
+        -static
+    )
+endif()
+
+# The manifest stub's objects, if this build has LLD in it.
+#
+# An OBJECT library's objects do not travel through a static library:
+# CMake gives them to whatever links the object library *directly*, and
+# ember_link is a static archive in between. So the executables name
+# them here. Without this the stub compiles, defines exactly the right
+# symbols, and is never looked at.
+if(TARGET ember_link_stubs)
+    target_sources(ember PRIVATE $<TARGET_OBJECTS:ember_link_stubs>)
+endif()

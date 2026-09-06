@@ -44,6 +44,11 @@ Ember is a C++20 project built with CMake. You need:
 | A C++20 compiler | GCC 13+, Clang 16+, or MSVC 19.3+ |
 | CMake 3.20+ | Plus any generator — Ninja or Make |
 | LLVM 17+ development files | Headers, static libraries, and `LLVMConfig.cmake` |
+| LLD | Same version as LLVM. Linked into the compiler — see below |
+
+These are needed to **build** Ember. They are not needed to **use** it:
+an installed Ember carries its own linker and its own copy of everything
+it links against, and runs on a machine with no compiler on it at all.
 
 LLVM is only needed by the code generator. **Without it the project still
 builds**, and the lexer, parser and type checker — everything behind
@@ -91,11 +96,60 @@ target LLVMSupport contains ZLIB::ZLIB but the target was not found"*.
 The compiler lands at `build/bin/ember`. Add it to your `PATH`, or call
 it by path as the examples below do.
 
+### Installing it somewhere
+
+```bash
+cmake --install build --prefix /where/you/want/it
+```
+
+That produces a tree with nothing outside it:
+
+```
+<prefix>/bin/ember                  the compiler, with LLD inside it
+<prefix>/lib/ember/libember_std.a   the Ember runtime
+<prefix>/lib/ember/crt2.o, ...      startup objects
+<prefix>/lib/ember/libmsvcrt.a, ... system archives
+<prefix>/share/ember/README.md
+```
+
+Copy that directory to a machine that has never had a compiler on it and
+`ember run` works. The compiler finds `lib/ember` relative to its own
+executable — not the working directory, and not a path baked in at
+build time — so the tree can live anywhere and be moved after the fact.
+
+**Why this took work.** Ember used to link by running
+`${CMAKE_CXX_COMPILER}`, an absolute path recorded when the compiler was
+built. That works on precisely one machine. Three separate things had to
+change:
+
+- `ember` itself needed five DLLs from the MSYS2 prefix
+  (`libstdc++-6`, `libgcc_s_seh-1`, `libwinpthread-1`, `zlib1`,
+  `libzstd`). It now links them statically and imports nothing Windows
+  does not ship.
+- Linking now happens **in process**. LLD is compiled into the binary,
+  so no external linker is invoked and none needs to exist.
+- The programs Ember produces used to import `libstdc++-6.dll`
+  themselves. They now link their runtime in and import only Windows'
+  own DLLs.
+
+The last one is the quiet failure. A GNU-style `-l` prefers an import
+library over an archive when both are present, so one wrong flag gives a
+program that builds cleanly, runs on the machine that built it, and dies
+with `0xC0000135` anywhere else. `tests/link_tests.cpp` reads the PE
+import table of both the compiler and a program it produced, and fails
+on any DLL Windows does not ship — because that is the only place the
+answer actually lives.
+
+The cost is size: `ember` is around 210 MB, because lld's COFF driver
+initialises every LLVM target unconditionally, so they all have to be
+linked in. The install adds about 18 MB of archives on top.
+
 ### Build options
 
 | Option | Default | Meaning |
 |---|---|---|
 | `EMBER_REQUIRE_LLVM` | `OFF` | Fail configuration instead of warning when LLVM is missing |
+| `EMBER_STATIC_DRIVER` | `ON` | Link the compiler against static runtimes so it needs no toolchain DLLs |
 | `LLVM_DIR` | — | Path to the directory holding `LLVMConfig.cmake` |
 
 ---
@@ -1136,6 +1190,19 @@ v1 is deliberately small. These are the sharp edges worth knowing about.
   scratch, and of that 0.29s the front end is 0.08s and the link is most
   of the rest — so the reason the numbers stop improving is the linker,
   not the compiler.
+- **The self-contained toolchain is Windows-only so far.** `ember` on
+  Windows carries LLD inside it and ships the archives it links
+  against, so it needs no compiler on the target machine. On Linux and
+  macOS it still shells out to an external linker at the path recorded
+  when it was built, exactly as before — the link line here is
+  MinGW-specific (`-m i386pep`, `crt2.o`, `libmsvcrt`), and the ELF and
+  Mach-O equivalents are each their own job. Nothing is broken there;
+  it is just not yet independent.
+
+- **An install records no target triple.** It links for whatever
+  machine built it. There is no cross-compilation and no way to ask for
+  one, so a single install serves a single platform.
+
 - **A shipped library is an object file and nothing else.** No archive,
   no target triple recorded, no ABI version. Handing someone an object
   built for a different platform fails at the link, or worse, and
