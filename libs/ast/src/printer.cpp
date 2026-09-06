@@ -63,16 +63,46 @@ public:
         close();
     }
 
+    /// A written unit, as it was written: `meters/seconds^2`.
+    ///
+    /// Left to right, so the printed form and the source agree about
+    /// what is on top and what is underneath.
+    static std::string unit_to_string(const std::vector<UnitFactor>& unit) {
+        std::string out;
+        for (const UnitFactor& factor : unit) {
+            if (!out.empty()) {
+                out += factor.sign < 0 ? "/" : "*";
+            } else if (factor.sign < 0) {
+                out += "1/";
+            }
+            out += factor.name;
+            if (factor.power != 1) {
+                out += "^" + std::to_string(factor.power);
+            }
+        }
+        return out;
+    }
+
     void print_expr(const Expr& node) {
         switch (node.kind) {
-            case ExprKind::IntLit:
-                leaf("int-lit", node.span,
-                     std::to_string(static_cast<const IntLitExpr&>(node).value));
+            case ExprKind::IntLit: {
+                const auto& literal = static_cast<const IntLitExpr&>(node);
+                std::string text = std::to_string(literal.value);
+                if (!literal.unit.empty()) {
+                    text += "<" + unit_to_string(literal.unit) + ">";
+                }
+                leaf("int-lit", node.span, text);
                 return;
-            case ExprKind::FloatLit:
-                leaf("float-lit", node.span,
-                     format_double(static_cast<const FloatLitExpr&>(node).value));
+            }
+            case ExprKind::FloatLit: {
+                const auto& literal = static_cast<const FloatLitExpr&>(node);
+                std::string text = format_double(literal.value);
+                if (!literal.unit.empty()) {
+                    text += "<" + unit_to_string(literal.unit) + ">";
+                }
+                leaf("float-lit", node.span, text);
                 return;
+            }
             case ExprKind::BoolLit:
                 leaf("bool-lit", node.span,
                      static_cast<const BoolLitExpr&>(node).value ? "true" : "false");
@@ -277,6 +307,9 @@ private:
         switch (type.kind) {
             case TypeKind::Int:
             case TypeKind::Float:
+                leaf(type_to_string(type), type.span,
+                     type.unit.empty() ? std::string{} : unit_to_string(type.unit));
+                return;
             case TypeKind::Bool:
             case TypeKind::String:
                 leaf(type_to_string(type), type.span, {});
@@ -475,6 +508,14 @@ private:
             case ItemKind::Import: {
                 const auto& declaration = static_cast<const ImportDecl&>(node);
                 leaf("import", node.span, declaration.module);
+                return;
+            }
+
+            case ItemKind::Unit: {
+                const auto& declaration = static_cast<const UnitDecl&>(node);
+                std::string header = declaration.is_public ? "pub " : "";
+                header += declaration.name;
+                leaf("unit", node.span, header);
                 return;
             }
 

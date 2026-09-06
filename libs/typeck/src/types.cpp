@@ -1,5 +1,6 @@
 #include "ember/typeck/types.hpp"
 
+#include <algorithm>
 #include <utility>
 
 namespace ember::typeck {
@@ -12,6 +13,73 @@ TypeContext::TypeContext() {
     string_buf_ = intern(Type{TypeKind::StringBuf, {}, nullptr, 0, {}, nullptr, false});
     void_ = intern(Type{TypeKind::Void, {}, nullptr, 0, {}, nullptr, false});
     error_ = intern(Type{TypeKind::Error, {}, nullptr, 0, {}, nullptr, false});
+}
+
+Dimension canonical_dimension(Dimension dimension) {
+    std::sort(dimension.begin(), dimension.end(),
+              [](const auto& a, const auto& b) { return a.first < b.first; });
+
+    // Fold repeats together, then drop anything that cancelled out.
+    Dimension folded;
+    for (const auto& term : dimension) {
+        if (!folded.empty() && folded.back().first == term.first) {
+            folded.back().second += term.second;
+        } else {
+            folded.push_back(term);
+        }
+    }
+    folded.erase(std::remove_if(folded.begin(), folded.end(),
+                                [](const auto& term) { return term.second == 0; }),
+                 folded.end());
+    return folded;
+}
+
+Dimension combine_dimensions(const Dimension& a, const Dimension& b, int sign) {
+    Dimension merged = a;
+    for (const auto& term : b) {
+        merged.emplace_back(term.first, term.second * sign);
+    }
+    return canonical_dimension(std::move(merged));
+}
+
+std::string dimension_string(const Dimension& dimension) {
+    const auto write = [](const std::pair<std::string, int>& term, int power) {
+        return power == 1 ? term.first : term.first + "^" + std::to_string(power);
+    };
+
+    std::string over;
+    std::string under;
+    for (const auto& term : dimension) {
+        std::string& side = term.second > 0 ? over : under;
+        if (!side.empty()) {
+            side += "*";
+        }
+        side += write(term, term.second > 0 ? term.second : -term.second);
+    }
+
+    if (under.empty()) {
+        return over;
+    }
+    // `1/seconds` rather than `/seconds`, so the expression reads as
+    // arithmetic wherever it is printed.
+    return (over.empty() ? std::string{"1"} : over) + "/" + under;
+}
+
+TypePtr TypeContext::numeric_type(TypeKind kind, const Dimension& dimension) {
+    const Dimension key_dimension = canonical_dimension(dimension);
+    if (key_dimension.empty()) {
+        return kind == TypeKind::Float ? float_ : int_;
+    }
+    const auto key = std::make_pair(kind == TypeKind::Float, key_dimension);
+    const auto found = numbers_.find(key);
+    if (found != numbers_.end()) {
+        return found->second;
+    }
+    Type type{kind, {}, nullptr, 0, {}, nullptr, false};
+    type.dimension = key_dimension;
+    const TypePtr interned = intern(std::move(type));
+    numbers_.emplace(key, interned);
+    return interned;
 }
 
 TypePtr TypeContext::intern(Type type) {
@@ -145,9 +213,11 @@ std::string to_string(TypePtr type) {
     }
     switch (type->kind) {
         case TypeKind::Int:
-            return "int";
+            return type->dimension.empty() ? "int"
+                                           : "int<" + dimension_string(type->dimension) + ">";
         case TypeKind::Float:
-            return "float";
+            return type->dimension.empty() ? "float"
+                                           : "float<" + dimension_string(type->dimension) + ">";
         case TypeKind::Bool:
             return "bool";
         case TypeKind::String:

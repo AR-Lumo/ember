@@ -22,6 +22,29 @@
 
 namespace ember::typeck {
 
+/// A unit and the power it appears to, as a canonical list.
+///
+/// `meters/seconds` is `{{"meters", 1}, {"seconds", -1}}` and
+/// `meters*meters` is `{{"meters", 2}}`. Canonical means sorted by name
+/// with no zero exponents, which is what makes two dimensions that mean
+/// the same thing compare equal however they were written: `m/s` and
+/// `m*s^-1` and `(m*m)/(m*s)` are one dimension, not three.
+///
+/// Empty is unitless - an ordinary `int` or `float`, exactly as before.
+using Dimension = std::vector<std::pair<std::string, int>>;
+
+/// Sorted by name, with zero exponents dropped.
+Dimension canonical_dimension(Dimension dimension);
+
+/// `a` multiplied by `b` raised to `sign` (+1 to multiply, -1 to
+/// divide). This is the whole of unit algebra: `*` adds exponents and
+/// `/` subtracts them, and a term that cancels to zero disappears - so
+/// `meters/meters` is not a unit called that, it is unitless.
+Dimension combine_dimensions(const Dimension& a, const Dimension& b, int sign);
+
+/// `meters/seconds`, as it would be written.
+std::string dimension_string(const Dimension& dimension);
+
 enum class TypeKind {
     Int,
     Float,
@@ -80,6 +103,15 @@ struct Type {
     /// Filled in when the struct is laid out, since a Type alone does
     /// not know its own fields.
     bool owns_heap = false;
+    /// For Int and Float: the unit, canonical. Empty for an ordinary
+    /// number.
+    ///
+    /// Part of the interning key, so `float<meters>` and `float` are
+    /// different types and the existing pointer equality does the whole
+    /// job of keeping them apart. It has no runtime meaning at all: a
+    /// `float<meters>` is a `double` in the generated IR, and codegen
+    /// never reads this field.
+    Dimension dimension;
 };
 
 using TypePtr = const Type*;
@@ -94,6 +126,11 @@ public:
 
     TypePtr int_type() const noexcept { return int_; }
     TypePtr float_type() const noexcept { return float_; }
+
+    /// `int` or `float` carrying a unit. An empty dimension gives back
+    /// the plain singleton, so nothing that does not use units ever
+    /// sees a new type.
+    TypePtr numeric_type(TypeKind kind, const Dimension& dimension);
     TypePtr bool_type() const noexcept { return bool_; }
     TypePtr string_type() const noexcept { return string_; }
     TypePtr void_type() const noexcept { return void_; }
@@ -121,6 +158,7 @@ private:
     std::map<TypePtr, TypePtr> vecs_;
     std::map<std::pair<std::vector<TypePtr>, TypePtr>, TypePtr> functions_;
     std::map<std::pair<TypePtr, std::int64_t>, TypePtr> arrays_;
+    std::map<std::pair<bool, Dimension>, TypePtr> numbers_;
 
     TypePtr int_ = nullptr;
     TypePtr float_ = nullptr;
@@ -130,6 +168,16 @@ private:
     TypePtr void_ = nullptr;
     TypePtr error_ = nullptr;
 };
+
+/// The unit on a number, or empty for anything else. `is_numeric` is
+/// declared further down, so this asks about the kind directly.
+inline const Dimension& dimension_of(TypePtr type) noexcept {
+    static const Dimension none;
+    if (type == nullptr || (type->kind != TypeKind::Int && type->kind != TypeKind::Float)) {
+        return none;
+    }
+    return type->dimension;
+}
 
 /// True for the poison type, which suppresses follow-on diagnostics.
 inline bool is_error(TypePtr type) noexcept {

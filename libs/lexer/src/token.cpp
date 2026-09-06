@@ -56,6 +56,8 @@ KindNames names_for(TokenKind kind) noexcept {
             return {"kw_requires", "`requires`"};
         case TokenKind::KwEnsures:
             return {"kw_ensures", "`ensures`"};
+        case TokenKind::KwUnit:
+            return {"kw_unit", "`unit`"};
 
         case TokenKind::KwInt:
             return {"kw_int", "`int`"};
@@ -118,6 +120,8 @@ KindNames names_for(TokenKind kind) noexcept {
             return {"star", "`*`"};
         case TokenKind::Slash:
             return {"slash", "`/`"};
+        case TokenKind::Caret:
+            return {"caret", "`^`"};
         case TokenKind::Percent:
             return {"percent", "`%`"};
         case TokenKind::Bang:
@@ -136,7 +140,7 @@ KindNames names_for(TokenKind kind) noexcept {
 
 /// Keyword table. `true` and `false` are deliberately absent: the
 /// grammar classifies them as bool_lit, so the lexer produces literals.
-constexpr std::array<std::pair<std::string_view, TokenKind>, 20> kKeywords{{
+constexpr std::array<std::pair<std::string_view, TokenKind>, 21> kKeywords{{
     {"pub", TokenKind::KwPub},
     {"const", TokenKind::KwConst},
     {"fn", TokenKind::KwFn},
@@ -153,6 +157,7 @@ constexpr std::array<std::pair<std::string_view, TokenKind>, 20> kKeywords{{
     {"import", TokenKind::KwImport},
     {"requires", TokenKind::KwRequires},
     {"ensures", TokenKind::KwEnsures},
+    {"unit", TokenKind::KwUnit},
     {"int", TokenKind::KwInt},
     {"float", TokenKind::KwFloat},
     {"bool", TokenKind::KwBool},

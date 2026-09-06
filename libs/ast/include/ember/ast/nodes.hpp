@@ -48,6 +48,22 @@ enum class TypeKind {
 struct TypeRef;
 using TypeRefPtr = std::unique_ptr<TypeRef>;
 
+/// One factor of a written unit (section 10.2).
+///
+/// `meters/seconds^2` is three pieces of information per factor: which
+/// unit, whether it was multiplied in or divided out, and to what power.
+/// The checker folds a list of these into a canonical
+/// `typeck::Dimension`, where `meters*meters` and `meters^2` become the
+/// same thing.
+struct UnitFactor {
+    std::string name;
+    Span span;
+    /// +1 for a factor multiplied in, -1 for one divided out.
+    int sign = 1;
+    /// The power written after `^`; 1 when none was.
+    int power = 1;
+};
+
 struct TypeRef {
     TypeKind kind = TypeKind::Int;
     Span span;
@@ -67,6 +83,9 @@ struct TypeRef {
     std::vector<TypeRefPtr> params;
     /// Return type, for a Function type. Null when it returns nothing.
     TypeRefPtr result;
+    /// The unit written on a numeric type: the `meters/seconds` of
+    /// `float<meters/seconds>`. Empty for an ordinary number.
+    std::vector<UnitFactor> unit;
 };
 
 /// One declared type parameter: the `T` of `fn max<T>(...)`.
@@ -152,6 +171,8 @@ using ExprPtr = std::unique_ptr<Expr>;
 struct IntLitExpr : Expr {
     static constexpr ExprKind kKind = ExprKind::IntLit;
     std::int64_t value = 0;
+    /// The unit written on the literal: the `meters` of `5<meters>`.
+    std::vector<UnitFactor> unit;
 
     IntLitExpr(Span span, std::int64_t v) : Expr(kKind, span), value(v) {}
 };
@@ -159,6 +180,8 @@ struct IntLitExpr : Expr {
 struct FloatLitExpr : Expr {
     static constexpr ExprKind kKind = ExprKind::FloatLit;
     double value = 0.0;
+    /// The unit written on the literal: the `meters` of `5.0<meters>`.
+    std::vector<UnitFactor> unit;
 
     FloatLitExpr(Span span, double v) : Expr(kKind, span), value(v) {}
 };
@@ -418,6 +441,8 @@ enum class ItemKind {
     Impl,
     Const,
     Import,
+    /// `unit meters;` (section 10.2).
+    Unit,
 };
 
 struct Item {
@@ -575,6 +600,22 @@ struct FunctionDecl : Item {
     const Param* self_param() const noexcept {
         return (!params.empty() && params.front().is_self()) ? &params.front() : nullptr;
     }
+};
+
+/// `unit meters;` - introduces a unit of measure (section 10.2).
+///
+/// A unit has no members, no representation and no runtime existence.
+/// It is a name that types can be tagged with, so that the checker can
+/// tell metres from seconds and refuse to add them.
+struct UnitDecl : Item {
+    static constexpr ItemKind kKind = ItemKind::Unit;
+    std::string name;
+    Span name_span;
+
+    UnitDecl(Span span, bool public_item, std::string unit_name, Span unit_name_span)
+        : Item(kKind, span, public_item),
+          name(std::move(unit_name)),
+          name_span(unit_name_span) {}
 };
 
 struct FieldDecl {

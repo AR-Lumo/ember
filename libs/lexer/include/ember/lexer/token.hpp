@@ -52,6 +52,8 @@ enum class TokenKind {
     /// reserved.
     KwRequires,
     KwEnsures,
+    /// `unit`, which introduces a unit of measure (section 10.2).
+    KwUnit,
 
     // Primitive type names. The grammar spells these as terminals, so
     // they are reserved words rather than ordinary identifiers.
@@ -94,6 +96,10 @@ enum class TokenKind {
     Slash,
     Percent,
     Bang,
+    /// `^`, which raises a unit to a power: the `2` of `seconds^2`.
+    /// Only meaningful inside a unit; Ember has no bitwise operators for
+    /// it to collide with.
+    Caret,
 
     // Assignment and references.
     Eq,

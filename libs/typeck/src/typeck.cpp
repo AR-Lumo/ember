@@ -195,6 +195,13 @@ public:
             declared_modules_.push_back(module.name);
         }
 
+        // Units before types: a struct field or a signature may be
+        // written `float<meters>`, so the unit has to be known before
+        // anything that could mention one is resolved.
+        for (const ModuleInput& module : modules) {
+            current_module_ = module.name;
+            collect_units(*module.program);
+        }
         for (const ModuleInput& module : modules) {
             current_module_ = module.name;
             collect_types(*module.program);
@@ -239,6 +246,12 @@ private:
     /// `result` that did not resolve - which is the whole reason
     /// `result` is not a keyword.
     const ast::Contract* current_contract_ = nullptr;
+    /// Declared units, by name, with where each was declared (§10.2).
+    ///
+    /// Not module-qualified: a unit is a bare tag with no members, and
+    /// metres declared in two modules are the same metres. Making them
+    /// distinct would mean a conversion that has nothing to convert.
+    std::map<std::string, Span> units_;
 
     /// Which monomorphized copy is being checked. Everything outside a
     /// generic body is the root instance.
@@ -359,6 +372,48 @@ private:
     // -----------------------------------------------------------------
     // Pass 1: struct names and fields
     // -----------------------------------------------------------------
+
+    /// `unit meters;` - a name and nothing else (§10.2).
+    ///
+    /// A unit has no fields, no size and no representation, so there is
+    /// nothing to lay out and no second pass: the name is the whole
+    /// declaration.
+    void collect_units(const ast::Program& program) {
+        for (const ast::ItemPtr& item : program.items) {
+            const auto* declaration = ast::node_cast<ast::UnitDecl>(item.get());
+            if (declaration == nullptr) {
+                continue;
+            }
+            const auto existing = units_.find(declaration->name);
+            if (existing != units_.end()) {
+                Diagnostic& diagnostic =
+                    report("duplicate definition of unit `" + declaration->name + "`",
+                           declaration->name_span,
+                           "`" + declaration->name + "` is already a unit");
+                note_previous(diagnostic, existing->second);
+                continue;
+            }
+            units_.emplace(declaration->name, declaration->name_span);
+        }
+    }
+
+    /// A written unit turned into a canonical dimension.
+    ///
+    /// Every factor has to name a declared unit: a typo would otherwise
+    /// invent a silent new dimension that nothing could ever match,
+    /// which is the failure mode this whole feature exists to prevent.
+    Dimension resolve_unit(const std::vector<ast::UnitFactor>& unit) {
+        Dimension dimension;
+        for (const ast::UnitFactor& factor : unit) {
+            if (units_.find(factor.name) == units_.end()) {
+                report("unknown unit `" + factor.name + "`", factor.span,
+                       "declare it with `unit " + factor.name + ";`");
+                continue;
+            }
+            dimension.emplace_back(factor.name, factor.sign * factor.power);
+        }
+        return canonical_dimension(std::move(dimension));
+    }
 
     void collect_types(const ast::Program& program) {
         // Names first, so fields can refer to structs declared later.
@@ -1440,9 +1495,13 @@ private:
     TypePtr resolve_type(const ast::TypeRef& type) {
         switch (type.kind) {
             case ast::TypeKind::Int:
-                return types().int_type();
+                return type.unit.empty()
+                           ? types().int_type()
+                           : types().numeric_type(TypeKind::Int, resolve_unit(type.unit));
             case ast::TypeKind::Float:
-                return types().float_type();
+                return type.unit.empty()
+                           ? types().float_type()
+                           : types().numeric_type(TypeKind::Float, resolve_unit(type.unit));
             case ast::TypeKind::Bool:
                 return types().bool_type();
             case ast::TypeKind::String:
@@ -2097,10 +2156,20 @@ private:
 
     TypePtr check_expr(const ast::Expr& expr, TypePtr hint = nullptr) {
         switch (expr.kind) {
-            case ast::ExprKind::IntLit:
-                return record(expr, types().int_type());
-            case ast::ExprKind::FloatLit:
-                return record(expr, types().float_type());
+            case ast::ExprKind::IntLit: {
+                const auto& literal = static_cast<const ast::IntLitExpr&>(expr);
+                return record(expr, literal.unit.empty()
+                                        ? types().int_type()
+                                        : types().numeric_type(TypeKind::Int,
+                                                               resolve_unit(literal.unit)));
+            }
+            case ast::ExprKind::FloatLit: {
+                const auto& literal = static_cast<const ast::FloatLitExpr&>(expr);
+                return record(expr, literal.unit.empty()
+                                        ? types().float_type()
+                                        : types().numeric_type(TypeKind::Float,
+                                                               resolve_unit(literal.unit)));
+            }
             case ast::ExprKind::BoolLit:
                 return record(expr, types().bool_type());
             case ast::ExprKind::StringLit:
@@ -2295,11 +2364,39 @@ private:
                            expr.span, "`%` needs two `int` operands");
                     return record(expr, types().error_type());
                 }
-                return record(expr, types().int_type());
+                // `left`, not the plain `int`: a remainder of two
+                // lengths is a length.
+                return record(expr, left);
+            }
+
+            case ast::BinaryOp::Multiply:
+            case ast::BinaryOp::Divide: {
+                // The one place units combine rather than having to
+                // match. `*` adds the exponents and `/` subtracts them,
+                // so `meters / seconds` is a speed and `meters / meters`
+                // is a plain number again (§10.2).
+                if (!is_numeric(left) || !is_numeric(right)) {
+                    report("cannot apply `" + symbol + "` to `" + to_string(left) + "` and `" +
+                               to_string(right) + "`",
+                           expr.span, "`" + symbol + "` needs an `int` or a `float`");
+                    return record(expr, types().error_type());
+                }
+                if (left->kind != right->kind) {
+                    // int against float: still forbidden, units or not.
+                    return record(expr, mismatched_operands(expr, symbol, left, right));
+                }
+                const Dimension combined =
+                    combine_dimensions(dimension_of(left), dimension_of(right),
+                                       expr.op == ast::BinaryOp::Divide ? -1 : 1);
+                return record(expr, types().numeric_type(left->kind, combined));
             }
 
             default: {
-                // + - * /
+                // + and -. Units have to match exactly, which the
+                // interning already enforces: `float<meters>` and
+                // `float<seconds>` are different types, so the ordinary
+                // mismatch check catches them and only the message
+                // needs to know why.
                 if (left != right) {
                     return record(expr, mismatched_operands(expr, symbol, left, right));
                 }
@@ -2323,7 +2420,17 @@ private:
                        to_string(right) + "`",
                    expr.span, "the operands have different types");
         if (is_numeric(left) && is_numeric(right)) {
-            diagnostic.with_note("`int` and `float` never mix implicitly in Ember (§4)");
+            if (left->kind == right->kind) {
+                // Same number, different unit - so the note about `int`
+                // and `float` would be beside the point.
+                diagnostic.with_note("`" + symbol + "` needs the same unit on both sides (§10.2)");
+                if (dimension_of(left).empty() || dimension_of(right).empty()) {
+                    diagnostic.with_note(
+                        "a plain number has no unit, and no unit is not the same as any unit");
+                }
+            } else {
+                diagnostic.with_note("`int` and `float` never mix implicitly in Ember (§4)");
+            }
         }
         return types().error_type();
     }

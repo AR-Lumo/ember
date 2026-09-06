@@ -396,8 +396,9 @@ EMBER_TEST(phase2_golden_cases_exercise_every_node_kind) {
     // Sized by the last enumerator of each enum. Adding a kind after it
     // without updating these indexes out of range, which is a loud
     // failure on purpose: a silently-too-small array would make this
-    // guard stop guarding. Both of these have caught exactly that.
-    std::vector<bool> items(static_cast<std::size_t>(ember::ast::ItemKind::Import) + 1, false);
+    // guard stop guarding. All three of these have caught exactly that -
+    // most recently `ItemKind::Unit`, added after `Import`.
+    std::vector<bool> items(static_cast<std::size_t>(ember::ast::ItemKind::Unit) + 1, false);
     std::vector<bool> stmts(static_cast<std::size_t>(ember::ast::StmtKind::Block) + 1, false);
     std::vector<bool> exprs(static_cast<std::size_t>(ember::ast::ExprKind::Closure) + 1, false);
 

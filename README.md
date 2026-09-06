@@ -1112,6 +1112,61 @@ the caller means threading its position into every call to a contracted
 function, which changes those functions' ABI and would have to survive
 separate compilation.
 
+### Units of measure
+
+A number can carry a unit, and the compiler refuses to mix them up:
+
+```ember
+unit meters;
+unit seconds;
+
+pub fn main() {
+    let d: float<meters> = 100.0<meters>;
+    let t: float<seconds> = 4.0<seconds>;
+
+    let speed = d / t;        // float<meters/seconds>, inferred
+    println(speed);           // 25.0
+}
+```
+
+`+` and `-` need the same unit on both sides. `*` and `/` combine them
+algebraically, so a distance over a time is a speed and nobody has to
+declare one:
+
+```ember
+let rate: float<meters/seconds^2> = d / t / t;   // an acceleration
+let back: float<meters>           = speed * t;   // and back again
+let ratio: float                  = d / d;       // cancels to a plain number
+```
+
+Adding what you should not is a compile error, not a wrong answer:
+
+```console
+$ ember check units.em
+error: cannot apply `+` to `float<meters>` and `float<seconds>`
+ --> units.em:7:15
+  |
+7 |     let bad = d + t;
+  |               ^^^^^ the operands have different types
+  = note: `+` needs the same unit on both sides (§10.2)
+```
+
+A plain number is **not** a unitless quantity that fits anywhere —
+`d + 2.0` is an error too. Scaling is what a plain number is for, and
+`d * 2.0` keeps the metres.
+
+**Units cost nothing.** A `float<meters>` is a `double`; the whole thing
+lives in the type checker and is gone by codegen. The test suite compiles
+a program with units and the same program without them and asserts the
+generated IR is identical, so this stays true rather than merely having
+been true once.
+
+**One rule worth knowing.** A unit binds to a literal only when the `<`
+touches it. `5.0<meters>` is a quantity; `5.0 < meters` is a comparison.
+That keeps `f(5<x, 3)` — a comparison written without spaces — parsing as
+it always did, and stops `5 < meters` from changing meaning the day
+somebody declares a unit called `meters`.
+
 ### Standard library
 
 The whole of it, recognized directly by the compiler:
@@ -1141,6 +1196,7 @@ also a regression test in the suite.
 | [`ownership.em`](examples/ownership.em) | `Vec`, `String`, moves and automatic drops |
 | [`closures.em`](examples/closures.em) | Function values, captures, higher-order functions |
 | [`contracts.em`](examples/contracts.em) | `requires` and `ensures` on functions and methods |
+| [`units.em`](examples/units.em) | Units of measure, combined by `*` and `/` |
 
 ```console
 $ ember run examples/bubble_sort.em

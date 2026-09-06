@@ -441,11 +441,11 @@ moving to the next. Don't let phases blend together.
 
 ## 10. v1.1 Roadmap - Signature Features
 
-**Status: 10.1 is implemented; 10.2 and 10.3 are specified only.** The
-grammar in §3 carries all three, so adding the other two later is not a
+**Status: 10.1 and 10.2 are implemented; 10.3 is specified only.** The
+grammar in §3 carries all three, so adding effects later is not a
 breaking change to it - but nothing in the lexer, parser, checker or
-codegen understands units or effects yet, and a program using them is a
-syntax error.
+codegen understands `uses` yet, and a program with one is a syntax
+error.
 
 These three are what would make Ember distinctive rather than
 "Rust-flavoured syntax on LLVM". Treat this as its own miniature version
@@ -507,7 +507,7 @@ functions and has to survive separate compilation and interface files.
 The clause's own position is what a reader needs first; the call site
 can follow if it earns its cost.
 
-### 10.2 Units of measure - second, and it touches the type system
+### 10.2 Units of measure - **implemented**
 
 Numeric types may carry a physical unit; mixing incompatible ones is a
 compile error.
@@ -535,6 +535,40 @@ pub fn main() {
   every arithmetic path taught the rules above.
 - The most invasive of the three, because it touches every arithmetic
   type-check path.
+
+**As built.** A dimension is a canonical list of `(unit, exponent)`
+pairs - sorted, with anything that cancelled removed - and it is part of
+the type's interning key. That does most of the work for free:
+`float<meters>` and `float<seconds>` are simply different types, so the
+existing mismatch checks catch `d + t` with no special case, and only the
+*message* had to learn about units.
+
+`*` and `/` are the one place units combine rather than having to match:
+they add and subtract exponents, so `meters/meters` is a plain number
+again and `d / t / t` is `meters/seconds^2`.
+
+`^` is an extension to the grammar above, which had `unit_term =
+identifier`. Without it a type the compiler prints could not be typed
+back in: `meters/seconds^2` has no spelling as a product, because
+`meters/seconds*seconds` cancels. Round-tripping is worth one token.
+
+**Parsing `5.0<meters>`.** A `<` after a number is otherwise a
+comparison, and no amount of lookahead settles it - `5.0<meters>` and
+`5.0 < meters` are both grammatical. Two conditions have to hold before a
+unit is read: the `<` must *touch* the literal, and the tokens after it
+must form a complete `<unit_expr>`. Adjacency alone would break
+`f(5<x, 3)`, a comparison written without spaces. The shape alone would
+silently change what `5 < meters` means the day somebody declares a unit
+by that name.
+
+**Units are erased.** A `float<meters>` is a `double`, and codegen never
+reads the dimension. `tests/units_tests.cpp` compiles a program with
+units and the same program without them and asserts the IR is identical,
+so the claim stays true rather than merely having been true once.
+
+**One deviation.** The grammar above gives `unit_decl` no visibility.
+`pub unit` is accepted, because a unit that cannot cross a module
+boundary is useless the moment a program has two files.
 
 ### 10.3 Effect annotations (`uses io`, `uses mut`) - last, and hardest
 

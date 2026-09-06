@@ -395,6 +395,8 @@ private:
                 return push(TokenKind::Slash, start);
             case '%':
                 return push(TokenKind::Percent, start);
+            case '^':
+                return push(TokenKind::Caret, start);
             case '-':
                 return push(match('>') ? TokenKind::Arrow : TokenKind::Minus, start);
             case '=':

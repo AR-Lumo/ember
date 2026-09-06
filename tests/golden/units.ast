@@ -1,0 +1,121 @@
+(program
+  (unit @12:1 meters)
+  (unit @13:1 seconds)
+  (unit @14:1 kilograms)
+  (fn @17:1 pub speed
+    (params
+      (param @17:14 distance
+        (float @17:24 meters))
+      (param @17:39 elapsed
+        (float @17:48 seconds)))
+    (returns
+      (float @17:67 meters/seconds))
+    (block @17:89
+      (return @18:5
+        (binary @18:12 div
+          (name @18:12 distance)
+          (name @18:23 elapsed)))))
+  (fn @23:1 pub acceleration
+    (params
+      (param @23:21 distance
+        (float @23:31 meters))
+      (param @23:46 elapsed
+        (float @23:55 seconds)))
+    (returns
+      (float @24:12 meters/seconds^2))
+    (block @24:36
+      (return @25:5
+        (binary @25:12 div
+          (binary @25:12 div
+            (name @25:12 distance)
+            (name @25:23 elapsed))
+          (name @25:33 elapsed)))))
+  (fn @30:1 pub force
+    (params
+      (param @30:14 mass
+        (float @30:20 kilograms))
+      (param @30:38 rate
+        (float @30:44 meters/seconds^2)))
+    (returns
+      (float @31:12 kilograms*meters/seconds^2))
+    (block @31:46
+      (return @32:5
+        (binary @32:12 mul
+          (name @32:12 mass)
+          (name @32:19 rate)))))
+  (fn @35:1 pub main
+    (params)
+    (block @35:15
+      (let @36:5 distance
+        (float @36:19 meters)
+        (float-lit @36:35 100<meters>))
+      (let @37:5 elapsed
+        (float @37:18 seconds)
+        (float-lit @37:35 4<seconds>))
+      (expr-stmt @39:5
+        (call @39:5 println
+          (call @39:13 speed
+            (name @39:19 distance)
+            (name @39:29 elapsed))))
+      (expr-stmt @40:5
+        (call @40:5 println
+          (call @40:13 acceleration
+            (name @40:26 distance)
+            (name @40:36 elapsed))))
+      (expr-stmt @41:5
+        (call @41:5 println
+          (call @41:13 force
+            (float-lit @41:19 2<kilograms>)
+            (call @41:35 acceleration
+              (name @41:48 distance)
+              (name @41:58 elapsed)))))
+      (let @44:5 twice
+        (float @44:16 meters)
+        (binary @44:32 mul
+          (name @44:32 distance)
+          (float-lit @44:43 2)))
+      (expr-stmt @45:5
+        (call @45:5 println
+          (name @45:13 twice)))
+      (let @49:5 ratio
+        (float @49:16)
+        (binary @49:24 div
+          (name @49:24 distance)
+          (name @49:35 twice)))
+      (expr-stmt @50:5
+        (call @50:5 println
+          (name @50:13 ratio)))
+      (let @53:5 travelled
+        (float @53:20 meters)
+        (binary @53:36 mul
+          (call @53:36 speed
+            (name @53:42 distance)
+            (name @53:52 elapsed))
+          (name @53:63 elapsed)))
+      (expr-stmt @54:5
+        (call @54:5 println
+          (name @54:13 travelled)))
+      (let @57:5 steps
+        (int @57:16 meters)
+        (int-lit @57:30 7<meters>))
+      (expr-stmt @58:5
+        (call @58:5 println
+          (name @58:13 steps)))
+      (if @61:5
+        (binary @61:8 gt
+          (name @61:8 distance)
+          (float-lit @61:19 50<meters>))
+        (block @61:32
+          (expr-stmt @62:9
+            (call @62:9 println
+              (string-lit @62:17 "further than fifty metres")))))
+      (let @68:5 limit
+        (int-lit @68:17 9))
+      (if @69:5
+        (binary @69:8 lt
+          (int-lit @69:8 5)
+          (name @69:10 limit))
+        (block @69:16
+          (expr-stmt @70:9
+            (call @70:9 println
+              (string-lit @70:17 "five is less than nine"))))))))

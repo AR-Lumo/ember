@@ -234,6 +234,9 @@ private:
         if (check(TokenKind::KwConst)) {
             return parse_const(start, is_public);
         }
+        if (check(TokenKind::KwUnit)) {
+            return parse_unit_decl(start, is_public);
+        }
         if (check(TokenKind::KwImport)) {
             if (is_public) {
                 // An import is not a declaration others can reach; it
@@ -319,6 +322,69 @@ private:
         function->body = parse_block();
         function->span = start.merge(function->body.span);
         return function;
+    }
+
+    /// `unit_decl = "unit" identifier ";"` (10.2).
+    ///
+    /// The spec's grammar has no visibility on a unit. `pub` is accepted
+    /// anyway, because a unit that cannot cross a module boundary is
+    /// useless the moment a program has two files - and every other item
+    /// already carries the flag.
+    ast::ItemPtr parse_unit_decl(Span start, bool is_public) {
+        expect(TokenKind::KwUnit);
+        const Token& name = expect(TokenKind::Identifier);
+        const Token& semi = expect(TokenKind::Semicolon);
+        return std::make_unique<ast::UnitDecl>(start.merge(semi.span), is_public,
+                                               std::string{name.text}, name.span);
+    }
+
+    /// `unit_expr = unit_term { ( "*" | "/" ) unit_term }`, with the
+    /// opening `<` already consumed and the closing `>` consumed here.
+    ///
+    /// Read strictly left to right, so `meters/seconds*seconds` cancels
+    /// to `meters` exactly as the same arithmetic would: a `*` puts the
+    /// following factor on top and a `/` puts it underneath, and neither
+    /// reaches back over the other.
+    std::vector<ast::UnitFactor> parse_unit_expr() {
+        std::vector<ast::UnitFactor> factors;
+        int sign = 1;
+        for (;;) {
+            const Token& name = expect(TokenKind::Identifier);
+
+            ast::UnitFactor factor;
+            factor.name = std::string{name.text};
+            factor.span = name.span;
+            factor.sign = sign;
+
+            // `seconds^2`. Not in the spec's grammar, which has a bare
+            // identifier - but without it a type the compiler prints
+            // cannot be typed back in, and `meters/seconds^2` is the
+            // ordinary way to write an acceleration.
+            if (match(TokenKind::Caret)) {
+                const Token& power = expect(TokenKind::IntLit);
+                const std::int64_t written = power.int_value();
+                if (written <= 0 || written > 64) {
+                    throw error_at(power.span, "a unit power must be between 1 and 64",
+                                   "a unit is divided out with `/`, not with a negative power");
+                }
+                factor.power = static_cast<int>(written);
+                factor.span = factor.span.merge(power.span);
+            }
+
+            factors.push_back(std::move(factor));
+
+            if (match(TokenKind::Star)) {
+                sign = 1;
+                continue;
+            }
+            if (match(TokenKind::Slash)) {
+                sign = -1;
+                continue;
+            }
+            break;
+        }
+        expect(TokenKind::Gt);
+        return factors;
     }
 
     /// `{ contract }` - the `requires` and `ensures` clauses that may
@@ -525,10 +591,16 @@ private:
             case TokenKind::KwInt:
                 advance();
                 type->kind = ast::TypeKind::Int;
+                if (match(TokenKind::Lt)) {
+                    type->unit = parse_unit_expr();
+                }
                 return type;
             case TokenKind::KwFloat:
                 advance();
                 type->kind = ast::TypeKind::Float;
+                if (match(TokenKind::Lt)) {
+                    type->unit = parse_unit_expr();
+                }
                 return type;
             case TokenKind::KwBool:
                 advance();
@@ -928,17 +1000,81 @@ private:
         return closure;
     }
 
+    /// The unit written on a numeric literal: the `meters` of
+    /// `5.0<meters>`.
+    ///
+    /// `<` after a number is otherwise a comparison, and no amount of
+    /// lookahead settles it - `5.0<meters>` and `5.0 < meters > x` are
+    /// both grammatical. So the rule is adjacency: a unit binds to the
+    /// literal only when the `<` touches it, with no space between.
+    /// `5.0<meters>` is a quantity, `5.0 < meters` is a comparison, and
+    /// which one you meant is visible in the source rather than decided
+    /// by a rule nobody can see.
+    std::vector<ast::UnitFactor> parse_literal_unit(const Token& literal) {
+        // Two conditions, and both are needed.
+        //
+        // Adjacency alone is not enough: `f(5<x, 3)` is a comparison
+        // written without spaces, and committing to a unit there would
+        // turn working code into a syntax error.
+        //
+        // The shape alone is not enough either: `5 < meters` would
+        // become a quantity the moment somebody declared a unit by that
+        // name, silently changing what an existing program means.
+        if (!check(TokenKind::Lt) || peek().span.start != literal.span.end) {
+            return {};
+        }
+        if (!looks_like_unit()) {
+            return {};
+        }
+        advance();
+        return parse_unit_expr();
+    }
+
+    /// Does a complete `<unit_expr>` start at the current `<`?
+    ///
+    /// Pure lookahead - nothing is consumed and nothing is reported, so
+    /// a `no` leaves the `<` for the expression parser to read as the
+    /// comparison it is.
+    bool looks_like_unit() const {
+        std::size_t ahead = 1;  // past the `<`
+        for (;;) {
+            if (peek(ahead).kind != TokenKind::Identifier) {
+                return false;
+            }
+            ++ahead;
+            if (peek(ahead).kind == TokenKind::Caret) {
+                ++ahead;
+                if (peek(ahead).kind != TokenKind::IntLit) {
+                    return false;
+                }
+                ++ahead;
+            }
+            if (peek(ahead).kind == TokenKind::Star || peek(ahead).kind == TokenKind::Slash) {
+                ++ahead;
+                continue;
+            }
+            return peek(ahead).kind == TokenKind::Gt;
+        }
+    }
+
     ast::ExprPtr parse_primary(bool allow_struct_literal) {
         const Token& token = peek();
 
         switch (token.kind) {
-            case TokenKind::IntLit:
+            case TokenKind::IntLit: {
                 advance();
-                return std::make_unique<ast::IntLitExpr>(token.span, token.int_value());
+                auto literal = std::make_unique<ast::IntLitExpr>(token.span, token.int_value());
+                literal->unit = parse_literal_unit(token);
+                return literal;
+            }
 
-            case TokenKind::FloatLit:
+            case TokenKind::FloatLit: {
                 advance();
-                return std::make_unique<ast::FloatLitExpr>(token.span, token.float_value());
+                auto literal =
+                    std::make_unique<ast::FloatLitExpr>(token.span, token.float_value());
+                literal->unit = parse_literal_unit(token);
+                return literal;
+            }
 
             case TokenKind::BoolLit:
                 advance();
