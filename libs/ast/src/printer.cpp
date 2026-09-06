@@ -1,4 +1,4 @@
-#include "ember/ast/printer.hpp"
+#include "cinder/ast/printer.hpp"
 
 #include <array>
 #include <charconv>
@@ -6,7 +6,7 @@
 #include <string>
 #include <system_error>
 
-namespace ember::ast {
+namespace cinder::ast {
 namespace {
 
 std::string format_double(double value) {
@@ -558,4 +558,4 @@ std::string to_sexpr(const Expr& expr, const SourceFile& source) {
     return printer.take();
 }
 
-}  // namespace ember::ast
+}  // namespace cinder::ast

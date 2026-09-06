@@ -20,73 +20,73 @@
 //     bound quietly untrue.
 //
 //   - No clause really means no bound. If this broke, every existing
-//     Ember program would stop compiling.
+//     Cinder program would stop compiling.
 
 #include "test_harness.hpp"
 
-#include "ember/ast/diagnostic.hpp"
-#include "ember/ast/nodes.hpp"
-#include "ember/parser/parser.hpp"
-#include "ember/typeck/typeck.hpp"
+#include "cinder/ast/diagnostic.hpp"
+#include "cinder/ast/nodes.hpp"
+#include "cinder/parser/parser.hpp"
+#include "cinder/typeck/typeck.hpp"
 
 #include <string>
 #include <vector>
 
 namespace {
 
-using ember::ast::SourceFile;
-using ember::typeck::CheckResult;
+using cinder::ast::SourceFile;
+using cinder::typeck::CheckResult;
 
 SourceFile effect_source(std::string contents) {
-    return SourceFile{"effects.em", std::move(contents)};
+    return SourceFile{"effects.ci", std::move(contents)};
 }
 
 CheckResult check_effects(const SourceFile& source) {
-    ember::parser::ParseResult parsed = ember::parser::parse_source(source);
+    cinder::parser::ParseResult parsed = cinder::parser::parse_source(source);
     if (!parsed.ok()) {
         return CheckResult{};  // a parse error; the caller asserts on it
     }
-    return ember::typeck::check(*parsed.program, source);
+    return cinder::typeck::check(*parsed.program, source);
 }
 
 void accepts(const std::string& contents) {
     const SourceFile source = effect_source(contents);
-    ember::parser::ParseResult parsed = ember::parser::parse_source(source);
+    cinder::parser::ParseResult parsed = cinder::parser::parse_source(source);
     if (!parsed.ok()) {
-        ::ember::test::fail(__FILE__, __LINE__,
+        ::cinder::test::fail(__FILE__, __LINE__,
                             "expected this to parse, but:\n" +
-                                ember::ast::render_all(parsed.diagnostics, source));
+                                cinder::ast::render_all(parsed.diagnostics, source));
     }
-    const CheckResult result = ember::typeck::check(*parsed.program, source);
+    const CheckResult result = cinder::typeck::check(*parsed.program, source);
     if (!result.ok()) {
-        ::ember::test::fail(__FILE__, __LINE__,
+        ::cinder::test::fail(__FILE__, __LINE__,
                             "expected this to type-check, but:\n" +
-                                ember::ast::render_all(result.diagnostics, source));
+                                cinder::ast::render_all(result.diagnostics, source));
     }
 }
 
 /// The first diagnostic, from either stage.
 std::string rejects(const std::string& contents) {
     const SourceFile source = effect_source(contents);
-    ember::parser::ParseResult parsed = ember::parser::parse_source(source);
+    cinder::parser::ParseResult parsed = cinder::parser::parse_source(source);
     if (!parsed.ok()) {
         return parsed.diagnostics.at(0).message;
     }
-    CheckResult result = ember::typeck::check(*parsed.program, source);
+    CheckResult result = cinder::typeck::check(*parsed.program, source);
     if (result.ok()) {
-        ::ember::test::fail(__FILE__, __LINE__,
+        ::cinder::test::fail(__FILE__, __LINE__,
                             "expected this to be rejected, but it was accepted");
     }
     return result.diagnostics.at(0).message;
 }
 
-const ember::ast::FunctionDecl& first_function(const ember::ast::Program& program) {
-    for (const ember::ast::ItemPtr& item : program.items) {
-        if (const auto* function = ember::ast::node_cast<ember::ast::FunctionDecl>(item.get())) {
+const cinder::ast::FunctionDecl& first_function(const cinder::ast::Program& program) {
+    for (const cinder::ast::ItemPtr& item : program.items) {
+        if (const auto* function = cinder::ast::node_cast<cinder::ast::FunctionDecl>(item.get())) {
             return *function;
         }
     }
-    ::ember::test::fail(__FILE__, __LINE__, "no function in the program");
+    ::cinder::test::fail(__FILE__, __LINE__, "no function in the program");
     throw 0;  // unreachable
 }
 
@@ -96,49 +96,49 @@ const ember::ast::FunctionDecl& first_function(const ember::ast::Program& progra
 // The clause itself
 // ---------------------------------------------------------------------
 
-EMBER_TEST(a_clause_is_absent_empty_or_a_list) {
+CINDER_TEST(a_clause_is_absent_empty_or_a_list) {
     // Absence and emptiness are different, and the whole design turns
     // on that: no clause is no bound, `uses nothing` is the empty one.
     const SourceFile plain = effect_source("pub fn f() {}\n");
-    const ember::parser::ParseResult a = ember::parser::parse_source(plain);
-    EMBER_CHECK(a.ok());
-    EMBER_CHECK(!first_function(*a.program).effects.present);
+    const cinder::parser::ParseResult a = cinder::parser::parse_source(plain);
+    CINDER_CHECK(a.ok());
+    CINDER_CHECK(!first_function(*a.program).effects.present);
 
     const SourceFile pure = effect_source("pub fn f() uses nothing {}\n");
-    const ember::parser::ParseResult b = ember::parser::parse_source(pure);
-    EMBER_CHECK(b.ok());
-    EMBER_CHECK(first_function(*b.program).effects.present);
-    EMBER_CHECK(first_function(*b.program).effects.effects.empty());
+    const cinder::parser::ParseResult b = cinder::parser::parse_source(pure);
+    CINDER_CHECK(b.ok());
+    CINDER_CHECK(first_function(*b.program).effects.present);
+    CINDER_CHECK(first_function(*b.program).effects.effects.empty());
 
     const SourceFile listed = effect_source("pub fn f() uses io, mut {}\n");
-    const ember::parser::ParseResult c = ember::parser::parse_source(listed);
-    EMBER_CHECK(c.ok());
-    EMBER_CHECK_EQ(first_function(*c.program).effects.effects.size(), std::size_t{2});
-    EMBER_CHECK(first_function(*c.program).effects.permits(ember::ast::Effect::Io));
-    EMBER_CHECK(first_function(*c.program).effects.permits(ember::ast::Effect::Mut));
+    const cinder::parser::ParseResult c = cinder::parser::parse_source(listed);
+    CINDER_CHECK(c.ok());
+    CINDER_CHECK_EQ(first_function(*c.program).effects.effects.size(), std::size_t{2});
+    CINDER_CHECK(first_function(*c.program).effects.permits(cinder::ast::Effect::Io));
+    CINDER_CHECK(first_function(*c.program).effects.permits(cinder::ast::Effect::Mut));
 }
 
-EMBER_TEST(an_unknown_effect_is_rejected) {
-    EMBER_CHECK_EQ(rejects("pub fn f() uses filesystem {}\n"),
+CINDER_TEST(an_unknown_effect_is_rejected) {
+    CINDER_CHECK_EQ(rejects("pub fn f() uses filesystem {}\n"),
                    std::string{"unknown effect `filesystem`"});
 }
 
-EMBER_TEST(an_effect_is_named_once) {
-    EMBER_CHECK_EQ(rejects("pub fn f() uses io, io {}\n"),
+CINDER_TEST(an_effect_is_named_once) {
+    CINDER_CHECK_EQ(rejects("pub fn f() uses io, io {}\n"),
                    std::string{"`io` is listed twice"});
 }
 
-EMBER_TEST(nothing_does_not_combine_in_either_order) {
+CINDER_TEST(nothing_does_not_combine_in_either_order) {
     // Both orders, because the first version of this caught only one -
     // `uses nothing, io` came out quietly meaning `uses io`, the
     // opposite of what was written.
-    EMBER_CHECK_EQ(rejects("pub fn f() uses io, nothing {}\n"),
+    CINDER_CHECK_EQ(rejects("pub fn f() uses io, nothing {}\n"),
                    std::string{"`nothing` cannot be combined with an effect"});
-    EMBER_CHECK_EQ(rejects("pub fn f() uses nothing, io {}\n"),
+    CINDER_CHECK_EQ(rejects("pub fn f() uses nothing, io {}\n"),
                    std::string{"`nothing` cannot be combined with an effect"});
 }
 
-EMBER_TEST(effect_names_are_not_keywords) {
+CINDER_TEST(effect_names_are_not_keywords) {
     // Only `uses` is reserved. A program with a variable called `io`
     // has to keep working.
     accepts(
@@ -154,46 +154,46 @@ EMBER_TEST(effect_names_are_not_keywords) {
 // The bound
 // ---------------------------------------------------------------------
 
-EMBER_TEST(no_clause_means_no_bound) {
-    // The property that let this ship. Every existing Ember program
+CINDER_TEST(no_clause_means_no_bound) {
+    // The property that let this ship. Every existing Cinder program
     // looks like this one.
     accepts("pub fn main() { println(1); }\n");
 }
 
-EMBER_TEST(a_pure_function_may_be_declared_pure) {
+CINDER_TEST(a_pure_function_may_be_declared_pure) {
     accepts("pub fn area(w: int, h: int) -> int uses nothing { return w * h; }\n");
 }
 
-EMBER_TEST(printing_from_a_pure_function_is_an_error) {
-    EMBER_CHECK_EQ(rejects("pub fn quiet(x: int) uses nothing { println(x); }\n"),
+CINDER_TEST(printing_from_a_pure_function_is_an_error) {
+    CINDER_CHECK_EQ(rejects("pub fn quiet(x: int) uses nothing { println(x); }\n"),
                    std::string{"`io` is not permitted here"});
 }
 
-EMBER_TEST(printing_within_the_bound_is_fine) {
+CINDER_TEST(printing_within_the_bound_is_fine) {
     accepts("pub fn loud(x: int) uses io { println(x); }\n");
 }
 
-EMBER_TEST(a_bound_is_a_ceiling_not_a_quota) {
+CINDER_TEST(a_bound_is_a_ceiling_not_a_quota) {
     // Declaring `io` and never printing is allowed, the way an unused
     // `throws` is in Java.
     accepts("pub fn silent(x: int) -> int uses io { return x; }\n");
 }
 
-EMBER_TEST(an_effect_travels_through_a_call) {
-    EMBER_CHECK_EQ(rejects("pub fn bottom(x: int) { println(x); }\n"
+CINDER_TEST(an_effect_travels_through_a_call) {
+    CINDER_CHECK_EQ(rejects("pub fn bottom(x: int) { println(x); }\n"
                            "pub fn top(x: int) uses nothing { bottom(x); }\n"),
                    std::string{"`io` is not permitted here"});
 }
 
-EMBER_TEST(an_effect_travels_any_distance) {
+CINDER_TEST(an_effect_travels_any_distance) {
     // Three hops. A one-level check would let this through.
-    EMBER_CHECK_EQ(rejects("pub fn bottom(x: int) { println(x); }\n"
+    CINDER_CHECK_EQ(rejects("pub fn bottom(x: int) { println(x); }\n"
                            "pub fn middle(x: int) { bottom(x); }\n"
                            "pub fn top(x: int) uses nothing { middle(x); }\n"),
                    std::string{"`io` is not permitted here"});
 }
 
-EMBER_TEST(a_pure_call_chain_stays_pure) {
+CINDER_TEST(a_pure_call_chain_stays_pure) {
     accepts(
         "pub fn area(w: int, h: int) -> int uses nothing { return w * h; }\n"
         "pub fn volume(w: int, h: int, d: int) -> int uses nothing {\n"
@@ -201,7 +201,7 @@ EMBER_TEST(a_pure_call_chain_stays_pure) {
         "}\n");
 }
 
-EMBER_TEST(mutual_recursion_terminates) {
+CINDER_TEST(mutual_recursion_terminates) {
     // The reason inference is a least fixed point rather than a walk.
     // If this ever hangs, that is the bug.
     accepts(
@@ -213,10 +213,10 @@ EMBER_TEST(mutual_recursion_terminates) {
         "}\n");
 }
 
-EMBER_TEST(mutual_recursion_still_reports_a_real_effect) {
+CINDER_TEST(mutual_recursion_still_reports_a_real_effect) {
     // And terminating must not mean giving up: an effect inside the
     // cycle still has to come out.
-    EMBER_CHECK_EQ(rejects("pub fn ping(n: int) uses nothing {\n"
+    CINDER_CHECK_EQ(rejects("pub fn ping(n: int) uses nothing {\n"
                            "    if n > 0 { pong(n - 1); }\n"
                            "}\n"
                            "pub fn pong(n: int) uses nothing {\n"
@@ -226,10 +226,10 @@ EMBER_TEST(mutual_recursion_still_reports_a_real_effect) {
                    std::string{"`io` is not permitted here"});
 }
 
-EMBER_TEST(a_contract_counts_as_part_of_the_function) {
+CINDER_TEST(a_contract_counts_as_part_of_the_function) {
     // A `requires` that prints is IO performed by this function, even
     // though it is written in the signature.
-    EMBER_CHECK_EQ(rejects("pub fn noisy(x: int) -> bool uses nothing\n"
+    CINDER_CHECK_EQ(rejects("pub fn noisy(x: int) -> bool uses nothing\n"
                            "    requires check(x)\n"
                            "{\n"
                            "    return true;\n"
@@ -238,30 +238,30 @@ EMBER_TEST(a_contract_counts_as_part_of_the_function) {
                    std::string{"`io` is not permitted here"});
 }
 
-EMBER_TEST(a_method_may_carry_a_bound) {
+CINDER_TEST(a_method_may_carry_a_bound) {
     accepts(
         "struct Room { pub w: int, pub h: int, }\n"
         "impl Room {\n"
         "    pub fn area(&self) -> int uses nothing { return self.w * self.h; }\n"
         "}\n");
 
-    EMBER_CHECK_EQ(rejects("struct Room { pub w: int, }\n"
+    CINDER_CHECK_EQ(rejects("struct Room { pub w: int, }\n"
                            "impl Room {\n"
                            "    pub fn show(&self) uses nothing { println(self.w); }\n"
                            "}\n"),
                    std::string{"`io` is not permitted here"});
 }
 
-EMBER_TEST(a_generic_function_may_carry_a_bound) {
+CINDER_TEST(a_generic_function_may_carry_a_bound) {
     accepts("pub fn identity<T>(v: T) -> T uses nothing { return v; }\n"
             "pub fn main() { println(identity(1)); }\n");
 }
 
-EMBER_TEST(calling_an_unbounded_function_value_counts_as_effectful) {
+CINDER_TEST(calling_an_unbounded_function_value_counts_as_effectful) {
     // An unbounded `fn(int) -> int` carries no effect information, so a
     // bound that ignored it would be quietly untrue. This is every
     // function type written before effects entered them.
-    EMBER_CHECK_EQ(rejects("pub fn apply(f: fn(int) -> int, x: int) -> int uses nothing {\n"
+    CINDER_CHECK_EQ(rejects("pub fn apply(f: fn(int) -> int, x: int) -> int uses nothing {\n"
                            "    return f(x);\n"
                            "}\n"),
                    std::string{"`io` is not permitted here"});
@@ -277,7 +277,7 @@ EMBER_TEST(calling_an_unbounded_function_value_counts_as_effectful) {
 // Effects in function types
 // ---------------------------------------------------------------------
 
-EMBER_TEST(a_bounded_function_type_makes_a_pure_higher_order_function_possible) {
+CINDER_TEST(a_bounded_function_type_makes_a_pure_higher_order_function_possible) {
     // The hole that putting effects in the type closes. Before it, no
     // function taking a callback could be `uses nothing`, because the
     // call through it counted as anything.
@@ -287,7 +287,7 @@ EMBER_TEST(a_bounded_function_type_makes_a_pure_higher_order_function_possible) 
         "}\n");
 }
 
-EMBER_TEST(a_bound_on_a_type_permits_exactly_what_it_says) {
+CINDER_TEST(a_bound_on_a_type_permits_exactly_what_it_says) {
     // `uses io` on the type means the call performs `io` - no more, so
     // an `io` caller is fine, and no less, so a pure one is not.
     accepts(
@@ -295,13 +295,13 @@ EMBER_TEST(a_bound_on_a_type_permits_exactly_what_it_says) {
         "    return f(x);\n"
         "}\n");
 
-    EMBER_CHECK_EQ(rejects("pub fn apply(f: fn(int) -> int uses io, x: int) -> int uses nothing {\n"
+    CINDER_CHECK_EQ(rejects("pub fn apply(f: fn(int) -> int uses io, x: int) -> int uses nothing {\n"
                            "    return f(x);\n"
                            "}\n"),
                    std::string{"`io` is not permitted here"});
 }
 
-EMBER_TEST(an_impure_closure_does_not_fit_a_pure_bound) {
+CINDER_TEST(an_impure_closure_does_not_fit_a_pure_bound) {
     const std::string message = rejects(
         "pub fn apply(f: fn(int) -> int uses nothing, x: int) -> int uses nothing {\n"
         "    return f(x);\n"
@@ -309,10 +309,10 @@ EMBER_TEST(an_impure_closure_does_not_fit_a_pure_bound) {
         "pub fn main() {\n"
         "    println(apply(|x: int| { println(x); return x; }, 3));\n"
         "}\n");
-    EMBER_CHECK_EQ(message, std::string{"this closure performs `io`"});
+    CINDER_CHECK_EQ(message, std::string{"this closure performs `io`"});
 }
 
-EMBER_TEST(a_pure_closure_fits_a_pure_bound) {
+CINDER_TEST(a_pure_closure_fits_a_pure_bound) {
     accepts(
         "pub fn apply(f: fn(int) -> int uses nothing, x: int) -> int uses nothing {\n"
         "    return f(x);\n"
@@ -322,7 +322,7 @@ EMBER_TEST(a_pure_closure_fits_a_pure_bound) {
         "}\n");
 }
 
-EMBER_TEST(a_function_that_does_less_fits_where_more_is_allowed) {
+CINDER_TEST(a_function_that_does_less_fits_where_more_is_allowed) {
     // Width subtyping on the effect set: a pure closure satisfies a
     // parameter that merely permits `io`. Without this a bound would be
     // a straitjacket rather than a ceiling.
@@ -335,7 +335,7 @@ EMBER_TEST(a_function_that_does_less_fits_where_more_is_allowed) {
         "}\n");
 }
 
-EMBER_TEST(defining_a_closure_is_not_calling_it) {
+CINDER_TEST(defining_a_closure_is_not_calling_it) {
     // A factory may be pure even though what it hands back is not.
     // Before effects were in types, the closure's `println` was charged
     // to the function that merely wrote it down.
@@ -345,7 +345,7 @@ EMBER_TEST(defining_a_closure_is_not_calling_it) {
         "}\n");
 }
 
-EMBER_TEST(a_bound_is_part_of_how_a_function_type_is_written) {
+CINDER_TEST(a_bound_is_part_of_how_a_function_type_is_written) {
     // Two types that differ only in their bound must not print the
     // same, or a mismatch between them reads as nonsense.
     const std::string message = rejects(
@@ -354,10 +354,10 @@ EMBER_TEST(a_bound_is_part_of_how_a_function_type_is_written) {
         "    let g: fn(int) -> int uses io = |x: int| { println(x); return x; };\n"
         "    println(apply(g));\n"
         "}\n");
-    EMBER_CHECK_EQ(message, std::string{"type mismatch"});
+    CINDER_CHECK_EQ(message, std::string{"type mismatch"});
 }
 
-EMBER_TEST(a_return_type_bounds_the_function_not_the_type_it_returns) {
+CINDER_TEST(a_return_type_bounds_the_function_not_the_type_it_returns) {
     // `fn f() -> fn(int) -> int uses nothing` binds the clause to `f`.
     // Binding it to the returned type instead would leave `f` unbounded
     // while looking like it had been constrained.
@@ -365,13 +365,13 @@ EMBER_TEST(a_return_type_bounds_the_function_not_the_type_it_returns) {
         "pub fn make() -> fn(int) -> int uses nothing {\n"
         "    return |x: int| { return x; };\n"
         "}\n");
-    const ember::parser::ParseResult parsed = ember::parser::parse_source(source);
-    EMBER_CHECK(parsed.ok());
-    EMBER_CHECK(first_function(*parsed.program).effects.present);
-    EMBER_CHECK(first_function(*parsed.program).effects.effects.empty());
+    const cinder::parser::ParseResult parsed = cinder::parser::parse_source(source);
+    CINDER_CHECK(parsed.ok());
+    CINDER_CHECK(first_function(*parsed.program).effects.present);
+    CINDER_CHECK(first_function(*parsed.program).effects.effects.empty());
 }
 
-EMBER_TEST(a_bounded_type_in_a_parameter_list_does_not_eat_the_comma) {
+CINDER_TEST(a_bounded_type_in_a_parameter_list_does_not_eat_the_comma) {
     // `f: fn(int) -> int uses nothing, x: int` - a greedy clause reads
     // the separator as another effect and then `x` as its name.
     accepts(
@@ -388,11 +388,11 @@ EMBER_TEST(a_bounded_type_in_a_parameter_list_does_not_eat_the_comma) {
         "}\n");
 }
 
-EMBER_TEST(mut_is_declarable_and_nothing_produces_it) {
-    // Ember has no `&mut`, so `mut` is inert for now - it is accepted
+CINDER_TEST(mut_is_declarable_and_nothing_produces_it) {
+    // Cinder has no `&mut`, so `mut` is inert for now - it is accepted
     // so that programs written today do not change when it gains
     // meaning. A function declaring only `mut` may not print.
     accepts("pub fn f(x: int) -> int uses mut { return x; }\n");
-    EMBER_CHECK_EQ(rejects("pub fn f(x: int) uses mut { println(x); }\n"),
+    CINDER_CHECK_EQ(rejects("pub fn f(x: int) uses mut { println(x); }\n"),
                    std::string{"`io` is not permitted here"});
 }

@@ -1,6 +1,6 @@
 // A compiler that carries its own linker.
 //
-// Ember used to link by shelling out to whichever C++ compiler built it,
+// Cinder used to link by shelling out to whichever C++ compiler built it,
 // at the absolute path CMake recorded. That works on exactly one
 // machine. Everywhere else - a colleague's laptop, a CI image, a user
 // who downloaded a release - `C:/msys64/ucrt64/bin/g++.exe` does not
@@ -22,7 +22,7 @@
 
 #include "test_harness.hpp"
 
-#include "ember/link/link.hpp"
+#include "cinder/link/link.hpp"
 
 #include <array>
 #include <cstdint>
@@ -55,7 +55,7 @@ ProcessResult run_process(const std::string& command) {
     FILE* pipe = popen(redirected.c_str(), "r");
 #endif
     if (pipe == nullptr) {
-        ::ember::test::fail(__FILE__, __LINE__, "cannot start: " + command);
+        ::cinder::test::fail(__FILE__, __LINE__, "cannot start: " + command);
     }
 
     ProcessResult result;
@@ -216,31 +216,31 @@ bool ships_with_windows(const std::string& dll) {
 
 }  // namespace
 
-EMBER_TEST(the_linker_is_compiled_in) {
+CINDER_TEST(the_linker_is_compiled_in) {
     // If this fails the build found no LLD, and every other guarantee
     // here is void: the driver falls back to an external linker and the
     // compiler only works where a C++ toolchain is installed.
-    EMBER_CHECK(ember::link::is_available());
+    CINDER_CHECK(cinder::link::is_available());
 }
 
-EMBER_TEST(the_compiler_knows_where_it_is) {
-    const fs::path self = ember::link::executable_path();
-    EMBER_CHECK(!self.empty());
-    EMBER_CHECK(fs::exists(self));
+CINDER_TEST(the_compiler_knows_where_it_is) {
+    const fs::path self = cinder::link::executable_path();
+    CINDER_CHECK(!self.empty());
+    CINDER_CHECK(fs::exists(self));
 
     // Everything is found relative to this, so it has to be the real
     // binary rather than argv[0] or the working directory.
-    EMBER_CHECK(self.is_absolute());
+    CINDER_CHECK(self.is_absolute());
 }
 
-EMBER_TEST(the_toolchain_is_complete) {
-    if (!ember::link::is_available()) {
+CINDER_TEST(the_toolchain_is_complete) {
+    if (!cinder::link::is_available()) {
         return;
     }
-    const ember::link::Toolchain toolchain = ember::link::discover();
-    EMBER_CHECK_MSG(toolchain.complete, toolchain.note);
-    EMBER_CHECK(fs::exists(toolchain.runtime));
-    EMBER_CHECK(!toolchain.library_paths.empty());
+    const cinder::link::Toolchain toolchain = cinder::link::discover();
+    CINDER_CHECK_MSG(toolchain.complete, toolchain.note);
+    CINDER_CHECK(fs::exists(toolchain.runtime));
+    CINDER_CHECK(!toolchain.library_paths.empty());
 
     // Both halves of the startup sequence have to be reachable. They do
     // not live in the same directory in a build tree, which is what the
@@ -251,43 +251,43 @@ EMBER_TEST(the_toolchain_is_complete) {
         crt2 = crt2 || fs::exists(directory / "crt2.o");
         crtbegin = crtbegin || fs::exists(directory / "crtbegin.o");
     }
-    EMBER_CHECK(crt2);
-    EMBER_CHECK(crtbegin);
+    CINDER_CHECK(crt2);
+    CINDER_CHECK(crtbegin);
 }
 
-EMBER_TEST(the_import_reader_agrees_with_a_known_image) {
-    // Calibration. `ember.exe` is a PE image that certainly imports
+CINDER_TEST(the_import_reader_agrees_with_a_known_image) {
+    // Calibration. `cinder.exe` is a PE image that certainly imports
     // kernel32; if this fails, a failure below means the reader is
     // broken rather than the linker, which is worth being able to tell
     // apart.
-    const std::vector<std::string> dlls = imported_dlls(fs::path{EMBER_BINARY});
-    EMBER_CHECK(!dlls.empty());
+    const std::vector<std::string> dlls = imported_dlls(fs::path{CINDER_BINARY});
+    CINDER_CHECK(!dlls.empty());
 
     bool kernel32 = false;
     for (const std::string& dll : dlls) {
         kernel32 = kernel32 || lowered(dll) == "kernel32.dll";
     }
-    EMBER_CHECK(kernel32);
+    CINDER_CHECK(kernel32);
 }
 
-EMBER_TEST(the_compiler_itself_needs_no_toolchain_dlls) {
+CINDER_TEST(the_compiler_itself_needs_no_toolchain_dlls) {
     // The compiler has to start on a machine that has never had a
     // toolchain installed. It used to need libstdc++-6.dll,
     // libgcc_s_seh-1.dll, libwinpthread-1.dll, zlib1.dll and
     // libzstd.dll, all from an MSYS2 prefix.
-    const std::vector<std::string> dlls = imported_dlls(fs::path{EMBER_BINARY});
-    EMBER_CHECK(!dlls.empty());
+    const std::vector<std::string> dlls = imported_dlls(fs::path{CINDER_BINARY});
+    CINDER_CHECK(!dlls.empty());
 
     for (const std::string& dll : dlls) {
-        EMBER_CHECK_MSG(ships_with_windows(dll),
-                        "ember.exe imports `" + dll +
+        CINDER_CHECK_MSG(ships_with_windows(dll),
+                        "cinder.exe imports `" + dll +
                             "`, which Windows does not ship - it would have to be installed "
                             "alongside the compiler, or linked statically");
     }
 }
 
-EMBER_TEST(programs_it_produces_need_no_toolchain_dlls) {
-    if (!ember::link::is_available()) {
+CINDER_TEST(programs_it_produces_need_no_toolchain_dlls) {
+    if (!cinder::link::is_available()) {
         return;
     }
     // The failure this guards against is quiet: a GNU-style `-l` prefers
@@ -296,11 +296,11 @@ EMBER_TEST(programs_it_produces_need_no_toolchain_dlls) {
     // 0xC0000135 anywhere else. Nothing short of reading the import
     // table notices.
     const fs::path directory =
-        fs::temp_directory_path() / ("ember-link-test-" + std::to_string(std::rand()));
+        fs::temp_directory_path() / ("cinder-link-test-" + std::to_string(std::rand()));
     std::error_code failed;
     fs::create_directories(directory, failed);
 
-    const fs::path source = directory / "main.em";
+    const fs::path source = directory / "main.ci";
     {
         std::ofstream out{source};
         out << "pub fn main() {\n";
@@ -316,16 +316,16 @@ EMBER_TEST(programs_it_produces_need_no_toolchain_dlls) {
 
     const fs::path output = directory / "main.exe";
     const ProcessResult built =
-        run_process(quoted(fs::path{EMBER_BINARY}) + " build " + quoted(source) + " -o " +
+        run_process(quoted(fs::path{CINDER_BINARY}) + " build " + quoted(source) + " -o " +
                     quoted(output));
-    EMBER_CHECK_MSG(built.exit_code == 0, "build failed:\n" + built.output);
-    EMBER_CHECK_MSG(fs::exists(output), "no executable was produced");
+    CINDER_CHECK_MSG(built.exit_code == 0, "build failed:\n" + built.output);
+    CINDER_CHECK_MSG(fs::exists(output), "no executable was produced");
 
     const std::vector<std::string> dlls = imported_dlls(output);
-    EMBER_CHECK_MSG(!dlls.empty(), "the produced program has no import table at all");
+    CINDER_CHECK_MSG(!dlls.empty(), "the produced program has no import table at all");
     for (const std::string& dll : dlls) {
-        EMBER_CHECK_MSG(ships_with_windows(dll),
-                        "a compiled Ember program imports `" + dll +
+        CINDER_CHECK_MSG(ships_with_windows(dll),
+                        "a compiled Cinder program imports `" + dll +
                             "`, so it will not start on a machine without that toolchain");
     }
 

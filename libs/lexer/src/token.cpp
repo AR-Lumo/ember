@@ -1,9 +1,9 @@
-#include "ember/lexer/token.hpp"
+#include "cinder/lexer/token.hpp"
 
 #include <array>
 #include <utility>
 
-namespace ember::lexer {
+namespace cinder::lexer {
 namespace {
 
 struct KindNames {
@@ -184,4 +184,4 @@ std::optional<TokenKind> keyword_kind(std::string_view text) noexcept {
     return std::nullopt;
 }
 
-}  // namespace ember::lexer
+}  // namespace cinder::lexer

@@ -4,7 +4,7 @@
 // the import — which meant a program could only ever use modules kept in
 // its own directory. That is fine for a program written all at once and
 // hopeless for one that depends on code it did not write, so it was the
-// real thing standing between Ember and a package manager.
+// real thing standing between Cinder and a package manager.
 //
 // The order is deliberate and the tests below pin it down: the
 // importer's own directory always wins, so adding a dependency can never
@@ -17,9 +17,9 @@
 #include "test_harness.hpp"
 
 #include "cli.hpp"
-#include "ember/ast/diagnostic.hpp"
-#include "ember/ast/span.hpp"
-#include "ember/parser/parser.hpp"
+#include "cinder/ast/diagnostic.hpp"
+#include "cinder/ast/span.hpp"
+#include "cinder/parser/parser.hpp"
 
 #include <cstdlib>
 #include <filesystem>
@@ -32,7 +32,7 @@ namespace fs = std::filesystem;
 
 namespace {
 
-/// A throwaway tree of `.em` files, removed when the test ends.
+/// A throwaway tree of `.ci` files, removed when the test ends.
 class Workspace {
 public:
     Workspace() {
@@ -41,7 +41,7 @@ public:
         static const unsigned run = std::random_device{}();
         static int counter = 0;
         root_ = fs::temp_directory_path() /
-                ("ember-search-path-" + std::to_string(run) + "-" + std::to_string(++counter));
+                ("cinder-search-path-" + std::to_string(run) + "-" + std::to_string(++counter));
         std::error_code ignored;
         fs::remove_all(root_, ignored);
         fs::create_directories(root_, ignored);
@@ -72,36 +72,36 @@ private:
 
 /// Loads `entry` with the given search path, failing the test if it did
 /// not load cleanly.
-ember::parser::LoadResult load(const Workspace& workspace, const std::string& entry,
-                               const ember::parser::ModulePath& search = {}) {
-    ember::ast::SourceMap sources;
-    ember::parser::LoadResult result =
-        ember::parser::load_program(workspace.path(entry), sources, search);
+cinder::parser::LoadResult load(const Workspace& workspace, const std::string& entry,
+                               const cinder::parser::ModulePath& search = {}) {
+    cinder::ast::SourceMap sources;
+    cinder::parser::LoadResult result =
+        cinder::parser::load_program(workspace.path(entry), sources, search);
     if (!result.ok()) {
-        ::ember::test::fail(__FILE__, __LINE__,
+        ::cinder::test::fail(__FILE__, __LINE__,
                             "expected this program to load, but:\n" +
-                                ember::ast::render_all(result.diagnostics, sources));
+                                cinder::ast::render_all(result.diagnostics, sources));
     }
     return result;
 }
 
 /// Loads `entry` expecting failure, and returns the diagnostics.
-std::vector<ember::ast::Diagnostic> load_failure(
+std::vector<cinder::ast::Diagnostic> load_failure(
     const Workspace& workspace, const std::string& entry,
-    const ember::parser::ModulePath& search = {}) {
-    ember::ast::SourceMap sources;
-    ember::parser::LoadResult result =
-        ember::parser::load_program(workspace.path(entry), sources, search);
+    const cinder::parser::ModulePath& search = {}) {
+    cinder::ast::SourceMap sources;
+    cinder::parser::LoadResult result =
+        cinder::parser::load_program(workspace.path(entry), sources, search);
     if (result.ok()) {
-        ::ember::test::fail(__FILE__, __LINE__,
+        ::cinder::test::fail(__FILE__, __LINE__,
                             "expected loading to fail, but it succeeded");
     }
     return std::move(result.diagnostics);
 }
 
 /// The file a named module was loaded from.
-fs::path source_of(const ember::parser::LoadResult& loaded, const std::string& name) {
-    for (const ember::parser::Module& module : loaded.modules) {
+fs::path source_of(const cinder::parser::LoadResult& loaded, const std::string& name) {
+    for (const cinder::parser::Module& module : loaded.modules) {
         if (module.name == name) {
             return module.path;
         }
@@ -123,21 +123,21 @@ void set_environment(const char* name, const char* value) {
 #endif
 }
 
-/// Clears `EMBER_MODULE_PATH` for the duration of a test and puts back
+/// Clears `CINDER_MODULE_PATH` for the duration of a test and puts back
 /// whatever was there, so a developer with one set does not fail the
 /// suite.
 class ScopedModulePathEnvironment {
 public:
     explicit ScopedModulePathEnvironment(const char* value) {
-        if (const char* existing = std::getenv("EMBER_MODULE_PATH")) {
+        if (const char* existing = std::getenv("CINDER_MODULE_PATH")) {
             previous_ = existing;
             had_previous_ = true;
         }
-        set_environment("EMBER_MODULE_PATH", value);
+        set_environment("CINDER_MODULE_PATH", value);
     }
 
     ~ScopedModulePathEnvironment() {
-        set_environment("EMBER_MODULE_PATH", had_previous_ ? previous_.c_str() : nullptr);
+        set_environment("CINDER_MODULE_PATH", had_previous_ ? previous_.c_str() : nullptr);
     }
 
     ScopedModulePathEnvironment(const ScopedModulePathEnvironment&) = delete;
@@ -160,142 +160,142 @@ const char* const kUsesGreeter =
 // The old behaviour, unchanged
 // ---------------------------------------------------------------------
 
-EMBER_TEST(search_path_still_finds_a_module_beside_its_importer) {
+CINDER_TEST(search_path_still_finds_a_module_beside_its_importer) {
     // With no search path at all, this is the whole of the old rule.
     const Workspace workspace;
-    workspace.write("main.em", kUsesGreeter);
-    workspace.write("greeter.em", kGreeter);
+    workspace.write("main.ci", kUsesGreeter);
+    workspace.write("greeter.ci", kGreeter);
 
-    const ember::parser::LoadResult loaded = load(workspace, "main.em");
-    EMBER_CHECK_EQ(loaded.modules.size(), std::size_t{2});
-    EMBER_CHECK_EQ(source_of(loaded, "greeter"), workspace.path("greeter.em"));
+    const cinder::parser::LoadResult loaded = load(workspace, "main.ci");
+    CINDER_CHECK_EQ(loaded.modules.size(), std::size_t{2});
+    CINDER_CHECK_EQ(source_of(loaded, "greeter"), workspace.path("greeter.ci"));
 }
 
 // ---------------------------------------------------------------------
 // The search path
 // ---------------------------------------------------------------------
 
-EMBER_TEST(search_path_finds_a_module_as_a_file_in_a_search_directory) {
+CINDER_TEST(search_path_finds_a_module_as_a_file_in_a_search_directory) {
     const Workspace workspace;
-    workspace.write("main.em", kUsesGreeter);
-    workspace.write("vendor/greeter.em", kGreeter);
+    workspace.write("main.ci", kUsesGreeter);
+    workspace.write("vendor/greeter.ci", kGreeter);
 
-    const ember::parser::LoadResult loaded =
-        load(workspace, "main.em", {workspace.path("vendor")});
-    EMBER_CHECK_EQ(source_of(loaded, "greeter"), workspace.path("vendor/greeter.em"));
+    const cinder::parser::LoadResult loaded =
+        load(workspace, "main.ci", {workspace.path("vendor")});
+    CINDER_CHECK_EQ(source_of(loaded, "greeter"), workspace.path("vendor/greeter.ci"));
 }
 
-EMBER_TEST(search_path_finds_a_module_shipped_as_a_directory) {
-    // `<dir>/greeter/greeter.em`, which is how a package with more than
+CINDER_TEST(search_path_finds_a_module_shipped_as_a_directory) {
+    // `<dir>/greeter/greeter.ci`, which is how a package with more than
     // one file has to be laid out.
     const Workspace workspace;
-    workspace.write("main.em", kUsesGreeter);
-    workspace.write("vendor/greeter/greeter.em", kGreeter);
+    workspace.write("main.ci", kUsesGreeter);
+    workspace.write("vendor/greeter/greeter.ci", kGreeter);
 
-    const ember::parser::LoadResult loaded =
-        load(workspace, "main.em", {workspace.path("vendor")});
-    EMBER_CHECK_EQ(source_of(loaded, "greeter"), workspace.path("vendor/greeter/greeter.em"));
+    const cinder::parser::LoadResult loaded =
+        load(workspace, "main.ci", {workspace.path("vendor")});
+    CINDER_CHECK_EQ(source_of(loaded, "greeter"), workspace.path("vendor/greeter/greeter.ci"));
 }
 
-EMBER_TEST(search_path_lets_a_package_keep_private_modules_of_its_own) {
+CINDER_TEST(search_path_lets_a_package_keep_private_modules_of_its_own) {
     // This is the point of the directory form: `casing` is found beside
-    // `greeter.em`, inside the package, without being on any search
+    // `greeter.ci`, inside the package, without being on any search
     // path itself. A package can be more than one file.
     const Workspace workspace;
-    workspace.write("main.em", kUsesGreeter);
-    workspace.write("vendor/greeter/greeter.em",
+    workspace.write("main.ci", kUsesGreeter);
+    workspace.write("vendor/greeter/greeter.ci",
                     "import casing;\n"
                     "pub fn hello() -> int { return casing::shout(); }\n");
-    workspace.write("vendor/greeter/casing.em", "pub fn shout() -> int { return 7; }\n");
+    workspace.write("vendor/greeter/casing.ci", "pub fn shout() -> int { return 7; }\n");
 
-    const ember::parser::LoadResult loaded =
-        load(workspace, "main.em", {workspace.path("vendor")});
-    EMBER_CHECK_EQ(source_of(loaded, "casing"), workspace.path("vendor/greeter/casing.em"));
+    const cinder::parser::LoadResult loaded =
+        load(workspace, "main.ci", {workspace.path("vendor")});
+    CINDER_CHECK_EQ(source_of(loaded, "casing"), workspace.path("vendor/greeter/casing.ci"));
 }
 
-EMBER_TEST(search_path_tries_its_directories_in_order) {
+CINDER_TEST(search_path_tries_its_directories_in_order) {
     const Workspace workspace;
-    workspace.write("main.em", kUsesGreeter);
-    workspace.write("first/greeter.em", kGreeter);
-    workspace.write("second/greeter.em", kGreeter);
+    workspace.write("main.ci", kUsesGreeter);
+    workspace.write("first/greeter.ci", kGreeter);
+    workspace.write("second/greeter.ci", kGreeter);
 
-    const ember::parser::LoadResult loaded =
-        load(workspace, "main.em", {workspace.path("first"), workspace.path("second")});
-    EMBER_CHECK_EQ(source_of(loaded, "greeter"), workspace.path("first/greeter.em"));
+    const cinder::parser::LoadResult loaded =
+        load(workspace, "main.ci", {workspace.path("first"), workspace.path("second")});
+    CINDER_CHECK_EQ(source_of(loaded, "greeter"), workspace.path("first/greeter.ci"));
 }
 
-EMBER_TEST(search_path_prefers_a_file_to_a_directory_in_the_same_place) {
+CINDER_TEST(search_path_prefers_a_file_to_a_directory_in_the_same_place) {
     const Workspace workspace;
-    workspace.write("main.em", kUsesGreeter);
-    workspace.write("vendor/greeter.em", kGreeter);
-    workspace.write("vendor/greeter/greeter.em", kGreeter);
+    workspace.write("main.ci", kUsesGreeter);
+    workspace.write("vendor/greeter.ci", kGreeter);
+    workspace.write("vendor/greeter/greeter.ci", kGreeter);
 
-    const ember::parser::LoadResult loaded =
-        load(workspace, "main.em", {workspace.path("vendor")});
-    EMBER_CHECK_EQ(source_of(loaded, "greeter"), workspace.path("vendor/greeter.em"));
+    const cinder::parser::LoadResult loaded =
+        load(workspace, "main.ci", {workspace.path("vendor")});
+    CINDER_CHECK_EQ(source_of(loaded, "greeter"), workspace.path("vendor/greeter.ci"));
 }
 
-EMBER_TEST(search_path_never_shadows_a_module_beside_the_importer) {
+CINDER_TEST(search_path_never_shadows_a_module_beside_the_importer) {
     // The rule that makes adding a dependency safe: a package cannot
     // take over a name the program is already using for its own module.
     const Workspace workspace;
-    workspace.write("main.em", kUsesGreeter);
-    workspace.write("greeter.em", kGreeter);
-    workspace.write("vendor/greeter.em", kGreeter);
+    workspace.write("main.ci", kUsesGreeter);
+    workspace.write("greeter.ci", kGreeter);
+    workspace.write("vendor/greeter.ci", kGreeter);
 
-    const ember::parser::LoadResult loaded =
-        load(workspace, "main.em", {workspace.path("vendor")});
-    EMBER_CHECK_EQ(source_of(loaded, "greeter"), workspace.path("greeter.em"));
+    const cinder::parser::LoadResult loaded =
+        load(workspace, "main.ci", {workspace.path("vendor")});
+    CINDER_CHECK_EQ(source_of(loaded, "greeter"), workspace.path("greeter.ci"));
 }
 
 // ---------------------------------------------------------------------
 // When it cannot be found
 // ---------------------------------------------------------------------
 
-EMBER_TEST(search_path_says_everywhere_it_looked) {
+CINDER_TEST(search_path_says_everywhere_it_looked) {
     const Workspace workspace;
-    workspace.write("main.em", kUsesGreeter);
+    workspace.write("main.ci", kUsesGreeter);
 
-    const std::vector<ember::ast::Diagnostic> errors =
-        load_failure(workspace, "main.em", {workspace.path("vendor")});
-    EMBER_CHECK_EQ(errors.at(0).message, std::string{"cannot find module `greeter`"});
+    const std::vector<cinder::ast::Diagnostic> errors =
+        load_failure(workspace, "main.ci", {workspace.path("vendor")});
+    CINDER_CHECK_EQ(errors.at(0).message, std::string{"cannot find module `greeter`"});
 
     // Beside the importer, then the search directory two ways - and
     // then the same three again looking for an interface instead of a
     // source file.
-    EMBER_CHECK_EQ(errors.at(0).notes.size(), std::size_t{6});
-    EMBER_CHECK_MSG(errors.at(0).notes.at(0).find("greeter.em") != std::string::npos,
+    CINDER_CHECK_EQ(errors.at(0).notes.size(), std::size_t{6});
+    CINDER_CHECK_MSG(errors.at(0).notes.at(0).find("greeter.ci") != std::string::npos,
                     "the first place looked should be beside the importer: " +
                         errors.at(0).notes.at(0));
 
     bool mentions_interface = false;
     for (const std::string& note : errors.at(0).notes) {
-        mentions_interface = mentions_interface || note.find("greeter.emi") != std::string::npos;
+        mentions_interface = mentions_interface || note.find("greeter.cii") != std::string::npos;
     }
-    EMBER_CHECK_MSG(mentions_interface, "an interface is a place it looks, so it should say so");
+    CINDER_CHECK_MSG(mentions_interface, "an interface is a place it looks, so it should say so");
 }
 
-EMBER_TEST(search_path_suggests_the_flag_when_none_was_given) {
+CINDER_TEST(search_path_suggests_the_flag_when_none_was_given) {
     // Only worth saying when they have not already configured one.
     const Workspace workspace;
-    workspace.write("main.em", kUsesGreeter);
+    workspace.write("main.ci", kUsesGreeter);
 
-    const std::vector<ember::ast::Diagnostic> errors = load_failure(workspace, "main.em");
+    const std::vector<cinder::ast::Diagnostic> errors = load_failure(workspace, "main.ci");
     bool suggests = false;
     for (const std::string& note : errors.at(0).notes) {
         suggests = suggests || note.find("--module-path") != std::string::npos;
     }
-    EMBER_CHECK_MSG(suggests, "no note pointing at `--module-path`");
+    CINDER_CHECK_MSG(suggests, "no note pointing at `--module-path`");
 }
 
-EMBER_TEST(search_path_does_not_suggest_the_flag_when_one_was_given) {
+CINDER_TEST(search_path_does_not_suggest_the_flag_when_one_was_given) {
     const Workspace workspace;
-    workspace.write("main.em", kUsesGreeter);
+    workspace.write("main.ci", kUsesGreeter);
 
-    const std::vector<ember::ast::Diagnostic> errors =
-        load_failure(workspace, "main.em", {workspace.path("vendor")});
+    const std::vector<cinder::ast::Diagnostic> errors =
+        load_failure(workspace, "main.ci", {workspace.path("vendor")});
     for (const std::string& note : errors.at(0).notes) {
-        EMBER_CHECK_MSG(note.find("--module-path") == std::string::npos,
+        CINDER_CHECK_MSG(note.find("--module-path") == std::string::npos,
                         "suggested a flag that was already used: " + note);
     }
 }
@@ -304,210 +304,210 @@ EMBER_TEST(search_path_does_not_suggest_the_flag_when_one_was_given) {
 // Two files, one name
 // ---------------------------------------------------------------------
 
-EMBER_TEST(search_path_reports_two_files_claiming_one_module_name) {
+CINDER_TEST(search_path_reports_two_files_claiming_one_module_name) {
     // Module names are global, so a package's private module can collide
     // with one of the program's. Before the search path this was hard to
     // arrange; now it is a thing that will happen, and silently using
     // whichever loaded first would produce nonsense errors later.
     const Workspace workspace;
-    workspace.write("main.em",
+    workspace.write("main.ci",
                     "import greeter;\n"
                     "import casing;\n"
                     "pub fn main() { println(greeter::hello() + casing::shout()); }\n");
-    workspace.write("casing.em", "pub fn shout() -> int { return 1; }\n");
-    workspace.write("vendor/greeter/greeter.em",
+    workspace.write("casing.ci", "pub fn shout() -> int { return 1; }\n");
+    workspace.write("vendor/greeter/greeter.ci",
                     "import casing;\n"
                     "pub fn hello() -> int { return casing::shout(); }\n");
-    workspace.write("vendor/greeter/casing.em", "pub fn shout() -> int { return 2; }\n");
+    workspace.write("vendor/greeter/casing.ci", "pub fn shout() -> int { return 2; }\n");
 
-    const std::vector<ember::ast::Diagnostic> errors =
-        load_failure(workspace, "main.em", {workspace.path("vendor")});
-    EMBER_CHECK_EQ(errors.at(0).message,
+    const std::vector<cinder::ast::Diagnostic> errors =
+        load_failure(workspace, "main.ci", {workspace.path("vendor")});
+    CINDER_CHECK_EQ(errors.at(0).message,
                    std::string{"two files claim the module `casing`"});
-    EMBER_CHECK_EQ(errors.at(0).notes.size(), std::size_t{2});
+    CINDER_CHECK_EQ(errors.at(0).notes.size(), std::size_t{2});
 }
 
-EMBER_TEST(search_path_allows_two_modules_to_import_the_same_file) {
+CINDER_TEST(search_path_allows_two_modules_to_import_the_same_file) {
     // The same module reached twice is ordinary; only two *different*
     // files under one name are a problem.
     const Workspace workspace;
-    workspace.write("main.em",
+    workspace.write("main.ci",
                     "import greeter;\n"
                     "import shared;\n"
                     "pub fn main() { println(greeter::hello() + shared::value()); }\n");
-    workspace.write("greeter.em",
+    workspace.write("greeter.ci",
                     "import shared;\n"
                     "pub fn hello() -> int { return shared::value(); }\n");
-    workspace.write("shared.em", "pub fn value() -> int { return 3; }\n");
+    workspace.write("shared.ci", "pub fn value() -> int { return 3; }\n");
 
-    const ember::parser::LoadResult loaded = load(workspace, "main.em");
-    EMBER_CHECK_EQ(loaded.modules.size(), std::size_t{3});
+    const cinder::parser::LoadResult loaded = load(workspace, "main.ci");
+    CINDER_CHECK_EQ(loaded.modules.size(), std::size_t{3});
 }
 
 // ---------------------------------------------------------------------
 // Where the driver gets its search path from
 // ---------------------------------------------------------------------
 
-EMBER_TEST(module_search_path_uses_an_ember_modules_directory_beside_the_entry) {
+CINDER_TEST(module_search_path_uses_an_ember_modules_directory_beside_the_entry) {
     // The conventional place, so a vendored dependency needs no flag:
     // drop it in and `import` finds it.
     const Workspace workspace;
-    workspace.write("main.em", kUsesGreeter);
-    workspace.write("ember_modules/greeter/greeter.em", kGreeter);
+    workspace.write("main.ci", kUsesGreeter);
+    workspace.write("cinder_modules/greeter/greeter.ci", kGreeter);
     const ScopedModulePathEnvironment environment{nullptr};
 
     const std::vector<fs::path> search =
-        ember::cli::module_search_path(workspace.path("main.em"), {});
-    EMBER_CHECK_EQ(search.size(), std::size_t{1});
-    EMBER_CHECK_EQ(search.at(0), workspace.path("ember_modules"));
+        cinder::cli::module_search_path(workspace.path("main.ci"), {});
+    CINDER_CHECK_EQ(search.size(), std::size_t{1});
+    CINDER_CHECK_EQ(search.at(0), workspace.path("cinder_modules"));
 
-    const ember::parser::LoadResult loaded = load(workspace, "main.em", search);
-    EMBER_CHECK_EQ(source_of(loaded, "greeter"),
-                   workspace.path("ember_modules/greeter/greeter.em"));
+    const cinder::parser::LoadResult loaded = load(workspace, "main.ci", search);
+    CINDER_CHECK_EQ(source_of(loaded, "greeter"),
+                   workspace.path("cinder_modules/greeter/greeter.ci"));
 }
 
-EMBER_TEST(module_search_path_ignores_an_ember_modules_that_is_not_there) {
+CINDER_TEST(module_search_path_ignores_an_ember_modules_that_is_not_there) {
     const Workspace workspace;
-    workspace.write("main.em", kUsesGreeter);
+    workspace.write("main.ci", kUsesGreeter);
     const ScopedModulePathEnvironment environment{nullptr};
 
-    EMBER_CHECK(ember::cli::module_search_path(workspace.path("main.em"), {}).empty());
+    CINDER_CHECK(cinder::cli::module_search_path(workspace.path("main.ci"), {}).empty());
 }
 
-EMBER_TEST(module_search_path_reads_the_environment) {
+CINDER_TEST(module_search_path_reads_the_environment) {
     const Workspace workspace;
-    workspace.write("main.em", kUsesGreeter);
+    workspace.write("main.ci", kUsesGreeter);
     const ScopedModulePathEnvironment environment{"/one"};
 
     const std::vector<fs::path> search =
-        ember::cli::module_search_path(workspace.path("main.em"), {});
-    EMBER_CHECK_EQ(search.size(), std::size_t{1});
-    EMBER_CHECK_EQ(search.at(0), fs::path{"/one"});
+        cinder::cli::module_search_path(workspace.path("main.ci"), {});
+    CINDER_CHECK_EQ(search.size(), std::size_t{1});
+    CINDER_CHECK_EQ(search.at(0), fs::path{"/one"});
 }
 
-EMBER_TEST(module_search_path_puts_the_explicit_flag_first) {
+CINDER_TEST(module_search_path_puts_the_explicit_flag_first) {
     // Explicit beats ambient beats conventional.
     const Workspace workspace;
-    workspace.write("main.em", kUsesGreeter);
-    workspace.write("ember_modules/greeter/greeter.em", kGreeter);
+    workspace.write("main.ci", kUsesGreeter);
+    workspace.write("cinder_modules/greeter/greeter.ci", kGreeter);
     const ScopedModulePathEnvironment environment{"/from-the-environment"};
 
     const std::vector<fs::path> search =
-        ember::cli::module_search_path(workspace.path("main.em"), {fs::path{"/from-the-flag"}});
-    EMBER_CHECK_EQ(search.size(), std::size_t{3});
-    EMBER_CHECK_EQ(search.at(0), fs::path{"/from-the-flag"});
-    EMBER_CHECK_EQ(search.at(1), fs::path{"/from-the-environment"});
-    EMBER_CHECK_EQ(search.at(2), workspace.path("ember_modules"));
+        cinder::cli::module_search_path(workspace.path("main.ci"), {fs::path{"/from-the-flag"}});
+    CINDER_CHECK_EQ(search.size(), std::size_t{3});
+    CINDER_CHECK_EQ(search.at(0), fs::path{"/from-the-flag"});
+    CINDER_CHECK_EQ(search.at(1), fs::path{"/from-the-environment"});
+    CINDER_CHECK_EQ(search.at(2), workspace.path("cinder_modules"));
 }
 
 // ---------------------------------------------------------------------
 // Nested module paths
 //
-// `shapes::geometry` is the file `shapes/geometry.em`. The path is
+// `shapes::geometry` is the file `shapes/geometry.ci`. The path is
 // resolved against the root the *importing module* was found under, not
 // against the directory it happens to sit in, so it means the same thing
 // written anywhere — which is what makes it a name rather than a
 // direction.
 // ---------------------------------------------------------------------
 
-EMBER_TEST(nested_paths_are_directory_paths) {
+CINDER_TEST(nested_paths_are_directory_paths) {
     const Workspace workspace;
-    workspace.write("main.em",
+    workspace.write("main.ci",
                     "import shapes::geometry;\n"
                     "pub fn main() { println(shapes::geometry::value()); }\n");
-    workspace.write("shapes/geometry.em", "pub fn value() -> int { return 1; }\n");
+    workspace.write("shapes/geometry.ci", "pub fn value() -> int { return 1; }\n");
 
-    const ember::parser::LoadResult loaded = load(workspace, "main.em");
-    EMBER_CHECK_EQ(source_of(loaded, "shapes::geometry"),
-                   workspace.path("shapes/geometry.em"));
+    const cinder::parser::LoadResult loaded = load(workspace, "main.ci");
+    CINDER_CHECK_EQ(source_of(loaded, "shapes::geometry"),
+                   workspace.path("shapes/geometry.ci"));
 }
 
-EMBER_TEST(nested_paths_go_as_deep_as_they_like) {
+CINDER_TEST(nested_paths_go_as_deep_as_they_like) {
     const Workspace workspace;
-    workspace.write("main.em",
+    workspace.write("main.ci",
                     "import a::b::c::d;\npub fn main() { println(a::b::c::d::value()); }\n");
-    workspace.write("a/b/c/d.em", "pub fn value() -> int { return 1; }\n");
+    workspace.write("a/b/c/d.ci", "pub fn value() -> int { return 1; }\n");
 
-    const ember::parser::LoadResult loaded = load(workspace, "main.em");
-    EMBER_CHECK_EQ(source_of(loaded, "a::b::c::d"), workspace.path("a/b/c/d.em"));
+    const cinder::parser::LoadResult loaded = load(workspace, "main.ci");
+    CINDER_CHECK_EQ(source_of(loaded, "a::b::c::d"), workspace.path("a/b/c/d.ci"));
 }
 
-EMBER_TEST(nested_paths_mean_the_same_thing_from_a_nested_file) {
-    // The one that decides the design. `shapes/geometry.em` writes the
-    // full path, exactly as `main.em` does, and gets the same file -
-    // rather than `shapes/shapes/detail/math.em`, which is what a path
+CINDER_TEST(nested_paths_mean_the_same_thing_from_a_nested_file) {
+    // The one that decides the design. `shapes/geometry.ci` writes the
+    // full path, exactly as `main.ci` does, and gets the same file -
+    // rather than `shapes/shapes/detail/math.ci`, which is what a path
     // relative to the importer would have meant.
     const Workspace workspace;
-    workspace.write("main.em",
+    workspace.write("main.ci",
                     "import shapes::geometry;\n"
                     "pub fn main() { println(shapes::geometry::value()); }\n");
-    workspace.write("shapes/geometry.em",
+    workspace.write("shapes/geometry.ci",
                     "import shapes::detail::math;\n"
                     "pub fn value() -> int { return shapes::detail::math::square(3); }\n");
-    workspace.write("shapes/detail/math.em", "pub fn square(n: int) -> int { return n * n; }\n");
+    workspace.write("shapes/detail/math.ci", "pub fn square(n: int) -> int { return n * n; }\n");
 
-    const ember::parser::LoadResult loaded = load(workspace, "main.em");
-    EMBER_CHECK_EQ(source_of(loaded, "shapes::detail::math"),
-                   workspace.path("shapes/detail/math.em"));
+    const cinder::parser::LoadResult loaded = load(workspace, "main.ci");
+    CINDER_CHECK_EQ(source_of(loaded, "shapes::detail::math"),
+                   workspace.path("shapes/detail/math.ci"));
 }
 
-EMBER_TEST(nested_paths_let_a_leaf_name_repeat) {
+CINDER_TEST(nested_paths_let_a_leaf_name_repeat) {
     // The whole reason for having them: two modules called `math` that
     // are not the same module.
     const Workspace workspace;
-    workspace.write("main.em",
+    workspace.write("main.ci",
                     "import math;\n"
                     "import shapes::math;\n"
                     "pub fn main() { println(math::value() + shapes::math::value()); }\n");
-    workspace.write("math.em", "pub fn value() -> int { return 1; }\n");
-    workspace.write("shapes/math.em", "pub fn value() -> int { return 2; }\n");
+    workspace.write("math.ci", "pub fn value() -> int { return 1; }\n");
+    workspace.write("shapes/math.ci", "pub fn value() -> int { return 2; }\n");
 
-    const ember::parser::LoadResult loaded = load(workspace, "main.em");
-    EMBER_CHECK_EQ(loaded.modules.size(), std::size_t{3});
-    EMBER_CHECK_EQ(source_of(loaded, "math"), workspace.path("math.em"));
-    EMBER_CHECK_EQ(source_of(loaded, "shapes::math"), workspace.path("shapes/math.em"));
+    const cinder::parser::LoadResult loaded = load(workspace, "main.ci");
+    CINDER_CHECK_EQ(loaded.modules.size(), std::size_t{3});
+    CINDER_CHECK_EQ(source_of(loaded, "math"), workspace.path("math.ci"));
+    CINDER_CHECK_EQ(source_of(loaded, "shapes::math"), workspace.path("shapes/math.ci"));
 }
 
-EMBER_TEST(nested_paths_do_not_need_their_prefix_to_exist) {
+CINDER_TEST(nested_paths_do_not_need_their_prefix_to_exist) {
     // Nesting is a naming device. `shapes` is not a module, is not
     // imported, and does not have to be anything at all.
     const Workspace workspace;
-    workspace.write("main.em",
+    workspace.write("main.ci",
                     "import shapes::geometry;\n"
                     "pub fn main() { println(shapes::geometry::value()); }\n");
-    workspace.write("shapes/geometry.em", "pub fn value() -> int { return 1; }\n");
+    workspace.write("shapes/geometry.ci", "pub fn value() -> int { return 1; }\n");
 
-    const ember::parser::LoadResult loaded = load(workspace, "main.em");
-    EMBER_CHECK_EQ(loaded.modules.size(), std::size_t{2});
+    const cinder::parser::LoadResult loaded = load(workspace, "main.ci");
+    CINDER_CHECK_EQ(loaded.modules.size(), std::size_t{2});
 }
 
-EMBER_TEST(nested_paths_resolve_against_a_package_root) {
-    // A package found as `<dir>/name/name.em` keeps resolving its own
+CINDER_TEST(nested_paths_resolve_against_a_package_root) {
+    // A package found as `<dir>/name/name.ci` keeps resolving its own
     // modules against `<dir>/name`, so it can name its internals after
     // itself without them landing outside the package.
     const Workspace workspace;
-    workspace.write("main.em",
+    workspace.write("main.ci",
                     "import greeter;\npub fn main() { println(greeter::value()); }\n");
-    workspace.write("vendor/greeter/greeter.em",
+    workspace.write("vendor/greeter/greeter.ci",
                     "import greeter::casing;\n"
                     "pub fn value() -> int { return greeter::casing::shout(); }\n");
-    workspace.write("vendor/greeter/greeter/casing.em",
+    workspace.write("vendor/greeter/greeter/casing.ci",
                     "pub fn shout() -> int { return 7; }\n");
 
-    const ember::parser::LoadResult loaded =
-        load(workspace, "main.em", {workspace.path("vendor")});
-    EMBER_CHECK_EQ(source_of(loaded, "greeter::casing"),
-                   workspace.path("vendor/greeter/greeter/casing.em"));
+    const cinder::parser::LoadResult loaded =
+        load(workspace, "main.ci", {workspace.path("vendor")});
+    CINDER_CHECK_EQ(source_of(loaded, "greeter::casing"),
+                   workspace.path("vendor/greeter/greeter/casing.ci"));
 }
 
-EMBER_TEST(nested_paths_say_where_they_looked) {
+CINDER_TEST(nested_paths_say_where_they_looked) {
     const Workspace workspace;
-    workspace.write("main.em",
+    workspace.write("main.ci",
                     "import shapes::nowhere;\npub fn main() { println(1); }\n");
 
-    const std::vector<ember::ast::Diagnostic> errors = load_failure(workspace, "main.em");
-    EMBER_CHECK_EQ(errors.at(0).message,
+    const std::vector<cinder::ast::Diagnostic> errors = load_failure(workspace, "main.ci");
+    CINDER_CHECK_EQ(errors.at(0).message,
                    std::string{"cannot find module `shapes::nowhere`"});
-    EMBER_CHECK_MSG(errors.at(0).notes.at(0).find("nowhere") != std::string::npos,
+    CINDER_CHECK_MSG(errors.at(0).notes.at(0).find("nowhere") != std::string::npos,
                     errors.at(0).notes.at(0));
 }

@@ -5,8 +5,8 @@
 // readable failure output and a non-zero exit code - roughly the subset
 // of Catch2 the compiler actually needs.
 
-#ifndef EMBER_TEST_HARNESS_HPP
-#define EMBER_TEST_HARNESS_HPP
+#ifndef CINDER_TEST_HARNESS_HPP
+#define CINDER_TEST_HARNESS_HPP
 
 #include <exception>
 #include <functional>
@@ -16,7 +16,7 @@
 #include <string_view>
 #include <vector>
 
-namespace ember::test {
+namespace cinder::test {
 
 /// Thrown by a failing assertion and caught by the runner.
 class AssertionFailure : public std::exception {
@@ -96,29 +96,29 @@ inline int run_all(std::string_view filter = {}) {
     return failures.empty() ? 0 : 1;
 }
 
-}  // namespace ember::test
+}  // namespace cinder::test
 
-#define EMBER_TEST_CONCAT_INNER(a, b) a##b
-#define EMBER_TEST_CONCAT(a, b) EMBER_TEST_CONCAT_INNER(a, b)
+#define CINDER_TEST_CONCAT_INNER(a, b) a##b
+#define CINDER_TEST_CONCAT(a, b) CINDER_TEST_CONCAT_INNER(a, b)
 
-/// Define a test: EMBER_TEST(golden_directory_has_cases) { ... }
-#define EMBER_TEST(name)                                                            \
+/// Define a test: CINDER_TEST(golden_directory_has_cases) { ... }
+#define CINDER_TEST(name)                                                            \
     static void name();                                                             \
-    static const ::ember::test::Registrar EMBER_TEST_CONCAT(name, _registrar){#name, \
+    static const ::cinder::test::Registrar CINDER_TEST_CONCAT(name, _registrar){#name, \
                                                                               &name}; \
     static void name()
 
-#define EMBER_CHECK(condition)                                                      \
+#define CINDER_CHECK(condition)                                                      \
     do {                                                                            \
         if (!(condition)) {                                                         \
-            ::ember::test::fail(__FILE__, __LINE__, "expected: " #condition);       \
+            ::cinder::test::fail(__FILE__, __LINE__, "expected: " #condition);       \
         }                                                                           \
     } while (false)
 
-#define EMBER_CHECK_MSG(condition, message)                                         \
+#define CINDER_CHECK_MSG(condition, message)                                         \
     do {                                                                            \
         if (!(condition)) {                                                         \
-            ::ember::test::fail(__FILE__, __LINE__,                                 \
+            ::cinder::test::fail(__FILE__, __LINE__,                                 \
                                 std::string("expected: " #condition "\n     ") +    \
                                     (message));                                     \
         }                                                                           \
@@ -133,18 +133,18 @@ inline int run_all(std::string_view filter = {}) {
 /// memory - which shows up as a garbled failure message rather than as
 /// anything that points at the mistake. A copy costs nothing a test will
 /// notice.
-#define EMBER_CHECK_EQ(actual, expected)                                            \
+#define CINDER_CHECK_EQ(actual, expected)                                            \
     do {                                                                            \
-        const auto ember_actual = (actual);                                         \
-        const auto ember_expected = (expected);                                     \
-        if (!(ember_actual == ember_expected)) {                                    \
-            ::ember::test::fail(__FILE__, __LINE__,                                 \
+        const auto cinder_actual = (actual);                                         \
+        const auto cinder_expected = (expected);                                     \
+        if (!(cinder_actual == cinder_expected)) {                                    \
+            ::cinder::test::fail(__FILE__, __LINE__,                                 \
                                 "expected `" #actual "` == `" #expected "`\n" \
                                 "       actual: " +                                 \
-                                    ::ember::test::describe(ember_actual) +         \
+                                    ::cinder::test::describe(cinder_actual) +         \
                                     "\n     expected: " +                           \
-                                    ::ember::test::describe(ember_expected));       \
+                                    ::cinder::test::describe(cinder_expected));       \
         }                                                                           \
     } while (false)
 
-#endif  // EMBER_TEST_HARNESS_HPP
+#endif  // CINDER_TEST_HARNESS_HPP

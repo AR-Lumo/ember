@@ -2,14 +2,14 @@
 // taken out.
 //
 // This is what a program needs in order to *use* a module without having
-// the module's source — the last thing standing between Ember and
+// the module's source — the last thing standing between Cinder and
 // shipping a compiled library. An interface plus an object file is a
-// library; `ember interface` writes the first and `ember build --lib`
+// library; `cinder interface` writes the first and `cinder build --lib`
 // writes the second.
 //
 // Two decisions run through everything below.
 //
-// **A generic keeps its body.** Ember monomorphizes, so a copy of
+// **A generic keeps its body.** Cinder monomorphizes, so a copy of
 // `twice<int>` is generated wherever it is first used, and generating it
 // needs the body. That is the same bargain C++ strikes by putting
 // templates in headers, and it has the same consequence: a generic's
@@ -22,13 +22,13 @@
 
 #include "test_harness.hpp"
 
-#include "ember/ast/diagnostic.hpp"
-#include "ember/ast/interface.hpp"
-#include "ember/ast/nodes.hpp"
-#include "ember/ast/span.hpp"
-#include "ember/codegen/codegen.hpp"
-#include "ember/parser/parser.hpp"
-#include "ember/typeck/typeck.hpp"
+#include "cinder/ast/diagnostic.hpp"
+#include "cinder/ast/interface.hpp"
+#include "cinder/ast/nodes.hpp"
+#include "cinder/ast/span.hpp"
+#include "cinder/codegen/codegen.hpp"
+#include "cinder/parser/parser.hpp"
+#include "cinder/typeck/typeck.hpp"
 
 #include <array>
 #include <cstdio>
@@ -42,29 +42,29 @@ namespace fs = std::filesystem;
 
 namespace {
 
-using ember::ast::SourceFile;
+using cinder::ast::SourceFile;
 
 /// Parses `contents` and writes its interface, failing the test if it
 /// will not parse.
-ember::ast::InterfaceResult interface_of(const std::string& contents) {
-    const SourceFile source{"textkit.em", contents};
-    const ember::parser::ParseResult parsed = ember::parser::parse_source(source);
+cinder::ast::InterfaceResult interface_of(const std::string& contents) {
+    const SourceFile source{"textkit.ci", contents};
+    const cinder::parser::ParseResult parsed = cinder::parser::parse_source(source);
     if (!parsed.ok()) {
-        ::ember::test::fail(__FILE__, __LINE__,
+        ::cinder::test::fail(__FILE__, __LINE__,
                             "fixture does not parse:\n" +
-                                ember::ast::render_all(parsed.diagnostics, source));
+                                cinder::ast::render_all(parsed.diagnostics, source));
     }
-    return ember::ast::write_interface(*parsed.program, source);
+    return cinder::ast::write_interface(*parsed.program, source);
 }
 
 /// The interface of a module that is meant to have one.
 std::string written(const std::string& contents) {
-    const ember::ast::InterfaceResult result = interface_of(contents);
+    const cinder::ast::InterfaceResult result = interface_of(contents);
     if (!result.ok()) {
-        const SourceFile source{"textkit.em", contents};
-        ::ember::test::fail(__FILE__, __LINE__,
+        const SourceFile source{"textkit.ci", contents};
+        ::cinder::test::fail(__FILE__, __LINE__,
                             "expected an interface, but:\n" +
-                                ember::ast::render_all(result.diagnostics, source));
+                                cinder::ast::render_all(result.diagnostics, source));
     }
     return result.contents;
 }
@@ -75,12 +75,12 @@ bool has(const std::string& text, const std::string& needle) {
 
 /// Whether `text` is a module in its own right.
 bool checks(const std::string& text) {
-    const SourceFile source{"textkit.emi", text};
-    const ember::parser::ParseResult parsed = ember::parser::parse_source(source);
+    const SourceFile source{"textkit.cii", text};
+    const cinder::parser::ParseResult parsed = cinder::parser::parse_source(source);
     if (!parsed.ok()) {
         return false;
     }
-    return ember::typeck::check(*parsed.program, source).ok();
+    return cinder::typeck::check(*parsed.program, source).ok();
 }
 
 }  // namespace
@@ -89,25 +89,25 @@ bool checks(const std::string& text) {
 // What goes in and what stays out
 // ---------------------------------------------------------------------
 
-EMBER_TEST(interface_keeps_public_signatures_and_drops_their_bodies) {
+CINDER_TEST(interface_keeps_public_signatures_and_drops_their_bodies) {
     const std::string text = written(
         "pub fn shout(text: string) -> String {\n"
         "    let mut out: String = new_string();\n"
         "    push_str(out, text);\n"
         "    return out;\n"
         "}\n");
-    EMBER_CHECK_MSG(has(text, "pub fn shout(text: string) -> String;"), text);
-    EMBER_CHECK_MSG(!has(text, "push_str"), "the body should not be here:\n" + text);
+    CINDER_CHECK_MSG(has(text, "pub fn shout(text: string) -> String;"), text);
+    CINDER_CHECK_MSG(!has(text, "push_str"), "the body should not be here:\n" + text);
 }
 
-EMBER_TEST(interface_leaves_out_what_is_not_public) {
+CINDER_TEST(interface_leaves_out_what_is_not_public) {
     const std::string text = written("fn hidden() -> int { return 1; }\n"
                                      "pub fn shown() -> int { return 2; }\n");
-    EMBER_CHECK_MSG(has(text, "shown"), text);
-    EMBER_CHECK_MSG(!has(text, "hidden"), "a private function leaked:\n" + text);
+    CINDER_CHECK_MSG(has(text, "shown"), text);
+    CINDER_CHECK_MSG(!has(text, "hidden"), "a private function leaked:\n" + text);
 }
 
-EMBER_TEST(interface_keeps_a_generic_body) {
+CINDER_TEST(interface_keeps_a_generic_body) {
     // Monomorphization happens at the use site, so the body has to
     // travel with the declaration.
     const std::string text = written(
@@ -117,41 +117,41 @@ EMBER_TEST(interface_keeps_a_generic_body) {
         "    push(out, value);\n"
         "    return out;\n"
         "}\n");
-    EMBER_CHECK_MSG(has(text, "pub fn twice<T>(value: T) -> Vec<T> {"), text);
-    EMBER_CHECK_MSG(has(text, "push(out, value);"),
+    CINDER_CHECK_MSG(has(text, "pub fn twice<T>(value: T) -> Vec<T> {"), text);
+    CINDER_CHECK_MSG(has(text, "push(out, value);"),
                     "a generic without its body cannot be instantiated:\n" + text);
 }
 
-EMBER_TEST(interface_keeps_a_struct_whole) {
+CINDER_TEST(interface_keeps_a_struct_whole) {
     // A struct's fields are its layout, and its layout is what a caller
     // has to agree with.
     const std::string text = written("pub struct Point { pub x: int, pub y: int, }\n");
-    EMBER_CHECK_MSG(has(text, "pub x: int"), text);
+    CINDER_CHECK_MSG(has(text, "pub x: int"), text);
 }
 
-EMBER_TEST(interface_keeps_a_constant_and_its_value) {
+CINDER_TEST(interface_keeps_a_constant_and_its_value) {
     // A caller may fold it, so the value is part of the interface.
     const std::string text = written("pub const LIMIT: int = 42;\n");
-    EMBER_CHECK_MSG(has(text, "42"), text);
+    CINDER_CHECK_MSG(has(text, "42"), text);
 }
 
-EMBER_TEST(interface_rebuilds_an_impl_block_around_its_public_methods) {
+CINDER_TEST(interface_rebuilds_an_impl_block_around_its_public_methods) {
     const std::string text = written(
         "pub struct Point { pub x: int, }\n"
         "impl Point {\n"
         "    pub fn get(self) -> int { return self.x; }\n"
         "    fn secret(self) -> int { return self.x * 2; }\n"
         "}\n");
-    EMBER_CHECK_MSG(has(text, "impl Point {"), text);
-    EMBER_CHECK_MSG(has(text, "pub fn get(self) -> int;"), text);
-    EMBER_CHECK_MSG(!has(text, "secret"), "a private method leaked:\n" + text);
+    CINDER_CHECK_MSG(has(text, "impl Point {"), text);
+    CINDER_CHECK_MSG(has(text, "pub fn get(self) -> int;"), text);
+    CINDER_CHECK_MSG(!has(text, "secret"), "a private method leaked:\n" + text);
 }
 
-EMBER_TEST(interface_reports_a_module_with_nothing_public) {
-    const ember::ast::InterfaceResult result =
+CINDER_TEST(interface_reports_a_module_with_nothing_public) {
+    const cinder::ast::InterfaceResult result =
         interface_of("fn hidden() -> int { return 1; }\n");
-    EMBER_CHECK(!result.ok());
-    EMBER_CHECK_EQ(result.diagnostics.at(0).message,
+    CINDER_CHECK(!result.ok());
+    CINDER_CHECK_EQ(result.diagnostics.at(0).message,
                    std::string{"this module has no public interface"});
 }
 
@@ -159,43 +159,43 @@ EMBER_TEST(interface_reports_a_module_with_nothing_public) {
 // A public signature has to be usable from outside
 // ---------------------------------------------------------------------
 
-EMBER_TEST(interface_refuses_a_public_signature_naming_a_private_type) {
+CINDER_TEST(interface_refuses_a_public_signature_naming_a_private_type) {
     // Legal inside the module, meaningless outside it: a caller cannot
     // name `Secret`, so it could not call the function even holding the
     // declaration.
-    const ember::ast::InterfaceResult result = interface_of(
+    const cinder::ast::InterfaceResult result = interface_of(
         "struct Secret { pub x: int, }\n"
         "pub fn make() -> Secret { return Secret { x: 1 }; }\n");
-    EMBER_CHECK(!result.ok());
-    EMBER_CHECK_EQ(result.diagnostics.at(0).message,
+    CINDER_CHECK(!result.ok());
+    CINDER_CHECK_EQ(result.diagnostics.at(0).message,
                    std::string{"`make` cannot be part of an interface"});
-    EMBER_CHECK_EQ(result.diagnostics.at(0).label, std::string{"`Secret` is not `pub`"});
+    CINDER_CHECK_EQ(result.diagnostics.at(0).label, std::string{"`Secret` is not `pub`"});
 }
 
-EMBER_TEST(interface_looks_inside_compound_types) {
-    const ember::ast::InterfaceResult result = interface_of(
+CINDER_TEST(interface_looks_inside_compound_types) {
+    const cinder::ast::InterfaceResult result = interface_of(
         "struct Secret { pub x: int, }\n"
         "pub fn take(items: &Vec<Secret>) -> int { return len(items); }\n");
-    EMBER_CHECK_MSG(!result.ok(), "a private type inside a `&Vec<...>` should still count");
+    CINDER_CHECK_MSG(!result.ok(), "a private type inside a `&Vec<...>` should still count");
 }
 
-EMBER_TEST(interface_accepts_the_builtin_types) {
+CINDER_TEST(interface_accepts_the_builtin_types) {
     // `Vec` and `String` parse as ordinary named types, so they have to
     // be recognised or every signature using one looks like a leak.
-    EMBER_CHECK(interface_of("pub fn f(a: &Vec<int>, b: String) -> String { return b; }\n").ok());
+    CINDER_CHECK(interface_of("pub fn f(a: &Vec<int>, b: String) -> String { return b; }\n").ok());
 }
 
-EMBER_TEST(interface_accepts_a_generic_parameter_as_a_type) {
-    EMBER_CHECK(interface_of("pub fn id<T>(value: T) -> T { return value; }\n").ok());
+CINDER_TEST(interface_accepts_a_generic_parameter_as_a_type) {
+    CINDER_CHECK(interface_of("pub fn id<T>(value: T) -> T { return value; }\n").ok());
 }
 
 // ---------------------------------------------------------------------
 // The result is a module
 // ---------------------------------------------------------------------
 
-EMBER_TEST(interface_output_is_itself_a_valid_module) {
+CINDER_TEST(interface_output_is_itself_a_valid_module) {
     // The whole approach rests on this: the interface is the author's
-    // own Ember, cut at spans, so it parses because it already did.
+    // own Cinder, cut at spans, so it parses because it already did.
     const std::string text = written(
         "pub struct Point { pub x: int, pub y: int, }\n"
         "pub const ORIGIN: Point = Point { x: 0, y: 0 };\n"
@@ -204,13 +204,13 @@ EMBER_TEST(interface_output_is_itself_a_valid_module) {
         "impl Point {\n"
         "    pub fn get(self) -> int { return self.x; }\n"
         "}\n");
-    EMBER_CHECK_MSG(checks(text), "the interface does not check:\n" + text);
+    CINDER_CHECK_MSG(checks(text), "the interface does not check:\n" + text);
 }
 
-EMBER_TEST(interface_declarations_need_no_return_on_every_path) {
+CINDER_TEST(interface_declarations_need_no_return_on_every_path) {
     // A signature with no body has no paths to check, and demanding a
     // return from one would make every interface an error.
-    EMBER_CHECK(checks("pub fn f() -> int;\n"));
+    CINDER_CHECK(checks("pub fn f() -> int;\n"));
 }
 
 // ---------------------------------------------------------------------
@@ -233,7 +233,7 @@ ProcessResult run_process(const std::string& command) {
     FILE* pipe = popen(redirected.c_str(), "r");
 #endif
     if (pipe == nullptr) {
-        ::ember::test::fail(__FILE__, __LINE__, "cannot start: " + command);
+        ::cinder::test::fail(__FILE__, __LINE__, "cannot start: " + command);
     }
     ProcessResult result;
     std::array<char, 4096> buffer{};
@@ -257,7 +257,7 @@ public:
         static const unsigned run = std::random_device{}();
         static int counter = 0;
         root_ = fs::temp_directory_path() /
-                ("ember-interface-" + std::to_string(run) + "-" + std::to_string(++counter));
+                ("cinder-interface-" + std::to_string(run) + "-" + std::to_string(++counter));
         std::error_code ignored;
         fs::remove_all(root_, ignored);
         fs::create_directories(root_, ignored);
@@ -281,8 +281,8 @@ public:
 
     fs::path path(const std::string& relative) const { return root_ / relative; }
 
-    std::string ember(const std::string& arguments) const {
-        return run_process("cd " + quoted(root_) + " && " + quoted(fs::path{EMBER_BINARY}) +
+    std::string cinder(const std::string& arguments) const {
+        return run_process("cd " + quoted(root_) + " && " + quoted(fs::path{CINDER_BINARY}) +
                            " " + arguments)
             .output;
     }
@@ -310,86 +310,86 @@ const char* const kLibrary =
 
 }  // namespace
 
-EMBER_TEST(interface_lets_a_program_build_without_the_librarys_source) {
-    if (!ember::codegen::is_available()) {
+CINDER_TEST(interface_lets_a_program_build_without_the_librarys_source) {
+    if (!cinder::codegen::is_available()) {
         return;
     }
     // The point of the whole feature. The library is compiled and
     // described, its source is deleted, and a program is built against
     // what is left.
     const Workspace workspace;
-    workspace.write("lib/textkit.em", kLibrary);
-    workspace.write("app/main.em",
+    workspace.write("lib/textkit.ci", kLibrary);
+    workspace.write("app/main.ci",
                     "import textkit;\n"
                     "pub fn main() {\n"
-                    "    println(textkit::shout(\"ember\"));\n"
+                    "    println(textkit::shout(\"cinder\"));\n"
                     "    println(len(textkit::twice(7)));\n"
                     "}\n");
 
-    workspace.ember("interface lib/textkit.em -o dist/textkit.emi");
-    workspace.ember("build --lib lib/textkit.em -o dist/textkit.o");
-    EMBER_CHECK_MSG(fs::exists(workspace.path("dist/textkit.emi")), "no interface was written");
-    EMBER_CHECK_MSG(fs::exists(workspace.path("dist/textkit.o")), "no object was written");
+    workspace.cinder("interface lib/textkit.ci -o dist/textkit.cii");
+    workspace.cinder("build --lib lib/textkit.ci -o dist/textkit.o");
+    CINDER_CHECK_MSG(fs::exists(workspace.path("dist/textkit.cii")), "no interface was written");
+    CINDER_CHECK_MSG(fs::exists(workspace.path("dist/textkit.o")), "no object was written");
 
     std::error_code ignored;
     fs::remove_all(workspace.path("lib"), ignored);
 
     const std::string ran =
-        workspace.ember("run app/main.em -L dist --link dist/textkit.o");
-    EMBER_CHECK_MSG(ran.find("ember!") != std::string::npos, ran);
+        workspace.cinder("run app/main.ci -L dist --link dist/textkit.o");
+    CINDER_CHECK_MSG(ran.find("cinder!") != std::string::npos, ran);
     // The generic was monomorphized in the *consumer's* object, from the
     // body the interface carried.
-    EMBER_CHECK_MSG(ran.find("2") != std::string::npos, ran);
+    CINDER_CHECK_MSG(ran.find("2") != std::string::npos, ran);
 }
 
-EMBER_TEST(interface_source_is_preferred_when_both_are_there) {
-    if (!ember::codegen::is_available()) {
+CINDER_TEST(interface_source_is_preferred_when_both_are_there) {
+    if (!cinder::codegen::is_available()) {
         return;
     }
     // A module you have the source of is the module. An interface must
     // never quietly stand in for something that could be compiled.
     const Workspace workspace;
-    workspace.write("greeter.em", "pub fn value() -> int { return 1; }\n");
-    workspace.write("greeter.emi", "pub fn value() -> int;\n");
-    workspace.write("main.em",
+    workspace.write("greeter.ci", "pub fn value() -> int { return 1; }\n");
+    workspace.write("greeter.cii", "pub fn value() -> int;\n");
+    workspace.write("main.ci",
                     "import greeter;\npub fn main() { println(greeter::value()); }\n");
 
-    const std::string ran = workspace.ember("run main.em");
-    EMBER_CHECK_MSG(ran.find("1") != std::string::npos,
+    const std::string ran = workspace.cinder("run main.ci");
+    CINDER_CHECK_MSG(ran.find("1") != std::string::npos,
                     "the source should have been used, and needs no `--link`:\n" + ran);
 }
 
-EMBER_TEST(interface_build_as_a_library_needs_no_main) {
-    if (!ember::codegen::is_available()) {
+CINDER_TEST(interface_build_as_a_library_needs_no_main) {
+    if (!cinder::codegen::is_available()) {
         return;
     }
     const Workspace workspace;
-    workspace.write("textkit.em", kLibrary);
+    workspace.write("textkit.ci", kLibrary);
 
-    const std::string without = workspace.ember("build textkit.em -o out.exe");
-    EMBER_CHECK_MSG(without.find("no `main` function found") != std::string::npos, without);
+    const std::string without = workspace.cinder("build textkit.ci -o out.exe");
+    CINDER_CHECK_MSG(without.find("no `main` function found") != std::string::npos, without);
 
-    const std::string with = workspace.ember("build --lib textkit.em -o textkit.o");
-    EMBER_CHECK_MSG(with.find("error") == std::string::npos, with);
-    EMBER_CHECK_MSG(fs::exists(workspace.path("textkit.o")), "no object was written");
+    const std::string with = workspace.cinder("build --lib textkit.ci -o textkit.o");
+    CINDER_CHECK_MSG(with.find("error") == std::string::npos, with);
+    CINDER_CHECK_MSG(fs::exists(workspace.path("textkit.o")), "no object was written");
 }
 
-EMBER_TEST(interface_library_symbols_carry_the_module_name) {
-    if (!ember::codegen::is_available()) {
+CINDER_TEST(interface_library_symbols_carry_the_module_name) {
+    if (!cinder::codegen::is_available()) {
         return;
     }
     // A library's symbols are the ones consumers link against, and those
     // carry the module prefix - which comes from the file name, the same
     // rule `import` uses to find it.
     const Workspace workspace;
-    workspace.write("textkit.em", kLibrary);
-    workspace.ember("build --lib textkit.em -o textkit.o");
+    workspace.write("textkit.ci", kLibrary);
+    workspace.cinder("build --lib textkit.ci -o textkit.o");
 
     const ProcessResult symbols =
         run_process("nm --defined-only " + quoted(workspace.path("textkit.o")));
     if (symbols.exit_code != 0) {
         return;  // no nm on this machine; the end-to-end test still covers it
     }
-    EMBER_CHECK_MSG(symbols.output.find("textkit__shout") != std::string::npos,
+    CINDER_CHECK_MSG(symbols.output.find("textkit__shout") != std::string::npos,
                     symbols.output);
 }

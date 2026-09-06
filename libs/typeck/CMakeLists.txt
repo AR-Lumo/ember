@@ -1,12 +1,12 @@
-# ember::typeck - one pipeline stage, per the project layout in section 2.
+# cinder::typeck - one pipeline stage, per the project layout in section 2.
 
-add_library(ember_typeck STATIC
+add_library(cinder_typeck STATIC
     src/typeck.cpp
     src/types.cpp
 )
-add_library(ember::typeck ALIAS ember_typeck)
+add_library(cinder::typeck ALIAS cinder_typeck)
 
-target_include_directories(ember_typeck PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
-target_compile_features(ember_typeck PUBLIC cxx_std_20)
+target_include_directories(cinder_typeck PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
+target_compile_features(cinder_typeck PUBLIC cxx_std_20)
 
-target_link_libraries(ember_typeck PUBLIC ember::ast)
+target_link_libraries(cinder_typeck PUBLIC cinder::ast)

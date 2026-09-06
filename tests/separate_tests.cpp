@@ -9,7 +9,7 @@
 // Two halves are tested here. The first is codegen: with a target module
 // set, only that module's functions get bodies and everything else
 // becomes a declaration for the linker to resolve. The second is the
-// driver: object files are cached under `.ember` beside the entry
+// driver: object files are cached under `.cinder` beside the entry
 // source and reused when nothing they depend on has changed.
 //
 // Monomorphized generics are the interesting case, because a copy of
@@ -20,12 +20,12 @@
 
 #include "test_harness.hpp"
 
-#include "ember/ast/diagnostic.hpp"
-#include "ember/ast/nodes.hpp"
-#include "ember/ast/span.hpp"
-#include "ember/codegen/codegen.hpp"
-#include "ember/parser/parser.hpp"
-#include "ember/typeck/typeck.hpp"
+#include "cinder/ast/diagnostic.hpp"
+#include "cinder/ast/nodes.hpp"
+#include "cinder/ast/span.hpp"
+#include "cinder/codegen/codegen.hpp"
+#include "cinder/parser/parser.hpp"
+#include "cinder/typeck/typeck.hpp"
 
 #include <array>
 #include <cstdio>
@@ -41,7 +41,7 @@ namespace fs = std::filesystem;
 
 namespace {
 
-using ember::ast::SourceMap;
+using cinder::ast::SourceMap;
 
 /// One module of a test program: its name, its source, and what it
 /// imports. An empty name is the entry module.
@@ -55,44 +55,44 @@ struct Source {
 /// codegen reads from outlive the lowering.
 struct Program {
     SourceMap sources;
-    std::vector<ember::parser::ParseResult> parsed;
-    ember::typeck::CheckResult checked;
-    std::vector<ember::codegen::ModuleInput> inputs;
+    std::vector<cinder::parser::ParseResult> parsed;
+    cinder::typeck::CheckResult checked;
+    std::vector<cinder::codegen::ModuleInput> inputs;
 };
 
 Program check_program(const std::vector<Source>& modules) {
     Program program;
 
     for (const Source& module : modules) {
-        const ember::ast::FileId id = program.sources.add(
-            (module.name.empty() ? std::string{"main"} : module.name) + ".em", module.text);
-        ember::parser::ParseResult parsed =
-            ember::parser::parse_source(program.sources.file(id));
+        const cinder::ast::FileId id = program.sources.add(
+            (module.name.empty() ? std::string{"main"} : module.name) + ".ci", module.text);
+        cinder::parser::ParseResult parsed =
+            cinder::parser::parse_source(program.sources.file(id));
         if (!parsed.ok()) {
-            ::ember::test::fail(__FILE__, __LINE__,
+            ::cinder::test::fail(__FILE__, __LINE__,
                                 "test fixture does not parse:\n" +
-                                    ember::ast::render_all(parsed.diagnostics, program.sources));
+                                    cinder::ast::render_all(parsed.diagnostics, program.sources));
         }
         program.parsed.push_back(std::move(parsed));
     }
 
-    std::vector<ember::typeck::ModuleInput> checker_inputs;
+    std::vector<cinder::typeck::ModuleInput> checker_inputs;
     for (std::size_t i = 0; i < modules.size(); ++i) {
-        checker_inputs.push_back(ember::typeck::ModuleInput{
+        checker_inputs.push_back(cinder::typeck::ModuleInput{
             modules[i].name, program.parsed[i].program.get(), modules[i].imports});
     }
 
-    program.checked = ember::typeck::check(checker_inputs, program.sources);
+    program.checked = cinder::typeck::check(checker_inputs, program.sources);
     if (!program.checked.ok()) {
-        ::ember::test::fail(__FILE__, __LINE__,
+        ::cinder::test::fail(__FILE__, __LINE__,
                             "test fixture does not type-check:\n" +
-                                ember::ast::render_all(program.checked.diagnostics,
+                                cinder::ast::render_all(program.checked.diagnostics,
                                                        program.sources));
     }
 
     for (std::size_t i = 0; i < modules.size(); ++i) {
         program.inputs.push_back(
-            ember::codegen::ModuleInput{modules[i].name, program.parsed[i].program.get()});
+            cinder::codegen::ModuleInput{modules[i].name, program.parsed[i].program.get()});
     }
     return program;
 }
@@ -103,15 +103,15 @@ std::string lower(const std::vector<Source>& modules,
                   std::optional<std::string> target = std::nullopt) {
     const Program program = check_program(modules);
 
-    ember::codegen::CompileOptions options;
+    cinder::codegen::CompileOptions options;
     options.target_module = std::move(target);
 
-    const ember::codegen::CompileResult compiled =
-        ember::codegen::compile_to_string(program.inputs, program.checked, options);
+    const cinder::codegen::CompileResult compiled =
+        cinder::codegen::compile_to_string(program.inputs, program.checked, options);
     if (!compiled.ok()) {
-        ::ember::test::fail(__FILE__, __LINE__,
+        ::cinder::test::fail(__FILE__, __LINE__,
                             "codegen failed:\n" +
-                                ember::ast::render_all(compiled.diagnostics, program.sources));
+                                cinder::ast::render_all(compiled.diagnostics, program.sources));
     }
     return compiled.assembly;
 }
@@ -142,50 +142,50 @@ const std::vector<Source> kTwoModules = {
 // What lands in each object file
 // ---------------------------------------------------------------------
 
-EMBER_TEST(separate_compilation_defines_only_the_target_modules_functions) {
-    if (!ember::codegen::is_available()) {
+CINDER_TEST(separate_compilation_defines_only_the_target_modules_functions) {
+    if (!cinder::codegen::is_available()) {
         return;
     }
     const std::string ir = lower(kTwoModules, "geometry");
-    EMBER_CHECK_MSG(has(ir, "define i64 @geometry__double_it("),
+    CINDER_CHECK_MSG(has(ir, "define i64 @geometry__double_it("),
                     "geometry's own function should have a body here:\n" + ir);
-    EMBER_CHECK_MSG(!has(ir, "define i32 @main("),
+    CINDER_CHECK_MSG(!has(ir, "define i32 @main("),
                     "the entry module's body leaked into geometry's object:\n" + ir);
 }
 
-EMBER_TEST(separate_compilation_declares_what_it_calls_across_a_module_boundary) {
-    if (!ember::codegen::is_available()) {
+CINDER_TEST(separate_compilation_declares_what_it_calls_across_a_module_boundary) {
+    if (!cinder::codegen::is_available()) {
         return;
     }
     // This is the whole mechanism: the entry object refers to
     // `geometry::double_it` by symbol and lets the linker find the body.
     const std::string ir = lower(kTwoModules, "");
-    EMBER_CHECK_MSG(has(ir, "define i32 @main("), "no entry point in:\n" + ir);
-    EMBER_CHECK_MSG(has(ir, "declare i64 @geometry__double_it("),
+    CINDER_CHECK_MSG(has(ir, "define i32 @main("), "no entry point in:\n" + ir);
+    CINDER_CHECK_MSG(has(ir, "declare i64 @geometry__double_it("),
                     "the imported function should be a declaration here:\n" + ir);
-    EMBER_CHECK_MSG(!has(ir, "define i64 @geometry__double_it("),
+    CINDER_CHECK_MSG(!has(ir, "define i64 @geometry__double_it("),
                     "geometry's body was emitted twice:\n" + ir);
 }
 
-EMBER_TEST(separate_compilation_puts_the_entry_point_in_one_object_only) {
-    if (!ember::codegen::is_available()) {
+CINDER_TEST(separate_compilation_puts_the_entry_point_in_one_object_only) {
+    if (!cinder::codegen::is_available()) {
         return;
     }
     // Two `main`s would be a duplicate symbol, which is the failure this
     // whole split is most likely to cause.
-    EMBER_CHECK(has(lower(kTwoModules, ""), "define i32 @main("));
-    EMBER_CHECK(!has(lower(kTwoModules, "geometry"), "define i32 @main("));
+    CINDER_CHECK(has(lower(kTwoModules, ""), "define i32 @main("));
+    CINDER_CHECK(!has(lower(kTwoModules, "geometry"), "define i32 @main("));
 }
 
-EMBER_TEST(whole_program_compilation_still_defines_every_module) {
-    if (!ember::codegen::is_available()) {
+CINDER_TEST(whole_program_compilation_still_defines_every_module) {
+    if (!cinder::codegen::is_available()) {
         return;
     }
     // With no target the old behaviour is unchanged, which is what the
     // golden `.ll` snapshots read.
     const std::string ir = lower(kTwoModules);
-    EMBER_CHECK(has(ir, "define i32 @main("));
-    EMBER_CHECK(has(ir, "define i64 @geometry__double_it("));
+    CINDER_CHECK(has(ir, "define i32 @main("));
+    CINDER_CHECK(has(ir, "define i64 @geometry__double_it("));
 }
 
 // ---------------------------------------------------------------------
@@ -227,34 +227,34 @@ const std::vector<Source> kSharedGeneric = {
 
 }  // namespace
 
-EMBER_TEST(separate_compilation_copies_an_instantiation_into_every_module_that_uses_it) {
-    if (!ember::codegen::is_available()) {
+CINDER_TEST(separate_compilation_copies_an_instantiation_into_every_module_that_uses_it) {
+    if (!cinder::codegen::is_available()) {
         return;
     }
     // Neither `alpha` nor `beta` can assume the other was built, so both
     // carry `max<int>` and the linker discards one.
-    EMBER_CHECK(has(lower(kSharedGeneric, "alpha"), "define linkonce_odr i64 @compare__max__int("));
-    EMBER_CHECK(has(lower(kSharedGeneric, "beta"), "define linkonce_odr i64 @compare__max__int("));
+    CINDER_CHECK(has(lower(kSharedGeneric, "alpha"), "define linkonce_odr i64 @compare__max__int("));
+    CINDER_CHECK(has(lower(kSharedGeneric, "beta"), "define linkonce_odr i64 @compare__max__int("));
 }
 
-EMBER_TEST(separate_compilation_leaves_an_instantiation_out_of_modules_that_do_not_use_it) {
-    if (!ember::codegen::is_available()) {
+CINDER_TEST(separate_compilation_leaves_an_instantiation_out_of_modules_that_do_not_use_it) {
+    if (!cinder::codegen::is_available()) {
         return;
     }
     // The module that *wrote* the template emits nothing for it: a
     // generic function is not code until someone picks its types.
     const std::string compare = lower(kSharedGeneric, "compare");
-    EMBER_CHECK_MSG(!has(compare, "define linkonce_odr i64 @compare__max__int("),
+    CINDER_CHECK_MSG(!has(compare, "define linkonce_odr i64 @compare__max__int("),
                     "an unused instantiation was emitted into its template's module:\n" +
                         compare);
 
     // And `float` is only demanded by the entry module.
-    EMBER_CHECK(!has(lower(kSharedGeneric, "alpha"), "@compare__max__float("));
-    EMBER_CHECK(has(lower(kSharedGeneric, ""), "define linkonce_odr double @compare__max__float("));
+    CINDER_CHECK(!has(lower(kSharedGeneric, "alpha"), "@compare__max__float("));
+    CINDER_CHECK(has(lower(kSharedGeneric, ""), "define linkonce_odr double @compare__max__float("));
 }
 
-EMBER_TEST(separate_compilation_follows_demand_through_a_generic_calling_a_generic) {
-    if (!ember::codegen::is_available()) {
+CINDER_TEST(separate_compilation_follows_demand_through_a_generic_calling_a_generic) {
+    if (!cinder::codegen::is_available()) {
         return;
     }
     // `max3<int>` is demanded by the entry module and demands `max<int>`
@@ -279,23 +279,23 @@ EMBER_TEST(separate_compilation_follows_demand_through_a_generic_calling_a_gener
     };
 
     const std::string entry = lower(modules, "");
-    EMBER_CHECK_MSG(has(entry, "define linkonce_odr i64 @util__max3__int("),
+    CINDER_CHECK_MSG(has(entry, "define linkonce_odr i64 @util__max3__int("),
                     "the demanded instantiation is missing:\n" + entry);
-    EMBER_CHECK_MSG(has(entry, "define linkonce_odr i64 @util__max__int("),
+    CINDER_CHECK_MSG(has(entry, "define linkonce_odr i64 @util__max__int("),
                     "an instantiation demanded by another one is missing:\n" + entry);
 
     const std::string util = lower(modules, "util");
-    EMBER_CHECK(!has(util, "define linkonce_odr i64 @util__max3__int("));
-    EMBER_CHECK(!has(util, "define linkonce_odr i64 @util__max__int("));
+    CINDER_CHECK(!has(util, "define linkonce_odr i64 @util__max3__int("));
+    CINDER_CHECK(!has(util, "define linkonce_odr i64 @util__max__int("));
 }
 
-EMBER_TEST(separate_compilation_records_which_modules_demand_an_instantiation) {
+CINDER_TEST(separate_compilation_records_which_modules_demand_an_instantiation) {
     // The checker's own answer, without going through codegen.
     const Program program = check_program(kSharedGeneric);
 
     std::optional<std::set<std::string>> at_int;
     std::optional<std::set<std::string>> at_float;
-    for (const ember::typeck::Instantiation& instance : program.checked.instantiations) {
+    for (const cinder::typeck::Instantiation& instance : program.checked.instantiations) {
         if (instance.info.display_name == "compare::max<int>") {
             at_int = instance.demanded_by;
         } else if (instance.info.display_name == "compare::max<float>") {
@@ -303,10 +303,10 @@ EMBER_TEST(separate_compilation_records_which_modules_demand_an_instantiation) {
         }
     }
 
-    EMBER_CHECK_MSG(at_int.has_value(), "no `compare::max<int>` instantiation");
-    EMBER_CHECK_MSG(at_float.has_value(), "no `compare::max<float>` instantiation");
-    EMBER_CHECK_EQ(*at_int, (std::set<std::string>{"alpha", "beta"}));
-    EMBER_CHECK_EQ(*at_float, (std::set<std::string>{""}));
+    CINDER_CHECK_MSG(at_int.has_value(), "no `compare::max<int>` instantiation");
+    CINDER_CHECK_MSG(at_float.has_value(), "no `compare::max<float>` instantiation");
+    CINDER_CHECK_EQ(*at_int, (std::set<std::string>{"alpha", "beta"}));
+    CINDER_CHECK_EQ(*at_float, (std::set<std::string>{""}));
 }
 
 // ---------------------------------------------------------------------
@@ -332,7 +332,7 @@ ProcessResult run_process(const std::string& command) {
     FILE* pipe = popen(redirected.c_str(), "r");
 #endif
     if (pipe == nullptr) {
-        ::ember::test::fail(__FILE__, __LINE__, "cannot start: " + command);
+        ::cinder::test::fail(__FILE__, __LINE__, "cannot start: " + command);
     }
 
     ProcessResult result;
@@ -351,13 +351,13 @@ ProcessResult run_process(const std::string& command) {
 
 std::string quoted(const fs::path& path) { return "\"" + path.string() + "\""; }
 
-/// A directory of `.em` files, removed when the test ends.
+/// A directory of `.ci` files, removed when the test ends.
 class Workspace {
 public:
     Workspace() {
         static int counter = 0;
         root_ = fs::temp_directory_path() /
-                ("ember-separate-" + std::to_string(++counter) + "-" +
+                ("cinder-separate-" + std::to_string(++counter) + "-" +
                  std::to_string(static_cast<unsigned long long>(
                      std::hash<std::string>{}(__FILE__))));
         std::error_code ignored;
@@ -380,10 +380,10 @@ public:
 
     fs::path path(const std::string& name) const { return root_ / name; }
 
-    /// `ember run <entry> --verbose`, so the result carries both the
+    /// `cinder run <entry> --verbose`, so the result carries both the
     /// program's output and the report of what was compiled.
     ProcessResult run(const std::string& entry, const std::string& flags = "") const {
-        return run_process(quoted(fs::path{EMBER_BINARY}) + " run " + quoted(path(entry)) +
+        return run_process(quoted(fs::path{CINDER_BINARY}) + " run " + quoted(path(entry)) +
                            " --verbose" + (flags.empty() ? "" : " " + flags));
     }
 
@@ -393,11 +393,11 @@ private:
 
 /// Fills a workspace with the three-module program these tests edit.
 void write_program(const Workspace& workspace) {
-    workspace.write("shapes.em",
+    workspace.write("shapes.ci",
                     "pub struct Point { pub x: int, pub y: int, }\n"
                     "pub fn sum(p: Point) -> int { return p.x + p.y; }\n");
-    workspace.write("counter.em", "pub fn next(n: int) -> int { return n + 1; }\n");
-    workspace.write("main.em",
+    workspace.write("counter.ci", "pub fn next(n: int) -> int { return n + 1; }\n");
+    workspace.write("main.ci",
                     "import shapes;\n"
                     "import counter;\n"
                     "pub fn main() {\n"
@@ -417,55 +417,55 @@ bool cached(const ProcessResult& result, const std::string& file) {
 
 }  // namespace
 
-EMBER_TEST(incremental_build_compiles_every_module_the_first_time) {
-    if (!ember::codegen::is_available()) {
+CINDER_TEST(incremental_build_compiles_every_module_the_first_time) {
+    if (!cinder::codegen::is_available()) {
         return;
     }
     const Workspace workspace;
     write_program(workspace);
 
-    const ProcessResult first = workspace.run("main.em");
-    EMBER_CHECK_MSG(first.exit_code == 0, "build failed:\n" + first.output);
-    EMBER_CHECK_MSG(compiled(first, "main.em"), first.output);
-    EMBER_CHECK_MSG(compiled(first, "shapes.em"), first.output);
-    EMBER_CHECK_MSG(compiled(first, "counter.em"), first.output);
+    const ProcessResult first = workspace.run("main.ci");
+    CINDER_CHECK_MSG(first.exit_code == 0, "build failed:\n" + first.output);
+    CINDER_CHECK_MSG(compiled(first, "main.ci"), first.output);
+    CINDER_CHECK_MSG(compiled(first, "shapes.ci"), first.output);
+    CINDER_CHECK_MSG(compiled(first, "counter.ci"), first.output);
 }
 
-EMBER_TEST(incremental_build_reuses_every_object_when_nothing_changed) {
-    if (!ember::codegen::is_available()) {
+CINDER_TEST(incremental_build_reuses_every_object_when_nothing_changed) {
+    if (!cinder::codegen::is_available()) {
         return;
     }
     const Workspace workspace;
     write_program(workspace);
-    workspace.run("main.em");
+    workspace.run("main.ci");
 
-    const ProcessResult again = workspace.run("main.em");
-    EMBER_CHECK_MSG(again.exit_code == 0, "rebuild failed:\n" + again.output);
-    EMBER_CHECK_MSG(cached(again, "main.em"), again.output);
-    EMBER_CHECK_MSG(cached(again, "shapes.em"), again.output);
-    EMBER_CHECK_MSG(cached(again, "counter.em"), again.output);
+    const ProcessResult again = workspace.run("main.ci");
+    CINDER_CHECK_MSG(again.exit_code == 0, "rebuild failed:\n" + again.output);
+    CINDER_CHECK_MSG(cached(again, "main.ci"), again.output);
+    CINDER_CHECK_MSG(cached(again, "shapes.ci"), again.output);
+    CINDER_CHECK_MSG(cached(again, "counter.ci"), again.output);
 
     // Reusing objects must not change what the program does.
-    EMBER_CHECK_MSG(again.output.find("7") != std::string::npos, again.output);
-    EMBER_CHECK_MSG(again.output.find("42") != std::string::npos, again.output);
+    CINDER_CHECK_MSG(again.output.find("7") != std::string::npos, again.output);
+    CINDER_CHECK_MSG(again.output.find("42") != std::string::npos, again.output);
 }
 
-EMBER_TEST(incremental_build_recompiles_a_changed_module_and_its_dependents) {
-    if (!ember::codegen::is_available()) {
+CINDER_TEST(incremental_build_recompiles_a_changed_module_and_its_dependents) {
+    if (!cinder::codegen::is_available()) {
         return;
     }
     const Workspace workspace;
     write_program(workspace);
-    workspace.run("main.em");
+    workspace.run("main.ci");
 
     // A struct that changes shape changes the code generated in every
     // module that uses it, so `main` has to be rebuilt too - which is
     // why the cache key covers a module's imports, not just its own
     // source. `counter` is untouched and stays cached.
-    workspace.write("shapes.em",
+    workspace.write("shapes.ci",
                     "pub struct Point { pub tag: int, pub x: int, pub y: int, }\n"
                     "pub fn sum(p: Point) -> int { return p.x + p.y; }\n");
-    workspace.write("main.em",
+    workspace.write("main.ci",
                     "import shapes;\n"
                     "import counter;\n"
                     "pub fn main() {\n"
@@ -474,70 +474,70 @@ EMBER_TEST(incremental_build_recompiles_a_changed_module_and_its_dependents) {
                     "    println(counter::next(41));\n"
                     "}\n");
 
-    const ProcessResult after = workspace.run("main.em");
-    EMBER_CHECK_MSG(after.exit_code == 0, "rebuild failed:\n" + after.output);
-    EMBER_CHECK_MSG(compiled(after, "shapes.em"), after.output);
-    EMBER_CHECK_MSG(compiled(after, "main.em"), after.output);
-    EMBER_CHECK_MSG(cached(after, "counter.em"),
+    const ProcessResult after = workspace.run("main.ci");
+    CINDER_CHECK_MSG(after.exit_code == 0, "rebuild failed:\n" + after.output);
+    CINDER_CHECK_MSG(compiled(after, "shapes.ci"), after.output);
+    CINDER_CHECK_MSG(compiled(after, "main.ci"), after.output);
+    CINDER_CHECK_MSG(cached(after, "counter.ci"),
                     "an unrelated module was rebuilt:\n" + after.output);
-    EMBER_CHECK_MSG(after.output.find("7") != std::string::npos, after.output);
+    CINDER_CHECK_MSG(after.output.find("7") != std::string::npos, after.output);
 }
 
-EMBER_TEST(incremental_build_leaves_a_module_alone_when_only_a_sibling_changed) {
-    if (!ember::codegen::is_available()) {
+CINDER_TEST(incremental_build_leaves_a_module_alone_when_only_a_sibling_changed) {
+    if (!cinder::codegen::is_available()) {
         return;
     }
     const Workspace workspace;
     write_program(workspace);
-    workspace.run("main.em");
+    workspace.run("main.ci");
 
     // `shapes` does not import `counter`, so it cannot be affected.
-    workspace.write("counter.em", "pub fn next(n: int) -> int { return n + 1 + 0; }\n");
+    workspace.write("counter.ci", "pub fn next(n: int) -> int { return n + 1 + 0; }\n");
 
-    const ProcessResult after = workspace.run("main.em");
-    EMBER_CHECK_MSG(cached(after, "shapes.em"),
+    const ProcessResult after = workspace.run("main.ci");
+    CINDER_CHECK_MSG(cached(after, "shapes.ci"),
                     "a module that imports nothing changed was rebuilt:\n" + after.output);
-    EMBER_CHECK_MSG(compiled(after, "counter.em"), after.output);
-    EMBER_CHECK_MSG(compiled(after, "main.em"), after.output);
+    CINDER_CHECK_MSG(compiled(after, "counter.ci"), after.output);
+    CINDER_CHECK_MSG(compiled(after, "main.ci"), after.output);
 }
 
-EMBER_TEST(incremental_build_can_be_told_to_ignore_the_cache) {
-    if (!ember::codegen::is_available()) {
+CINDER_TEST(incremental_build_can_be_told_to_ignore_the_cache) {
+    if (!cinder::codegen::is_available()) {
         return;
     }
     const Workspace workspace;
     write_program(workspace);
-    workspace.run("main.em");
+    workspace.run("main.ci");
 
-    const ProcessResult fresh = workspace.run("main.em", "--fresh");
-    EMBER_CHECK_MSG(fresh.exit_code == 0, "rebuild failed:\n" + fresh.output);
-    EMBER_CHECK_MSG(compiled(fresh, "shapes.em"), fresh.output);
-    EMBER_CHECK_MSG(compiled(fresh, "counter.em"), fresh.output);
-    EMBER_CHECK_MSG(compiled(fresh, "main.em"), fresh.output);
+    const ProcessResult fresh = workspace.run("main.ci", "--fresh");
+    CINDER_CHECK_MSG(fresh.exit_code == 0, "rebuild failed:\n" + fresh.output);
+    CINDER_CHECK_MSG(compiled(fresh, "shapes.ci"), fresh.output);
+    CINDER_CHECK_MSG(compiled(fresh, "counter.ci"), fresh.output);
+    CINDER_CHECK_MSG(compiled(fresh, "main.ci"), fresh.output);
 }
 
-EMBER_TEST(separate_compilation_links_a_generic_two_modules_both_instantiated) {
-    if (!ember::codegen::is_available()) {
+CINDER_TEST(separate_compilation_links_a_generic_two_modules_both_instantiated) {
+    if (!cinder::codegen::is_available()) {
         return;
     }
     // The tests above read IR; this one reads the linker's mind. Two
     // objects each define `compare__max__int`, and a duplicate symbol
     // would fail the link - `linkonce_odr` is what makes it not.
     const Workspace workspace;
-    workspace.write("compare.em",
+    workspace.write("compare.ci",
                     "pub fn max<T>(a: T, b: T) -> T {\n"
                     "    if a > b {\n"
                     "        return a;\n"
                     "    }\n"
                     "    return b;\n"
                     "}\n");
-    workspace.write("alpha.em",
+    workspace.write("alpha.ci",
                     "import compare;\n"
                     "pub fn best() -> int { return compare::max(3, 7); }\n");
-    workspace.write("beta.em",
+    workspace.write("beta.ci",
                     "import compare;\n"
                     "pub fn best() -> int { return compare::max(11, 4); }\n");
-    workspace.write("main.em",
+    workspace.write("main.ci",
                     "import alpha;\n"
                     "import beta;\n"
                     "pub fn main() {\n"
@@ -545,14 +545,14 @@ EMBER_TEST(separate_compilation_links_a_generic_two_modules_both_instantiated) {
                     "    println(beta::best());\n"
                     "}\n");
 
-    const ProcessResult result = workspace.run("main.em");
-    EMBER_CHECK_MSG(result.exit_code == 0, "build or run failed:\n" + result.output);
-    EMBER_CHECK_MSG(result.output.find("7") != std::string::npos, result.output);
-    EMBER_CHECK_MSG(result.output.find("11") != std::string::npos, result.output);
+    const ProcessResult result = workspace.run("main.ci");
+    CINDER_CHECK_MSG(result.exit_code == 0, "build or run failed:\n" + result.output);
+    CINDER_CHECK_MSG(result.output.find("7") != std::string::npos, result.output);
+    CINDER_CHECK_MSG(result.output.find("11") != std::string::npos, result.output);
 }
 
-EMBER_TEST(incremental_build_caches_each_optimization_level_separately) {
-    if (!ember::codegen::is_available()) {
+CINDER_TEST(incremental_build_caches_each_optimization_level_separately) {
+    if (!cinder::codegen::is_available()) {
         return;
     }
     // Flipping between `-O0` while working and `-O2` to check something
@@ -561,52 +561,52 @@ EMBER_TEST(incremental_build_caches_each_optimization_level_separately) {
     const Workspace workspace;
     write_program(workspace);
 
-    workspace.run("main.em", "-O2");
-    workspace.run("main.em", "-O0");
+    workspace.run("main.ci", "-O2");
+    workspace.run("main.ci", "-O0");
 
-    const ProcessResult again = workspace.run("main.em", "-O2");
-    EMBER_CHECK_MSG(cached(again, "main.em"),
+    const ProcessResult again = workspace.run("main.ci", "-O2");
+    CINDER_CHECK_MSG(cached(again, "main.ci"),
                     "switching back to -O2 recompiled:\n" + again.output);
-    EMBER_CHECK_MSG(cached(again, "shapes.em"), again.output);
+    CINDER_CHECK_MSG(cached(again, "shapes.ci"), again.output);
 
     int objects = 0;
     std::error_code ignored;
     for (const fs::directory_entry& entry :
-         fs::directory_iterator(workspace.path(".ember"), ignored)) {
+         fs::directory_iterator(workspace.path(".cinder"), ignored)) {
         objects += entry.path().extension() == ".o" ? 1 : 0;
     }
     // Three modules at two levels, and neither level swept the other.
-    EMBER_CHECK_EQ(objects, 6);
+    CINDER_CHECK_EQ(objects, 6);
 }
 
-EMBER_TEST(incremental_build_keeps_one_object_per_module) {
-    if (!ember::codegen::is_available()) {
+CINDER_TEST(incremental_build_keeps_one_object_per_module) {
+    if (!cinder::codegen::is_available()) {
         return;
     }
     const Workspace workspace;
     write_program(workspace);
-    workspace.run("main.em");
+    workspace.run("main.ci");
 
     // Editing repeatedly must not grow the cache: each build sweeps the
     // objects the previous fingerprints left behind.
     for (int i = 0; i < 3; ++i) {
-        workspace.write("counter.em",
+        workspace.write("counter.ci",
                         "pub fn next(n: int) -> int { return n + 1 + " + std::to_string(i) +
                             " - " + std::to_string(i) + "; }\n");
-        workspace.run("main.em");
+        workspace.run("main.ci");
     }
 
     int objects = 0;
     std::error_code ignored;
     for (const fs::directory_entry& entry :
-         fs::directory_iterator(workspace.path(".ember"), ignored)) {
+         fs::directory_iterator(workspace.path(".cinder"), ignored)) {
         objects += entry.path().extension() == ".o" ? 1 : 0;
     }
-    EMBER_CHECK_EQ(objects, 3);
+    CINDER_CHECK_EQ(objects, 3);
 }
 
-EMBER_TEST(whole_program_builds_one_object_and_caches_nothing) {
-    if (!ember::codegen::is_available()) {
+CINDER_TEST(whole_program_builds_one_object_and_caches_nothing) {
+    if (!cinder::codegen::is_available()) {
         return;
     }
     // The trade separate compilation made, offered back: no per-module
@@ -615,31 +615,31 @@ EMBER_TEST(whole_program_builds_one_object_and_caches_nothing) {
     const Workspace workspace;
     write_program(workspace);
 
-    const ProcessResult built = workspace.run("main.em", "--whole-program");
-    EMBER_CHECK_MSG(built.exit_code == 0, "build failed:\n" + built.output);
-    EMBER_CHECK_MSG(built.output.find("as one unit") != std::string::npos, built.output);
-    EMBER_CHECK_MSG(!fs::exists(workspace.path(".ember")),
+    const ProcessResult built = workspace.run("main.ci", "--whole-program");
+    CINDER_CHECK_MSG(built.exit_code == 0, "build failed:\n" + built.output);
+    CINDER_CHECK_MSG(built.output.find("as one unit") != std::string::npos, built.output);
+    CINDER_CHECK_MSG(!fs::exists(workspace.path(".cinder")),
                     "a whole-program build should cache nothing");
 
     // And the program it produces is the same program.
-    EMBER_CHECK_MSG(built.output.find("7") != std::string::npos, built.output);
-    EMBER_CHECK_MSG(built.output.find("42") != std::string::npos, built.output);
+    CINDER_CHECK_MSG(built.output.find("7") != std::string::npos, built.output);
+    CINDER_CHECK_MSG(built.output.find("42") != std::string::npos, built.output);
 }
 
-EMBER_TEST(whole_program_and_separate_builds_agree) {
-    if (!ember::codegen::is_available()) {
+CINDER_TEST(whole_program_and_separate_builds_agree) {
+    if (!cinder::codegen::is_available()) {
         return;
     }
     const Workspace workspace;
     write_program(workspace);
 
-    const ProcessResult separate = workspace.run("main.em", "-O2");
-    const ProcessResult together = workspace.run("main.em", "-O2 --whole-program");
+    const ProcessResult separate = workspace.run("main.ci", "-O2");
+    const ProcessResult together = workspace.run("main.ci", "-O2 --whole-program");
 
     // Compare only what the program printed: the progress reporting
     // differs between the two by design.
-    EMBER_CHECK_MSG(separate.output.find("7") != std::string::npos, separate.output);
-    EMBER_CHECK_MSG(together.output.find("7") != std::string::npos, together.output);
-    EMBER_CHECK_MSG(separate.output.find("42") != std::string::npos, separate.output);
-    EMBER_CHECK_MSG(together.output.find("42") != std::string::npos, together.output);
+    CINDER_CHECK_MSG(separate.output.find("7") != std::string::npos, separate.output);
+    CINDER_CHECK_MSG(together.output.find("7") != std::string::npos, together.output);
+    CINDER_CHECK_MSG(separate.output.find("42") != std::string::npos, separate.output);
+    CINDER_CHECK_MSG(together.output.find("42") != std::string::npos, together.output);
 }

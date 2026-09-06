@@ -3,9 +3,9 @@
 /cmake-build-*/
 
 # Per-module object files cached between builds, beside the entry source
-.ember/
+.cinder/
 
-# Compiled Ember programs and intermediate artifacts
+# Compiled Cinder programs and intermediate artifacts
 *.exe
 *.ll
 *.o

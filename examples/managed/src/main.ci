@@ -1,0 +1,22 @@
+/// A program that depends on a package.
+///
+/// `textkit` is not a file beside this one and is not vendored into
+/// `cinder_modules` either. It is declared in `cinder.toml`, and the
+/// compiler resolves it before it starts looking for modules.
+///
+///     cinder run examples/managed/src/main.ci
+
+import textkit;
+
+pub fn main() {
+    let mut words: Vec<String> = new_vec();
+    push(words, textkit::owned("declared"));
+    push(words, textkit::owned("resolved"));
+    push(words, textkit::owned("built"));
+
+    print("joined:  ");
+    println(textkit::join(words, " -> "));
+
+    print("shouted: ");
+    println(textkit::shout("cinder"));
+}

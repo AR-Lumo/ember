@@ -1,4 +1,4 @@
-#include "ember/lexer/lexer.hpp"
+#include "cinder/lexer/lexer.hpp"
 
 #include <array>
 #include <charconv>
@@ -8,7 +8,7 @@
 #include <system_error>
 #include <utility>
 
-namespace ember::lexer {
+namespace cinder::lexer {
 namespace {
 
 bool is_digit(char c) { return c >= '0' && c <= '9'; }
@@ -416,7 +416,7 @@ private:
                 return push(match('|') ? TokenKind::PipePipe : TokenKind::Pipe, start);
             default:
                 error("unexpected character", span_from(start),
-                      "`" + describe_char(c) + "` is not valid in Ember source");
+                      "`" + describe_char(c) + "` is not valid in Cinder source");
                 return;
         }
     }
@@ -464,4 +464,4 @@ std::string dump_tokens(const std::vector<Token>& tokens, const ast::SourceFile&
     return out.str();
 }
 
-}  // namespace ember::lexer
+}  // namespace cinder::lexer

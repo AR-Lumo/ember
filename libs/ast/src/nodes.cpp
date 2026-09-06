@@ -1,6 +1,6 @@
-#include "ember/ast/nodes.hpp"
+#include "cinder/ast/nodes.hpp"
 
-namespace ember::ast {
+namespace cinder::ast {
 
 std::string type_to_string(const TypeRef& type) {
     switch (type.kind) {
@@ -136,4 +136,4 @@ std::string_view binary_op_name(BinaryOp op) noexcept {
     return "?";
 }
 
-}  // namespace ember::ast
+}  // namespace cinder::ast

@@ -1,4 +1,4 @@
-#include "ember/typeck/typeck.hpp"
+#include "cinder/typeck/typeck.hpp"
 
 #include <algorithm>
 #include <array>
@@ -6,7 +6,7 @@
 #include <optional>
 #include <utility>
 
-namespace ember::typeck {
+namespace cinder::typeck {
 namespace {
 
 using ast::Diagnostic;
@@ -411,7 +411,7 @@ private:
                "expected `" + to_string(expected) + "`, found `" + to_string(found) + "`");
     }
 
-    /// `file.em:3:5`, for notes that point at another location. With
+    /// `file.ci:3:5`, for notes that point at another location. With
     /// modules the location may be in a different file from the error
     /// itself, so it is resolved through the span's own file id.
     std::string location_of(Span span) const {
@@ -1398,7 +1398,7 @@ private:
     // -----------------------------------------------------------------
     // Generics: substitution, inference, instantiation
     //
-    // Ember has no traits, so a type parameter carries no guarantees and
+    // Cinder has no traits, so a type parameter carries no guarantees and
     // a generic body cannot be meaningfully checked in the abstract:
     // `a > b` is valid for some `T` and not others. So a template is
     // stored unchecked and each instantiation is checked as if it had
@@ -1735,7 +1735,7 @@ private:
 
         // The two owned built-ins. They behave like generic structs in
         // type position but are known to the compiler, since there is no
-        // way to write a heap-allocating type in Ember itself.
+        // way to write a heap-allocating type in Cinder itself.
         if (type.module.empty() && type.name == "Vec") {
             if (type.type_args.size() != 1) {
                 report("`Vec` takes 1 type argument but " +
@@ -2617,7 +2617,7 @@ private:
                         "a plain number has no unit, and no unit is not the same as any unit");
                 }
             } else {
-                diagnostic.with_note("`int` and `float` never mix implicitly in Ember (§4)");
+                diagnostic.with_note("`int` and `float` never mix implicitly in Cinder (§4)");
             }
         }
         return types().error_type();
@@ -3917,4 +3917,4 @@ CheckResult check(const ast::Program& program, const ast::SourceFile& source) {
     return Checker{sources}.run(modules);
 }
 
-}  // namespace ember::typeck
+}  // namespace cinder::typeck

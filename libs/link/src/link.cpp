@@ -1,8 +1,8 @@
-#include "ember/link/link.hpp"
+#include "cinder/link/link.hpp"
 
 #include <system_error>
 
-#if EMBER_HAVE_LLD
+#if CINDER_HAVE_LLD
 #include "lld/Common/Driver.h"
 
 #include "llvm/Support/raw_ostream.h"
@@ -23,7 +23,7 @@ LLD_HAS_DRIVER(mingw)
 #include <windows.h>
 #endif
 
-namespace ember::link {
+namespace cinder::link {
 namespace {
 
 namespace fs = std::filesystem;
@@ -112,7 +112,7 @@ const char* missing_object(const std::vector<fs::path>& paths) {
 }  // namespace
 
 bool is_available() {
-#if EMBER_HAVE_LLD
+#if CINDER_HAVE_LLD
     return true;
 #else
     return false;
@@ -148,16 +148,16 @@ Toolchain discover() {
     Toolchain toolchain;
     std::error_code failed;
 
-    // An installed tree first: `<prefix>/bin/ember` beside
-    // `<prefix>/lib/ember`. This is the case that has to work on a
+    // An installed tree first: `<prefix>/bin/cinder` beside
+    // `<prefix>/lib/cinder`. This is the case that has to work on a
     // machine that has never seen a build.
     const fs::path self = executable_path();
     if (!self.empty()) {
-        const fs::path installed = self.parent_path().parent_path() / "lib" / "ember";
+        const fs::path installed = self.parent_path().parent_path() / "lib" / "cinder";
         const std::vector<fs::path> candidate{installed};
-        if (fs::exists(installed / "libember_std.a", failed) &&
+        if (fs::exists(installed / "libcinder_std.a", failed) &&
             missing_object(candidate) == nullptr) {
-            toolchain.runtime = installed / "libember_std.a";
+            toolchain.runtime = installed / "libcinder_std.a";
             toolchain.library_paths = candidate;
             toolchain.complete = true;
             return toolchain;
@@ -166,15 +166,15 @@ Toolchain discover() {
 
     // Otherwise the build tree, so the compiler works out of `build/`
     // without being installed first.
-#ifdef EMBER_RUNTIME_LIBRARY
-    toolchain.runtime = fs::path{EMBER_RUNTIME_LIBRARY};
+#ifdef CINDER_RUNTIME_LIBRARY
+    toolchain.runtime = fs::path{CINDER_RUNTIME_LIBRARY};
 #endif
-#ifdef EMBER_BUILD_LIBRARY_PATHS
-    toolchain.library_paths = split_paths(EMBER_BUILD_LIBRARY_PATHS);
+#ifdef CINDER_BUILD_LIBRARY_PATHS
+    toolchain.library_paths = split_paths(CINDER_BUILD_LIBRARY_PATHS);
 #endif
 
     if (toolchain.runtime.empty() || !fs::exists(toolchain.runtime, failed)) {
-        toolchain.note = "the Ember runtime archive is missing (looked for `" +
+        toolchain.note = "the Cinder runtime archive is missing (looked for `" +
                          toolchain.runtime.string() + "`)";
         return toolchain;
     }
@@ -188,11 +188,11 @@ Toolchain discover() {
 
 Result link_executable(const std::vector<fs::path>& objects, const fs::path& output,
                        const Toolchain& toolchain) {
-#if !EMBER_HAVE_LLD
+#if !CINDER_HAVE_LLD
     (void)objects;
     (void)output;
     (void)toolchain;
-    return Result{false, "this build of Ember has no linker compiled into it"};
+    return Result{false, "this build of Cinder has no linker compiled into it"};
 #else
     if (const char* absent = missing_object(toolchain.library_paths)) {
         return Result{false, std::string{"`"} + absent + "` was not on the library path"};
@@ -210,7 +210,7 @@ Result link_executable(const std::vector<fs::path>& objects, const fs::path& out
         // libstdc++.dll.a and the program that comes out needs
         // libstdc++-6.dll to start - which is the dependency on
         // somebody else's toolchain that this whole exercise is about
-        // removing. Ember's programs link their runtime in.
+        // removing. Cinder's programs link their runtime in.
         "-Bstatic",
         "-o",
         output.string(),
@@ -243,7 +243,7 @@ Result link_executable(const std::vector<fs::path>& objects, const fs::path& out
     const lld::DriverDef drivers[] = {{lld::MinGW, &lld::mingw::link}};
 
     // lldMain rather than calling the driver directly: it is the
-    // re-entrant entry point, which matters because `ember build` links
+    // re-entrant entry point, which matters because `cinder build` links
     // once per invocation and the process outlives the link.
     const lld::Result linked = lld::lldMain(argv, stream, stream, drivers);
     stream.flush();
@@ -257,4 +257,4 @@ Result link_executable(const std::vector<fs::path>& objects, const fs::path& out
 #endif
 }
 
-}  // namespace ember::link
+}  // namespace cinder::link

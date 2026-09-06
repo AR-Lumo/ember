@@ -1,0 +1,112 @@
+/// Text: comparing it, slicing it, searching it.
+///
+/// Cinder has two text types. `string` is a borrowed view — a pointer and
+/// a length, pointing at bytes somebody else owns. `String` owns a
+/// growable buffer. Everything that only *reads* text takes either,
+/// because the difference is who owns the bytes and not what they say.
+///
+/// `slice` returns a view, so a substring costs a bounds check and two
+/// fields rather than an allocation. It carries the same warning `&T`
+/// does: it points into something else, and it dangles if that
+/// something is dropped or grown while the view is still around.
+
+/// Splits on a separator and collects the pieces.
+///
+/// Each piece is copied into a `String`, because the pieces outlive the
+/// loop and a view into `text` would be fine here but is not something
+/// this function can promise its caller.
+pub fn split(text: string, separator: string) -> Vec<String> {
+    let mut pieces: Vec<String> = new_vec();
+    let mut rest = text;
+
+    while len(rest) > 0 {
+        let at = find(rest, separator);
+        if at < 0 {
+            push(pieces, owned(rest));
+            return pieces;
+        }
+
+        let mut piece: String = new_string();
+        push_str(piece, slice(rest, 0, at));
+        push(pieces, piece);
+
+        rest = slice(rest, at + len(separator), len(rest));
+    }
+    return pieces;
+}
+
+/// Copies a borrowed view into a buffer of its own.
+pub fn owned(text: string) -> String {
+    let mut out: String = new_string();
+    push_str(out, text);
+    return out;
+}
+
+/// The index of the smallest element from `from` onward.
+pub fn smallest_from(words: &Vec<String>, from: int) -> int {
+    let mut best = from;
+    let mut i = from + 1;
+    while i < len(words) {
+        if words[i] < words[best] {
+            best = i;
+        }
+        i = i + 1;
+    }
+    return best;
+}
+
+pub fn main() {
+    let sentence = "the quick brown fox jumps over the lazy dog";
+
+    // Slicing takes a view of what is already there.
+    print("first word:  ");
+    println(slice(sentence, 0, find(sentence, " ")));
+
+    // Searching works on either kind of text.
+    print("has 'brown': ");
+    println(contains(sentence, "brown"));
+    print("'fox' at:    ");
+    println(find(sentence, "fox"));
+    print("'cat' at:    ");
+    println(find(sentence, "cat"));
+
+    let mut words = split(sentence, " ");
+    print("words:       ");
+    println(len(words));
+
+    // Text orders lexicographically, so it sorts. Selection sort,
+    // because swapping owned values needs somewhere to put one and
+    // this is the version that reads clearly.
+    let mut i = 0;
+    while i < len(words) {
+        let best = smallest_from(words, i);
+        if best != i {
+            let mut held: String = new_string();
+            push_str(held, words[i]);
+            words[i] = owned(words[best]);
+            words[best] = held;
+        }
+        i = i + 1;
+    }
+
+    print("sorted:     ");
+    let mut j = 0;
+    while j < len(words) {
+        print(" ");
+        print(words[j]);
+        j = j + 1;
+    }
+    println("");
+
+    // A `String` and a `string` compare with each other.
+    print("first is 'brown': ");
+    println(words[0] == "brown");
+
+    // Capacity is what a container has room for, not what is in it.
+    let mut room: Vec<int> = new_vec();
+    reserve(room, 64);
+    print("reserved:    ");
+    println(capacity(room));
+    print("holding:     ");
+    println(len(room));
+}

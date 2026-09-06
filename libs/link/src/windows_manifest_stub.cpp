@@ -15,7 +15,7 @@
 ///
 /// So: the same thing LLVM itself does when built with
 /// LLVM_ENABLE_LIBXML2=OFF. `isAvailable()` answers false and the merge
-/// path is never entered. Ember links executables through lld's MinGW
+/// path is never entered. Cinder links executables through lld's MinGW
 /// driver, which does not merge manifests - the default manifest comes
 /// in as `default-manifest.o` on the link line, an ordinary object.
 #include "llvm/WindowsManifest/WindowsManifestMerger.h"

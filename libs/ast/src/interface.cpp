@@ -1,8 +1,8 @@
-#include "ember/ast/interface.hpp"
+#include "cinder/ast/interface.hpp"
 
 #include <algorithm>
 
-namespace ember::ast {
+namespace cinder::ast {
 namespace {
 
 /// The text an item occupies, exactly as it was written.
@@ -139,7 +139,7 @@ InterfaceResult write_interface(const Program& program, const SourceFile& source
     std::string out =
         "// Interface for `" +
         (program.module.empty() ? std::string{"this program"} : program.module) +
-        "`, written by ember.\n"
+        "`, written by cinder.\n"
         "//\n"
         "// The public surface of the module, with the implementations taken\n"
         "// out. A generic keeps its body, because monomorphizing one needs it.\n";
@@ -199,4 +199,4 @@ InterfaceResult write_interface(const Program& program, const SourceFile& source
     return result;
 }
 
-}  // namespace ember::ast
+}  // namespace cinder::ast

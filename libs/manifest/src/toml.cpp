@@ -1,8 +1,8 @@
-#include "ember/manifest/toml.hpp"
+#include "cinder/manifest/toml.hpp"
 
 #include <cctype>
 
-namespace ember::manifest::toml {
+namespace cinder::manifest::toml {
 namespace {
 
 using ast::Diagnostic;
@@ -311,9 +311,9 @@ ParseResult parse(const ast::SourceFile& source) {
     return result;
 }
 
-}  // namespace ember::manifest::toml
+}  // namespace cinder::manifest::toml
 
-namespace ember::manifest::toml {
+namespace cinder::manifest::toml {
 
 std::string quoted(std::string_view text) {
     std::string out{'"'};
@@ -340,4 +340,4 @@ std::string quoted(std::string_view text) {
     return out;
 }
 
-}  // namespace ember::manifest::toml
+}  // namespace cinder::manifest::toml

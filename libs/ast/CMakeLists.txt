@@ -1,6 +1,6 @@
-# ember::ast - one pipeline stage, per the project layout in section 2.
+# cinder::ast - one pipeline stage, per the project layout in section 2.
 
-add_library(ember_ast STATIC
+add_library(cinder_ast STATIC
     src/ast.cpp
     src/span.cpp
     src/diagnostic.cpp
@@ -8,7 +8,7 @@ add_library(ember_ast STATIC
     src/printer.cpp
     src/interface.cpp
 )
-add_library(ember::ast ALIAS ember_ast)
+add_library(cinder::ast ALIAS cinder_ast)
 
-target_include_directories(ember_ast PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
-target_compile_features(ember_ast PUBLIC cxx_std_20)
+target_include_directories(cinder_ast PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
+target_compile_features(cinder_ast PUBLIC cxx_std_20)

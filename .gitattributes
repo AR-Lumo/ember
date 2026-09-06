@@ -3,8 +3,8 @@
 # stable avoids a whole class of "works on my machine" diffs.
 * text=auto eol=lf
 
-# Ember sources and recorded snapshots are always LF.
-*.em    text eol=lf
+# Cinder sources and recorded snapshots are always LF.
+*.ci    text eol=lf
 *.tokens text eol=lf
 *.ast   text eol=lf
 *.check text eol=lf

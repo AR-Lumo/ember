@@ -1,9 +1,9 @@
-# ember::parser - one pipeline stage, per the project layout in section 2.
+# cinder::parser - one pipeline stage, per the project layout in section 2.
 
-add_library(ember_parser STATIC src/parser.cpp)
-add_library(ember::parser ALIAS ember_parser)
+add_library(cinder_parser STATIC src/parser.cpp)
+add_library(cinder::parser ALIAS cinder_parser)
 
-target_include_directories(ember_parser PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
-target_compile_features(ember_parser PUBLIC cxx_std_20)
+target_include_directories(cinder_parser PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
+target_compile_features(cinder_parser PUBLIC cxx_std_20)
 
-target_link_libraries(ember_parser PUBLIC ember::ast ember::lexer)
+target_link_libraries(cinder_parser PUBLIC cinder::ast cinder::lexer)

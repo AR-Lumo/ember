@@ -1,8 +1,8 @@
-#include "ember/ast/interface.hpp"
-#include "ember/parser/parser.hpp"
+#include "cinder/ast/interface.hpp"
+#include "cinder/parser/parser.hpp"
 
-#include "ember/ast/ast.hpp"
-#include "ember/lexer/lexer.hpp"
+#include "cinder/ast/ast.hpp"
+#include "cinder/lexer/lexer.hpp"
 
 #include <algorithm>
 #include <deque>
@@ -14,7 +14,7 @@
 #include <string>
 #include <utility>
 
-namespace ember::parser {
+namespace cinder::parser {
 namespace {
 
 using ast::Span;
@@ -1057,7 +1057,7 @@ private:
 
     /// `|a: int, b: int| -> int { ... }`, or `||` for no parameters.
     ///
-    /// Parameter and return types are written out. Ember annotates every
+    /// Parameter and return types are written out. Cinder annotates every
     /// other binding position, and inferring these would mean pushing an
     /// expected type in from wherever the closure is going.
     ast::ExprPtr parse_closure() {
@@ -1336,7 +1336,7 @@ std::filesystem::path file_for(const std::vector<std::string>& segments,
 /// The root travels with the module: whatever a module was found under
 /// is what *its* imports resolve against. That is what makes a path
 /// absolute rather than relative — `shapes::detail::math` means the same
-/// thing written in `main.em` and in `shapes/geometry.em`, and a package
+/// thing written in `main.ci` and in `shapes/geometry.ci`, and a package
 /// keeps resolving its own modules against its own directory.
 struct Candidate {
     std::filesystem::path path;
@@ -1346,13 +1346,13 @@ struct Candidate {
 /// Every place a module named `name` could live, in the order tried.
 ///
 /// A module path is a directory path: `shapes::geometry` is the file
-/// `shapes/geometry.em`, under the importing module's own root first and
+/// `shapes/geometry.ci`, under the importing module's own root first and
 /// then under each search directory. The importer's root coming first is
 /// what keeps a program's own modules from being shadowed by a
 /// dependency.
 ///
 /// A single-segment name gets one extra chance per search directory:
-/// `<dir>/name/name.em`, a package directory whose root module carries
+/// `<dir>/name/name.ci`, a package directory whose root module carries
 /// the package's own name. Anything that package then imports resolves
 /// against `<dir>/name`, which is why the root is carried and not
 /// recomputed. The form only makes sense for a root module, so it is not
@@ -1523,4 +1523,4 @@ LoadResult load_program(const std::filesystem::path& entry, ast::SourceMap& sour
     return result;
 }
 
-}  // namespace ember::parser
+}  // namespace cinder::parser

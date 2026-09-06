@@ -3,7 +3,7 @@
 # The golden directory is baked in as a compile definition so the test
 # binary works regardless of the directory CTest runs it from.
 
-add_executable(ember_snapshot_tests
+add_executable(cinder_snapshot_tests
     snapshot_tests.cpp
     lexer_tests.cpp
     parser_tests.cpp
@@ -24,47 +24,47 @@ add_executable(ember_snapshot_tests
     effects_tests.cpp
 )
 
-target_include_directories(ember_snapshot_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+target_include_directories(cinder_snapshot_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 
-target_compile_definitions(ember_snapshot_tests
+target_compile_definitions(cinder_snapshot_tests
     PRIVATE
-        EMBER_GOLDEN_DIR="${CMAKE_CURRENT_SOURCE_DIR}/golden"
+        CINDER_GOLDEN_DIR="${CMAKE_CURRENT_SOURCE_DIR}/golden"
         # Phase 4 tests drive the real compiler binary end to end.
-        EMBER_BINARY="$<TARGET_FILE:ember>"
+        CINDER_BINARY="$<TARGET_FILE:cinder>"
 )
 
-add_dependencies(ember_snapshot_tests ember ember_std)
+add_dependencies(cinder_snapshot_tests cinder cinder_std)
 
-target_link_libraries(ember_snapshot_tests
+target_link_libraries(cinder_snapshot_tests
     PRIVATE
-        ember::driver
-        ember::ast
-        ember::lexer
-        ember::parser
-        ember::typeck
-        ember::codegen
-        ember::manifest
-        ember::link
+        cinder::driver
+        cinder::ast
+        cinder::lexer
+        cinder::parser
+        cinder::typeck
+        cinder::codegen
+        cinder::manifest
+        cinder::link
 )
 
-add_test(NAME snapshot_tests COMMAND ember_snapshot_tests)
+add_test(NAME snapshot_tests COMMAND cinder_snapshot_tests)
 
-# `ember --version` must at least start up and exit cleanly.
-add_test(NAME cli_smoke COMMAND ember --version)
-set_tests_properties(cli_smoke PROPERTIES PASS_REGULAR_EXPRESSION "^ember [0-9]+\.[0-9]+\.[0-9]+")
+# `cinder --version` must at least start up and exit cleanly.
+add_test(NAME cli_smoke COMMAND cinder --version)
+set_tests_properties(cli_smoke PROPERTIES PASS_REGULAR_EXPRESSION "^cinder [0-9]+\.[0-9]+\.[0-9]+")
 
 # End-to-end checks of the driver itself: a clean program must exit 0,
 # and a broken one must exit non-zero with a diagnostic on stderr.
 add_test(NAME cli_check_accepts_a_valid_program
-         COMMAND ember check "${CMAKE_SOURCE_DIR}/examples/point.em")
+         COMMAND cinder check "${CMAKE_SOURCE_DIR}/examples/point.ci")
 
 add_test(NAME cli_check_rejects_a_broken_program
-         COMMAND ember check "${CMAKE_CURRENT_SOURCE_DIR}/golden/type_errors.em")
+         COMMAND cinder check "${CMAKE_CURRENT_SOURCE_DIR}/golden/type_errors.ci")
 set_tests_properties(cli_check_rejects_a_broken_program PROPERTIES WILL_FAIL TRUE)
 
 # A multi-file program must build and run from the entry file alone.
 add_test(NAME cli_runs_a_multi_module_program
-         COMMAND ember run "${CMAKE_SOURCE_DIR}/examples/modules/main.em")
+         COMMAND cinder run "${CMAKE_SOURCE_DIR}/examples/modules/main.ci")
 set_tests_properties(cli_runs_a_multi_module_program
                      PROPERTIES PASS_REGULAR_EXPRESSION "distance_sq: 25")
 
@@ -72,9 +72,9 @@ set_tests_properties(cli_runs_a_multi_module_program
 #
 # An OBJECT library's objects do not travel through a static library:
 # CMake gives them to whatever links the object library *directly*, and
-# ember_link is a static archive in between. So the executables name
+# cinder_link is a static archive in between. So the executables name
 # them here. Without this the stub compiles, defines exactly the right
 # symbols, and is never looked at.
-if(TARGET ember_link_stubs)
-    target_sources(ember_snapshot_tests PRIVATE $<TARGET_OBJECTS:ember_link_stubs>)
+if(TARGET cinder_link_stubs)
+    target_sources(cinder_snapshot_tests PRIVATE $<TARGET_OBJECTS:cinder_link_stubs>)
 endif()

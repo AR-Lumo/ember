@@ -1,10 +1,10 @@
-# Ember
+# Cinder
 
 A small statically-typed, compiled language that produces real native
 executables via LLVM. Structs, methods in `impl` blocks, fixed-size
 arrays, references, and error messages that tell you what went wrong.
 
-```ember
+```cinder
 /// A point in 2D space.
 struct Point {
     pub x: int,
@@ -29,7 +29,7 @@ pub fn main() {
 ```
 
 ```console
-$ ember run examples/point.em
+$ cinder run examples/point.ci
 25
 ```
 
@@ -37,7 +37,7 @@ $ ember run examples/point.em
 
 ## Installing
 
-Ember is a C++20 project built with CMake. You need:
+Cinder is a C++20 project built with CMake. You need:
 
 | Requirement | Notes |
 |---|---|
@@ -46,13 +46,13 @@ Ember is a C++20 project built with CMake. You need:
 | LLVM 17+ development files | Headers, static libraries, and `LLVMConfig.cmake` |
 | LLD | Same version as LLVM. Linked into the compiler — see below |
 
-These are needed to **build** Ember. They are not needed to **use** it:
-an installed Ember carries its own linker and its own copy of everything
+These are needed to **build** Cinder. They are not needed to **use** it:
+an installed Cinder carries its own linker and its own copy of everything
 it links against, and runs on a machine with no compiler on it at all.
 
 LLVM is only needed by the code generator. **Without it the project still
 builds**, and the lexer, parser and type checker — everything behind
-`ember check` — work normally; only `ember build` and `ember run` are
+`cinder check` — work normally; only `cinder build` and `cinder run` are
 unavailable.
 
 ### Linux / macOS
@@ -74,7 +74,7 @@ cmake -S . -B build -G Ninja -DLLVM_DIR=$(llvm-config --cmakedir)
 
 ### Windows (MSYS2 UCRT64)
 
-The toolchain used to develop Ember. From an ordinary PowerShell prompt:
+The toolchain used to develop Cinder. From an ordinary PowerShell prompt:
 
 ```powershell
 # One-time: install the compiler and LLVM
@@ -93,7 +93,7 @@ reference `ZLIB::ZLIB` and friends, and without the MSYS2 prefix on the
 search path `find_package(LLVM)` fails with *"the link interface of
 target LLVMSupport contains ZLIB::ZLIB but the target was not found"*.
 
-The compiler lands at `build/bin/ember`. Add it to your `PATH`, or call
+The compiler lands at `build/bin/cinder`. Add it to your `PATH`, or call
 it by path as the examples below do.
 
 ### Installing it somewhere
@@ -105,30 +105,30 @@ cmake --install build --prefix /where/you/want/it
 That produces a tree with nothing outside it:
 
 ```
-<prefix>/bin/ember                  the compiler, with LLD inside it
-<prefix>/lib/ember/libember_std.a   the Ember runtime
-<prefix>/lib/ember/crt2.o, ...      startup objects
-<prefix>/lib/ember/libmsvcrt.a, ... system archives
-<prefix>/share/ember/README.md
+<prefix>/bin/cinder                  the compiler, with LLD inside it
+<prefix>/lib/cinder/libcinder_std.a   the Cinder runtime
+<prefix>/lib/cinder/crt2.o, ...      startup objects
+<prefix>/lib/cinder/libmsvcrt.a, ... system archives
+<prefix>/share/cinder/README.md
 ```
 
 Copy that directory to a machine that has never had a compiler on it and
-`ember run` works. The compiler finds `lib/ember` relative to its own
+`cinder run` works. The compiler finds `lib/cinder` relative to its own
 executable — not the working directory, and not a path baked in at
 build time — so the tree can live anywhere and be moved after the fact.
 
-**Why this took work.** Ember used to link by running
+**Why this took work.** Cinder used to link by running
 `${CMAKE_CXX_COMPILER}`, an absolute path recorded when the compiler was
 built. That works on precisely one machine. Three separate things had to
 change:
 
-- `ember` itself needed five DLLs from the MSYS2 prefix
+- `cinder` itself needed five DLLs from the MSYS2 prefix
   (`libstdc++-6`, `libgcc_s_seh-1`, `libwinpthread-1`, `zlib1`,
   `libzstd`). It now links them statically and imports nothing Windows
   does not ship.
 - Linking now happens **in process**. LLD is compiled into the binary,
   so no external linker is invoked and none needs to exist.
-- The programs Ember produces used to import `libstdc++-6.dll`
+- The programs Cinder produces used to import `libstdc++-6.dll`
   themselves. They now link their runtime in and import only Windows'
   own DLLs.
 
@@ -140,7 +140,7 @@ import table of both the compiler and a program it produced, and fails
 on any DLL Windows does not ship — because that is the only place the
 answer actually lives.
 
-The cost is size: `ember` is around 210 MB, because lld's COFF driver
+The cost is size: `cinder` is around 210 MB, because lld's COFF driver
 initialises every LLVM target unconditionally, so they all have to be
 linked in. The install adds about 18 MB of archives on top.
 
@@ -148,18 +148,18 @@ linked in. The install adds about 18 MB of archives on top.
 
 | Option | Default | Meaning |
 |---|---|---|
-| `EMBER_REQUIRE_LLVM` | `OFF` | Fail configuration instead of warning when LLVM is missing |
-| `EMBER_STATIC_DRIVER` | `ON` | Link the compiler against static runtimes so it needs no toolchain DLLs |
+| `CINDER_REQUIRE_LLVM` | `OFF` | Fail configuration instead of warning when LLVM is missing |
+| `CINDER_STATIC_DRIVER` | `ON` | Link the compiler against static runtimes so it needs no toolchain DLLs |
 | `LLVM_DIR` | — | Path to the directory holding `LLVMConfig.cmake` |
 
 ---
 
 ## Hello, world
 
-Put this in `hello.em`:
+Put this in `hello.ci`:
 
-```ember
-/// The smallest Ember program that produces output.
+```cinder
+/// The smallest Cinder program that produces output.
 pub fn main() {
     println("hello, world");
 }
@@ -168,7 +168,7 @@ pub fn main() {
 Run it straight away:
 
 ```console
-$ ember run hello.em
+$ cinder run hello.ci
 hello, world
 ```
 
@@ -176,7 +176,7 @@ Or compile it to a standalone executable that no longer needs the
 compiler:
 
 ```console
-$ ember build hello.em -o hello
+$ cinder build hello.ci -o hello
 $ ./hello
 hello, world
 ```
@@ -185,9 +185,9 @@ Now break it deliberately — change the line to `println(missing);` and
 type-check without generating code:
 
 ```console
-$ ember check hello.em
+$ cinder check hello.ci
 error: cannot find value `missing`
- --> hello.em:3:13
+ --> hello.ci:3:13
   |
 3 |     println(missing);
   |             ^^^^^^^ not found in this scope
@@ -203,17 +203,17 @@ stopping at the first.
 ## The CLI
 
 ```
-ember build <file.em> [-o <output>]   compile to a native executable
-ember run <file.em>                   compile and run in one step
-ember check <file.em>                 type-check only, no codegen
-ember fetch                           resolve and download dependencies
-ember publish                         record this version in the registry index
-ember interface <file.em>             write the module's public interface
+cinder build <file.ci> [-o <output>]   compile to a native executable
+cinder run <file.ci>                   compile and run in one step
+cinder check <file.ci>                 type-check only, no codegen
+cinder fetch                           resolve and download dependencies
+cinder publish                         record this version in the registry index
+cinder interface <file.ci>             write the module's public interface
 
   -L, --module-path <dir>
                    also look here for imported modules (repeatable)
   -O0 .. -O3       optimization level (default: -O0)
-      --update     re-resolve git dependencies, ignoring `ember.lock`
+      --update     re-resolve git dependencies, ignoring `cinder.lock`
       --dry-run    for `publish`: say what it would record, record nothing
       --lib        compile to an object file, with no `main` required
       --whole-program
@@ -260,7 +260,7 @@ its inner call moved into another module, best-of-7 goes from 0.054s to
 
 ### Packages
 
-A package is a directory with an `ember.toml` and its modules in `src/`.
+A package is a directory with an `cinder.toml` and its modules in `src/`.
 Depending on one puts that `src/` on the module search path — which is
 all a dependency has ever been here.
 
@@ -270,7 +270,7 @@ name = "myapp"
 version = "0.1.0"
 
 [registry]
-index = "https://example.invalid/ember-index"
+index = "https://example.invalid/cinder-index"
 
 [dependencies]
 serde = "1.0.0"                                              # from the registry
@@ -279,12 +279,12 @@ httpkit = { git = "https://example.invalid/h", rev = "v1.2" } # a repository
 ```
 
 `build`, `run` and `check` find the manifest by walking up from the
-source file, resolve it, and fetch anything missing. `ember fetch` does
+source file, resolve it, and fetch anything missing. `cinder fetch` does
 that and stops. A program with no manifest needs none: most of them are
 one file and depend on nothing.
 
-A `git` dependency is cloned once into `.ember/packages` and the commit
-it resolved to is written to `ember.lock`:
+A `git` dependency is cloned once into `.cinder/packages` and the commit
+it resolved to is written to `cinder.lock`:
 
 ```toml
 [httpkit]
@@ -345,13 +345,13 @@ reported rather than solved:
 
 ```console
 error: no version of `textkit` satisfies every requirement
- --> left/ember.toml:6:1
+ --> left/cinder.toml:6:1
   |
 6 | textkit = "1.0.0"
   | ^^^^^^^ `left` wants ^1.0.0
   = note: `right` wants ^2.0.0
   = note: the registry has 1.0.0, 1.2.0, 1.3.0, 2.0.0
-  = note: ember picks the highest version satisfying every requirement and does not backtrack, so the requirements have to agree
+  = note: cinder picks the highest version satisfying every requirement and does not backtrack, so the requirements have to agree
 ```
 
 Every requirement is named, along with who wrote it and what has
@@ -366,12 +366,12 @@ can serve anything for anything.
 
 #### Publishing
 
-`ember publish` adds this package's current version to the index. It
+`cinder publish` adds this package's current version to the index. It
 checks first — the package has to type-check, have a root module, sit in
 a clean git tree with an `origin` remote, and be tagged `v<version>`:
 
 ```console
-$ ember publish
+$ cinder publish
  checking textkit 1.0.0
  packaged textkit 1.0.0 (d3743a17)
    staged /home/me/.../index/textkit.toml
@@ -383,7 +383,7 @@ To publish textkit 1.0.0, send it:
 
 **It stops before pushing.** Everything up to that point can be undone
 by deleting a directory; sending it cannot, because a version once
-published has to go on meaning what it meant. So ember writes the entry,
+published has to go on meaning what it meant. So cinder writes the entry,
 commits it in its own checkout of the index, and hands you the command.
 `--dry-run` prints what it would record and writes nothing.
 
@@ -402,18 +402,18 @@ dependency too and depend on its version, or use a git dependency.
 
 There is no server, no account and no ownership. Whoever can push to the
 index can publish, which is a property of the git repository rather than
-of ember.
+of cinder.
 
 [`examples/managed`](examples/managed) is a small project end to end.
 
 ### Interfaces, and shipping a compiled library
 
-`ember interface` writes a module's public surface with the
+`cinder interface` writes a module's public surface with the
 implementations taken out:
 
 ```console
-$ ember interface geometry.em
-// Interface for `geometry`, written by ember.
+$ cinder interface geometry.ci
+// Interface for `geometry`, written by cinder.
 //
 // The public surface of the module, with the implementations taken
 // out. A generic keeps its body, because monomorphizing one needs it.
@@ -436,20 +436,20 @@ is somewhere else.
 An interface plus an object is a library. `--lib` writes the object:
 
 ```console
-$ ember interface lib/textkit.em -o dist/textkit.emi
-$ ember build --lib lib/textkit.em -o dist/textkit.o
+$ cinder interface lib/textkit.ci -o dist/textkit.cii
+$ cinder build --lib lib/textkit.ci -o dist/textkit.o
 $ rm -r lib                                    # the consumer never sees it
-$ ember run app/main.em -L dist --link dist/textkit.o
-ember!
+$ cinder run app/main.ci -L dist --link dist/textkit.o
+cinder!
 ```
 
-`import textkit;` finds `textkit.emi` on the search path when there is
-no `textkit.em`; **source always wins**, so an interface can never
+`import textkit;` finds `textkit.cii` on the search path when there is
+no `textkit.ci`; **source always wins**, so an interface can never
 quietly stand in for something you could have compiled. A library's
 symbols carry its module prefix, taken from its file name — the same
 rule `import` uses to find it.
 
-**A generic keeps its body.** Ember monomorphizes, so a copy of
+**A generic keeps its body.** Cinder monomorphizes, so a copy of
 `twice<int>` is generated wherever it is first used, and generating it
 needs the body. That is the bargain C++ strikes by putting templates in
 headers, and it has the same consequence: a generic's implementation is
@@ -459,14 +459,14 @@ part of its interface, and changing it changes what everyone compiles.
 Every item knows the span it came from, so a signature is the text up to
 the body and a generic is the text of the whole thing. Nothing is
 re-rendered, so nothing can be rendered wrong — the output is your own
-Ember, and it parses because it already did.
+Cinder, and it parses because it already did.
 
 A public signature that names a private type is refused, because a
 caller could not use it:
 
 ```console
 error: `Point::distance_sq` cannot be part of an interface
- --> point.em:9:38
+ --> point.ci:9:38
   |
 9 |     pub fn distance_sq(&self, other: Point) -> int {
   |                                      ^^^^^ `Point` is not `pub`
@@ -476,41 +476,41 @@ error: `Point::distance_sq` cannot be part of an interface
 
 ### Incremental builds
 
-Each module compiles to its own object file, kept in a `.ember`
+Each module compiles to its own object file, kept in a `.cinder`
 directory beside the entry source and reused when nothing it depends on
 has changed:
 
 ```console
-$ ember build main.em --verbose
-compiling main.em
-compiling shapes.em
-compiling counter.em
+$ cinder build main.ci --verbose
+compiling main.ci
+compiling shapes.ci
+compiling counter.ci
  linking  main.exe
 
-$ ember build main.em --verbose        # nothing edited
-  cached  main.em
-  cached  shapes.em
-  cached  counter.em
+$ cinder build main.ci --verbose        # nothing edited
+  cached  main.ci
+  cached  shapes.ci
+  cached  counter.ci
  linking  main.exe
 ```
 
 An object is valid as long as its module's source *and* the source of
 everything that module imports are unchanged — a struct that changes
 shape changes the code generated in every module that uses it. So
-editing `shapes.em` rebuilds `shapes` and `main`, and leaves `counter`
+editing `shapes.ci` rebuilds `shapes` and `main`, and leaves `counter`
 alone:
 
 ```console
-$ ember build main.em --verbose
-compiling main.em
-compiling shapes.em
-  cached  counter.em
+$ cinder build main.ci --verbose
+compiling main.ci
+compiling shapes.ci
+  cached  counter.ci
  linking  main.exe
 ```
 
 The cache key is the fingerprint in the object's file name, so a hit is
 just a file existing — there is no manifest that can disagree with what
-is on disk. `--fresh` ignores it. Deleting `.ember` is always safe.
+is on disk. `--fresh` ignores it. Deleting `.cinder` is always safe.
 
 Each optimization level keeps its own objects, so working at `-O0` and
 dropping to `-O2` to check something does not recompile the program each
@@ -521,7 +521,7 @@ way round.
 ## The language
 
 A tour by way of the pieces. The full grammar is in
-[`ember-language-spec.md`](ember-language-spec.md) §3.
+[`cinder-language-spec.md`](cinder-language-spec.md) §3.
 
 ### Types
 
@@ -541,7 +541,7 @@ A tour by way of the pieces. The full grammar is in
 `int` and `float` never mix implicitly. Where you need both, say so
 with `as`:
 
-```ember
+```cinder
 pub fn mean(values: &[int; 5]) -> float {
     let mut total = 0;
     let mut i = 0;
@@ -559,7 +559,7 @@ pub fn mean(values: &[int; 5]) -> float {
 
 ### Bindings
 
-```ember
+```cinder
 let count = 1;            // inferred
 let total: int = 0;       // annotated
 let mut running = true;   // reassignable
@@ -570,7 +570,7 @@ outer ones.
 
 ### Functions and methods
 
-```ember
+```cinder
 pub fn add(a: int, b: int) -> int {
     return a + b;
 }
@@ -590,7 +590,7 @@ vtables or dynamic dispatch anywhere in v1.
 
 ### Arrays and references
 
-```ember
+```cinder
 pub fn total(values: &[int; 4]) -> int {
     let mut sum = 0;
     let mut i = 0;
@@ -607,7 +607,7 @@ a copy, so writes through it are visible to the caller. `mut` governs
 rebinding a reference, not writing through one.
 
 Array accesses are bounds-checked at runtime. Strict C would not check,
-but Ember has no borrow checker either, and a silent out-of-bounds write
+but Cinder has no borrow checker either, and a silent out-of-bounds write
 is a worse trade than a branch the optimizer usually removes.
 
 ### Generics
@@ -616,7 +616,7 @@ Functions and structs may take type parameters. Each combination of
 argument types is compiled to its own function, so there is no boxing
 and nothing is decided at run time:
 
-```ember
+```cinder
 pub fn max<T>(a: T, b: T) -> T {
     if a > b {
         return a;
@@ -635,7 +635,7 @@ binary. Type arguments are inferred from the call, so there is no
 turbofish; a parameter that appears in no argument type is rejected at
 the declaration, because nothing could ever determine it.
 
-Ember has no traits, so a type parameter carries no guarantees and a
+Cinder has no traits, so a type parameter carries no guarantees and a
 generic body is **checked once per instantiation**, as C++ templates are
 rather than Rust generics. `a > b` above is legal for `int` and not for a
 struct, and that is only knowable once `T` is chosen — so the error is
@@ -643,11 +643,11 @@ reported against the body, with a note naming the call that caused it:
 
 ```console
 error: cannot compare values of type `Point`
- --> sort.em:4:8
+ --> sort.ci:4:8
   |
 4 |     if a > b {
   |        ^^^^^ `>` needs an `int` or a `float`
-  = note: in `max` instantiated as `max<Point>` at sort.em:13:13
+  = note: in `max` instantiated as `max<Point>` at sort.ci:13:13
 ```
 
 The trade-off is that a generic function nobody calls is never checked.
@@ -662,7 +662,7 @@ chain of comparisons; in type position they are explicit.
 `impl<T> Stack<T>` declares the parameters and applies them to the type,
 and every method inside is generic over them:
 
-```ember
+```cinder
 struct Stack<T> {
     pub items: Vec<T>,
 }
@@ -690,7 +690,7 @@ A type parameter used only in the **return type** is settled by what the
 result is bound to, which is the only way to write a constructor for a
 generic type:
 
-```ember
+```cinder
 pub fn new_stack<T>() -> Stack<T> {
     let items: Vec<T> = new_vec();
     return Stack { items: items };
@@ -702,16 +702,16 @@ let s: Stack<int> = new_stack();   // the annotation says what T is
 Arguments are unified first, so the binding only fills in what the call
 left open — it can never override what was actually passed. Without an
 annotation there is nothing to go on, and the error says so.
-[`examples/stack.em`](examples/stack.em) is the whole thing.
+[`examples/stack.ci`](examples/stack.ci) is the whole thing.
 
 ### Modules
 
 A program may span several files. `import` names a module, and a module
-called `geometry` lives in `geometry.em` beside the file that imports it:
+called `geometry` lives in `geometry.ci` beside the file that imports it:
 
-In `geometry.em`:
+In `geometry.ci`:
 
-```ember
+```cinder
 pub struct Point {
     pub x: int,
     pub y: int,
@@ -724,9 +724,9 @@ pub fn magnitude_sq(p: Point) -> int {
 fn private_helper() -> int { return 1; }
 ```
 
-In `main.em` beside it:
+In `main.ci` beside it:
 
-```ember
+```cinder
 import geometry;
 
 pub fn main() {
@@ -736,7 +736,7 @@ pub fn main() {
 ```
 
 ```console
-$ ember run main.em
+$ cinder run main.ci
 25
 ```
 
@@ -750,16 +750,16 @@ finds `main`.
 no boundary to enforce it across; now anything not marked `pub` is
 private to the file that declared it.
 
-Reach for `private_helper` from `main.em` and the note points into the
+Reach for `private_helper` from `main.ci` and the note points into the
 other file:
 
 ```console
 error: function `geometry::private_helper` is private
- --> main.em:4:23
+ --> main.ci:4:23
   |
 4 |     println(geometry::private_helper());
   |                       ^^^^^^^^^^^^^^ `geometry::private_helper` is not declared `pub`
-  = note: declared at geometry.em:10:4
+  = note: declared at geometry.ci:10:4
 ```
 
 That applies to types, constants and individual struct fields too. A
@@ -780,10 +780,10 @@ before any body is checked, so neither has to come first.
 
 #### Nested paths
 
-A module path is a file path. `shapes::geometry` is `shapes/geometry.em`,
+A module path is a file path. `shapes::geometry` is `shapes/geometry.ci`,
 as deep as you care to go:
 
-```ember
+```cinder
 import shapes::geometry;
 import shapes::detail::math;
 
@@ -796,8 +796,8 @@ pub fn main() {
 The last segment names the item; everything before it names the module.
 The path is resolved against the root the *importing module* was found
 under, not against the directory it happens to sit in — so
-`shapes::detail::math` means the same file written in `main.em` and in
-`shapes/geometry.em`, and a package keeps resolving its own modules
+`shapes::detail::math` means the same file written in `main.ci` and in
+`shapes/geometry.ci`, and a package keeps resolving its own modules
 against its own directory.
 
 **Nesting is a naming device and nothing more.** `shapes::geometry` has
@@ -812,38 +812,38 @@ Paths become `__` in symbols, so `shapes::detail::math::square` links as
 
 #### Where modules come from
 
-`import geometry;` looks for `geometry.em` under the root the importing
+`import geometry;` looks for `geometry.ci` under the root the importing
 module was found under — for the entry file, the directory it sits in.
 If it is not there, each directory on the module search path is tried
-twice — as `geometry.em`, and as `geometry/geometry.em`:
+twice — as `geometry.ci`, and as `geometry/geometry.ci`:
 
 | | |
 |---|---|
 | `--module-path <dir>`, or `-L <dir>` | repeatable, tried in order |
-| `EMBER_MODULE_PATH` | `PATH`-style list, `;` on Windows and `:` elsewhere |
-| `ember_modules/` beside the entry file | used automatically if it exists |
+| `CINDER_MODULE_PATH` | `PATH`-style list, `;` on Windows and `:` elsewhere |
+| `cinder_modules/` beside the entry file | used automatically if it exists |
 
 Explicit beats ambient beats conventional. **The importing module's own
 root always wins**, so adding a dependency can never quietly take over a
 name a program was already using for a module of its own.
 
-The `geometry/geometry.em` form is what lets a package be more than one
+The `geometry/geometry.ci` form is what lets a package be more than one
 file: that directory becomes the package's root, so everything it
 imports resolves inside it.
 [`examples/packages`](examples/packages) is a whole one, and needs no
-flags — it just puts `textkit` in `ember_modules/`.
+flags — it just puts `textkit` in `cinder_modules/`.
 
 When nothing turns up, the error is a list of where it looked:
 
 ```console
 error: cannot find module `textkit`
- --> main.em:1:8
+ --> main.ci:1:8
   |
 1 | import textkit;
   |        ^^^^^^^ no file for this module
-  = note: looked at `textkit.em`
-  = note: looked at `vendor\textkit.em`
-  = note: looked at `vendor\textkit\textkit.em`
+  = note: looked at `textkit.ci`
+  = note: looked at `vendor\textkit.ci`
+  = note: looked at `vendor\textkit\textkit.ci`
 ```
 
 Module names are global — a path is what makes one unique, not the
@@ -854,7 +854,7 @@ than a coin toss, and the compiler names both.
 
 `[T; N]` has its length in its type. `Vec<T>` grows:
 
-```ember
+```cinder
 let mut v: Vec<int> = new_vec();
 push(v, 10);
 push(v, 20);
@@ -867,7 +867,7 @@ println(pop(v));     // 20
 fixed-length view — the same split Rust makes between `String` and
 `&str`:
 
-```ember
+```cinder
 let mut message: String = new_string();
 push_str(message, "built ");
 push_str(message, "a piece at a time");
@@ -886,7 +886,7 @@ asks for more, on either growable container. Neither ever shrinks.
 `string` borrows and `String` owns, but the bytes say the same thing, so
 everything that only *reads* takes either:
 
-```ember
+```cinder
 let sentence = "the quick brown fox";
 println(slice(sentence, 4, 9));      // quick
 println(find(sentence, "fox"));      // 16
@@ -908,7 +908,7 @@ the caller keeps the buffer, so this borrows rather than moves. The
 other direction is refused, because turning a borrow into ownership
 needs a copy and nothing here copies silently.
 
-[`examples/words.em`](examples/words.em) splits a sentence, sorts the
+[`examples/words.ci`](examples/words.ci) splits a sentence, sorts the
 pieces and searches them.
 
 An element may own memory of its own — `Vec<String>`, `Vec<Vec<int>>`,
@@ -916,9 +916,9 @@ as deep as you like. Dropping such a vector is not one `free`: it walks
 its live elements, drops each, and only then releases the buffer they
 sat in.
 
-```ember
+```cinder
 let mut words: Vec<String> = new_vec();
-push(words, make("ember"));       // `make` returns a String; it moves in
+push(words, make("cinder"));       // `make` returns a String; it moves in
 
 println(words[0]);                // reads an element without taking it
 let last = pop(words);            // takes one back out, shortening the vector
@@ -930,7 +930,7 @@ holds — `pop` is how ownership comes back, and the error says so:
 
 ```console
 error: cannot move out of `String` here
-  --> main.em:11:17
+  --> main.ci:11:17
    |
 11 |     let taken = words[0];
    |                 ^^^^^^^^ only a whole variable can be moved
@@ -938,7 +938,7 @@ error: cannot move out of `String` here
    = note: `pop` takes the last element out of a `Vec` and shortens it, which leaves nothing half-owned
 ```
 
-[`examples/word_list.em`](examples/word_list.em) is the whole thing end
+[`examples/word_list.ci`](examples/word_list.ci) is the whole thing end
 to end.
 
 ### Ownership
@@ -947,7 +947,7 @@ to end.
 Owned values **move** rather than copy, and are **freed automatically**
 when their owner goes out of scope:
 
-```ember
+```cinder
 let mut a: Vec<int> = new_vec();
 let b = a;           // the buffer moves to b
 println(len(a));     // error: use of moved value `a`
@@ -955,11 +955,11 @@ println(len(a));     // error: use of moved value `a`
 
 ```console
 error: use of moved value `a`
- --> main.em:5:17
+ --> main.ci:5:17
   |
 5 |     println(len(a));
   |                 ^ `a` was moved and no longer holds a value
-  = note: moved at main.em:4:13
+  = note: moved at main.ci:4:13
   = note: `Vec<int>` owns heap memory, so assigning or passing it moves it rather than copying
 ```
 
@@ -969,7 +969,7 @@ built and dropped in a loop hold flat memory.
 
 Passing by value moves; passing `&T` borrows and does not:
 
-```ember
+```cinder
 pub fn sum(v: &Vec<int>) -> int { ... }    // caller keeps it
 pub fn consume(v: Vec<int>) -> int { ... } // caller gives it up
 ```
@@ -993,7 +993,7 @@ freely.
 Functions are values. A closure is written `|params| -> Result { ... }`
 and has the type `fn(Params) -> Result`:
 
-```ember
+```cinder
 let double = |x: int| -> int { return x * 2; };
 println(double(21));                 // 42
 
@@ -1008,7 +1008,7 @@ println(shift(5));                   // 105
 from — which for a closure there usually is, since it is being passed to
 something:
 
-```ember
+```cinder
 map_in_place(values, |x| { return x * 2; });
 ```
 
@@ -1021,7 +1021,7 @@ none either, it says so and asks for the type.
 surrounding scope into its own storage, which is why one can be returned
 and still work:
 
-```ember
+```cinder
 pub fn scaler(factor: int) -> fn(int) -> int {
     return |x: int| -> int { return x * factor; };
 }
@@ -1033,7 +1033,7 @@ called as often as you like; passing it by value moves it, and
 `&fn(...)` borrows it — which is what a higher-order function usually
 wants:
 
-```ember
+```cinder
 pub fn map_in_place(values: &Vec<int>, f: &fn(int) -> int) { ... }
 ```
 
@@ -1043,7 +1043,7 @@ nothing at all.
 **A capture may own memory.** Taking one by value means taking it: the
 closure owns it from then on, and the scope that had it does not.
 
-```ember
+```cinder
 let mut greeting: String = new_string();
 push_str(greeting, "hello");
 
@@ -1064,7 +1064,7 @@ closures each holding a `String` and a `Vec` hold flat memory.
 A function can say what it expects and what it promises, in the
 signature rather than the first few lines of the body:
 
-```ember
+```cinder
 pub fn divide(a: int, b: int) -> int
     requires b != 0
     ensures result != 0 || a == 0
@@ -1082,9 +1082,9 @@ A violation is a panic that names the clause, not a wrong answer that
 travels:
 
 ```console
-$ ember run divide.em
-ember: requires contract violated in `divide`: b != 0
-  --> divide.em:2:5
+$ cinder run divide.ci
+cinder: requires contract violated in `divide`: b != 0
+  --> divide.ci:2:5
 ```
 
 `result` is **not** a keyword. Reserving it would break every program
@@ -1095,7 +1095,7 @@ puzzling one:
 
 ```
 error: `result` is not in scope in a `requires`
- --> lib.em:2:14
+ --> lib.ci:2:14
   |
 2 |     requires result > 0
   |              ^^^^^^ a `requires` is checked before the function runs, so there is no result yet
@@ -1116,7 +1116,7 @@ separate compilation.
 
 A number can carry a unit, and the compiler refuses to mix them up:
 
-```ember
+```cinder
 unit meters;
 unit seconds;
 
@@ -1133,7 +1133,7 @@ pub fn main() {
 algebraically, so a distance over a time is a speed and nobody has to
 declare one:
 
-```ember
+```cinder
 let rate: float<meters/seconds^2> = d / t / t;   // an acceleration
 let back: float<meters>           = speed * t;   // and back again
 let ratio: float                  = d / d;       // cancels to a plain number
@@ -1142,9 +1142,9 @@ let ratio: float                  = d / d;       // cancels to a plain number
 Adding what you should not is a compile error, not a wrong answer:
 
 ```console
-$ ember check units.em
+$ cinder check units.ci
 error: cannot apply `+` to `float<meters>` and `float<seconds>`
- --> units.em:7:15
+ --> units.ci:7:15
   |
 7 |     let bad = d + t;
   |               ^^^^^ the operands have different types
@@ -1171,7 +1171,7 @@ somebody declares a unit called `meters`.
 
 A `uses` clause bounds what a function is allowed to do:
 
-```ember
+```cinder
 pub fn area(w: int, h: int) -> int uses nothing {
     return w * h;                  // pure, and held to it
 }
@@ -1186,9 +1186,9 @@ performs `io`, a call performs whatever the callee performs — and
 reports anything the clause does not permit:
 
 ```console
-$ ember check effects.em
+$ cinder check effects.ci
 error: `io` is not permitted here
- --> effects.em:6:5
+ --> effects.ci:6:5
   |
 6 |     println(w);
   |     ^^^^^^^^^^ this performs `io`
@@ -1213,7 +1213,7 @@ fine, like an unused `throws` in Java.
 **Effects are part of a function type**, which is what makes a
 higher-order function bounded at all:
 
-```ember
+```cinder
 pub fn apply(f: fn(int) -> int uses nothing, x: int) -> int uses nothing {
     return f(x);            // the type says the call is pure
 }
@@ -1228,7 +1228,7 @@ means what it did.
 And defining a closure is not calling it, so a factory can be pure even
 though what it hands back is not:
 
-```ember
+```cinder
 pub fn make(limit: int) -> fn(int) -> int uses nothing {
     return |x: int| { println(x); return x + limit; };
 }
@@ -1239,7 +1239,7 @@ nothing, so an unannotated library is assumed pure — the same bargain as
 "no clause is no claim". A `uses` clause does survive into an interface
 file, so a library that annotates is believed.
 
-`mut` is declarable and inert: Ember has no `&mut` for it to be about
+`mut` is declarable and inert: Cinder has no `&mut` for it to be about
 yet, and it is accepted now so programs need not change when it gains
 meaning.
 
@@ -1261,22 +1261,22 @@ also a regression test in the suite.
 
 | Program | Shows |
 |---|---|
-| [`hello.em`](examples/hello.em) | The smallest program |
-| [`point.em`](examples/point.em) | Structs, methods, constants |
-| [`fibonacci.em`](examples/fibonacci.em) | Loops and recursion |
-| [`bubble_sort.em`](examples/bubble_sort.em) | Arrays, indexing, in-place mutation through `&T` |
-| [`inventory.em`](examples/inventory.em) | An array of structs, methods calling methods |
-| [`averages.em`](examples/averages.em) | Explicit `int`/`float` conversion with `as` |
-| [`generics.em`](examples/generics.em) | Generic functions and structs, monomorphized |
+| [`hello.ci`](examples/hello.ci) | The smallest program |
+| [`point.ci`](examples/point.ci) | Structs, methods, constants |
+| [`fibonacci.ci`](examples/fibonacci.ci) | Loops and recursion |
+| [`bubble_sort.ci`](examples/bubble_sort.ci) | Arrays, indexing, in-place mutation through `&T` |
+| [`inventory.ci`](examples/inventory.ci) | An array of structs, methods calling methods |
+| [`averages.ci`](examples/averages.ci) | Explicit `int`/`float` conversion with `as` |
+| [`generics.ci`](examples/generics.ci) | Generic functions and structs, monomorphized |
 | [`modules/`](examples/modules) | A program in three files, with `import` and `pub` |
-| [`ownership.em`](examples/ownership.em) | `Vec`, `String`, moves and automatic drops |
-| [`closures.em`](examples/closures.em) | Function values, captures, higher-order functions |
-| [`contracts.em`](examples/contracts.em) | `requires` and `ensures` on functions and methods |
-| [`units.em`](examples/units.em) | Units of measure, combined by `*` and `/` |
-| [`effects.em`](examples/effects.em) | `uses` clauses bounding what a function may do |
+| [`ownership.ci`](examples/ownership.ci) | `Vec`, `String`, moves and automatic drops |
+| [`closures.ci`](examples/closures.ci) | Function values, captures, higher-order functions |
+| [`contracts.ci`](examples/contracts.ci) | `requires` and `ensures` on functions and methods |
+| [`units.ci`](examples/units.ci) | Units of measure, combined by `*` and `/` |
+| [`effects.ci`](examples/effects.ci) | `uses` clauses bounding what a function may do |
 
 ```console
-$ ember run examples/bubble_sort.em
+$ cinder run examples/bubble_sort.ci
 before: 5 2 9 1 7 3 8 4
 after:  1 2 3 4 5 7 8 9
 ```
@@ -1289,26 +1289,26 @@ One static library per pipeline stage, under [`libs/`](libs):
 
 ```
 source text
-  -> ember::lexer     tokens with line/column spans
-  -> ember::parser    AST (recursive descent + Pratt for expressions)
-  -> ember::typeck    resolved types, symbol tables, diagnostics
-  -> ember::codegen   LLVM IR -> one native object file per module
-  -> system linker    + ember::std runtime -> executable
+  -> cinder::lexer     tokens with line/column spans
+  -> cinder::parser    AST (recursive descent + Pratt for expressions)
+  -> cinder::typeck    resolved types, symbol tables, diagnostics
+  -> cinder::codegen   LLVM IR -> one native object file per module
+  -> system linker    + cinder::std runtime -> executable
 ```
 
-`ember::ast` holds what the stages share: AST nodes, source spans, and
-the diagnostic renderer. `ember::std` is the runtime linked into every
+`cinder::ast` holds what the stages share: AST nodes, source spans, and
+the diagnostic renderer. `cinder::std` is the runtime linked into every
 compiled program — it backs `println` and reports runtime errors.
 
 ### Separate compilation
 
-Codegen lowers one Ember module at a time. Functions from other modules
+Codegen lowers one Cinder module at a time. Functions from other modules
 become `declare` lines for the linker to resolve, so a module can be
 rebuilt without re-lowering the rest of the program.
 
 Monomorphized generics are the awkward case, because a copy of
 `max<int>` belongs to no single module: the template is written in one
-and demanded from others. Ember does what C++ does — emits each copy
+and demanded from others. Cinder does what C++ does — emits each copy
 into every object that needs it under `linkonce_odr` linkage and lets
 the linker keep one. The module that *wrote* the template emits nothing
 for it; a generic function is not code until someone picks its types.
@@ -1324,7 +1324,7 @@ because generic functions may call each other in a cycle.
 $ ctest --test-dir build --output-on-failure
 ```
 
-Most of the suite is golden-file snapshots. Each `.em` file in
+Most of the suite is golden-file snapshots. Each `.ci` file in
 `tests/golden/` has a recorded expectation per stage:
 
 | File | Stage | Contents |
@@ -1341,7 +1341,7 @@ After an intentional change, re-record and read the diff before
 committing it:
 
 ```console
-$ EMBER_UPDATE_GOLDEN=1 ./build/bin/ember_snapshot_tests
+$ CINDER_UPDATE_GOLDEN=1 ./build/bin/cinder_snapshot_tests
 ```
 
 ---
@@ -1377,7 +1377,7 @@ v1 is deliberately small. These are the sharp edges worth knowing about.
   scratch, and of that 0.29s the front end is 0.08s and the link is most
   of the rest — so the reason the numbers stop improving is the linker,
   not the compiler.
-- **The self-contained toolchain is Windows-only so far.** `ember` on
+- **The self-contained toolchain is Windows-only so far.** `cinder` on
   Windows carries LLD inside it and ships the archives it links
   against, so it needs no compiler on the target machine. On Linux and
   macOS it still shells out to an external linker at the path recorded
@@ -1409,7 +1409,7 @@ v1 is deliberately small. These are the sharp edges worth knowing about.
 - **A registry has no owners and no checksums.** Whoever can push to
   the index repository can publish anything under any name, and nothing
   verifies that a commit still contains what it did when it was
-  published. `ember publish` stops before pushing, so the git host's own
+  published. `cinder publish` stops before pushing, so the git host's own
   access control is what stands in for all of this. There is no hosted
   index to point at.
 - **A package's manifest is a subset of TOML.** Comments, `[section]`
@@ -1437,12 +1437,51 @@ The spec's §6 sketches where these go next.
 
 ## Renaming the language
 
-"Ember" and `.em` appear in four places: the `ember::*` library
-namespaces, the CLI binary name, `kLanguageName` / `kFileExtension` in
-[`libs/ast/include/ember/ast/ast.hpp`](libs/ast/include/ember/ast/ast.hpp),
-and the spec document. The extension check in the CLI reads
-`kFileExtension`, so changing that constant is enough to move the file
-extension.
+This section used to claim the name lived in four places. It was
+written early and never tested, and when the language was actually
+renamed — it was Ember before this — the real count was closer to 3,400
+occurrences across 98 files, plus 8 directories and 52 source files that
+had to move. What follows is what the rename actually took, so the next
+one is a morning's work rather than a discovery exercise.
+
+**In text.** Apply these in order, and anchor every lowercase rule with
+`\b` on the **left only**:
+
+| Pattern | Becomes |
+|---|---|
+| `libcinder_` | the runtime archive; it has no left boundary, so name it outright |
+| `\bCINDER` | macro prefixes — `CINDER_TEST`, `CINDER_BINARY` |
+| `\bCinder` | prose and `kLanguageName` |
+| `\bcinder` | namespaces, `cinder_` symbols, `cinder/` include paths, `.cinder` |
+| `\.cii` | interface files — before `.ci`, or it eats the stem |
+| `\.ci` | source files |
+
+The left anchor is not optional. "ember" is a substring of **member**,
+**remember** and **December**, all of which occur in this source; an
+unanchored replace turns them into `mcinder`, `recinder`, `Decinder`.
+There is no boundary between the `m` and the `ember` of `member`, so
+anchoring left protects them while still matching `ember_std`,
+`ember::ast` and `ember/ast/ast.hpp`.
+
+**In the filesystem.** `libs/*/include/<name>/` (8 directories), every
+source and interface file, and four paths the text rules cannot see
+because the name is in the filename: the manifest, the lockfile, the
+vendored-modules directory, and the spec document.
+
+**Constants that spell the extension without a dot**, and so match none
+of the above: `kFileExtension`, `kInterfaceExtension`, `kLanguageName`
+in [`libs/ast/include/cinder/ast/ast.hpp`](libs/ast/include/cinder/ast/ast.hpp)
+and [`interface.hpp`](libs/ast/include/cinder/ast/interface.hpp).
+`kManifestName` and `kLockName` in
+[`manifest.hpp`](libs/manifest/include/cinder/manifest/manifest.hpp) do
+contain the name and are handled by the text rules.
+
+**Also `.gitattributes`**, which pins the line endings of `*.ci` and the
+golden snapshots and is not a source file, so a suffix-driven pass
+misses it.
+
+The golden test harness reads `kFileExtension`, so the 31 example
+programs need no separate handling once that constant moves.
 
 ---
 
@@ -1452,7 +1491,7 @@ MIT — see [LICENSE](LICENSE). Use it for anything, including commercially;
 just keep the copyright notice.
 
 One thing to read first, if you are thinking of depending on this:
-references are unchecked. Ember has ownership and moves, but no borrow
+references are unchecked. Cinder has ownership and moves, but no borrow
 checker, so a reference outliving what it points at is a use-after-free
 that nothing diagnoses. That is a deliberate design choice, not a bug
 queue — see [Known limitations](#known-limitations) for the rest of them.

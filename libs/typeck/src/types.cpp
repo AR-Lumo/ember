@@ -1,9 +1,9 @@
-#include "ember/typeck/types.hpp"
+#include "cinder/typeck/types.hpp"
 
 #include <algorithm>
 #include <utility>
 
-namespace ember::typeck {
+namespace cinder::typeck {
 
 TypeContext::TypeContext() {
     int_ = intern(Type{TypeKind::Int, {}, nullptr, 0, {}, nullptr, false});
@@ -288,4 +288,4 @@ std::string to_string(TypePtr type) {
     return "?";
 }
 
-}  // namespace ember::typeck
+}  // namespace cinder::typeck

@@ -1,10 +1,10 @@
-#include "ember/manifest/registry.hpp"
+#include "cinder/manifest/registry.hpp"
 
-#include "ember/manifest/toml.hpp"
+#include "cinder/manifest/toml.hpp"
 
 #include <algorithm>
 
-namespace ember::manifest {
+namespace cinder::manifest {
 namespace {
 
 using ast::Diagnostic;
@@ -107,7 +107,7 @@ std::string render_index_entry(const std::string& name, std::vector<Release> rel
 
     std::string out =
         "# Index entry for `" + name +
-        "`, written by ember. Each section is one published\n"
+        "`, written by cinder. Each section is one published\n"
         "# version and the commit it is. A version already here never changes.\n";
 
     for (const Release& release : releases) {
@@ -152,4 +152,4 @@ PublishResult add_release(const ast::SourceFile& existing, const std::string& na
     return result;
 }
 
-}  // namespace ember::manifest
+}  // namespace cinder::manifest

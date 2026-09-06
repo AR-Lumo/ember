@@ -1,10 +1,10 @@
-#include "ember/ast/diagnostic.hpp"
+#include "cinder/ast/diagnostic.hpp"
 
 #include <algorithm>
 #include <sstream>
 #include <utility>
 
-namespace ember::ast {
+namespace cinder::ast {
 namespace {
 
 /// Whitespace that lines the carets up under the offending text.
@@ -126,4 +126,4 @@ std::string render_all(const std::vector<Diagnostic>& diagnostics, const SourceM
     return render_each(diagnostics, [&](const Diagnostic& one) { return render(one, sources); });
 }
 
-}  // namespace ember::ast
+}  // namespace cinder::ast
