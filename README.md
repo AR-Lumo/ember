@@ -1265,8 +1265,9 @@ meaning.
 ### Editor support
 
 Syntax highlighting for VS Code lives in
-[`editors/vscode`](editors/vscode), packaged as a `.vsix` on the
-[releases page](https://github.com/AR-Lumo/soliton/releases/latest). It
+[`editors/vscode`](editors/vscode). Install it from the
+[releases page](https://github.com/AR-Lumo/soliton/releases/latest) with
+`code --install-extension soliton-lang-0.1.0.vsix`. It
 knows about units, contracts and effects, not just the keywords — and
 it applies the compiler's own rule that `5.0<meters>` is a quantity
 while `5.0 < meters` is a comparison.
