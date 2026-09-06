@@ -141,6 +141,26 @@ void ember_panic_index_out_of_bounds(int64_t index, int64_t length) {
     exit(101);
 }
 
+/// A `requires` or `ensures` that did not hold (10.1).
+///
+/// `kind` is the keyword, `condition` the clause as written, `location`
+/// where it was written and `function` the function it guards. All four
+/// are string constants baked in by codegen - nothing is formatted at
+/// run time, so a violated contract costs nothing until it fires.
+///
+/// This names the contract, not the call site. Reporting the caller
+/// would mean passing its position into every call to a contracted
+/// function, which changes the ABI of those functions and would have to
+/// survive separate compilation and interface files.
+void ember_panic_contract(const char* kind, const char* condition, const char* location,
+                          const char* function) {
+    fflush(stdout);
+    fprintf(stderr, "ember: %s contract violated in `%s`: %s\n", kind, function,
+            condition);
+    fprintf(stderr, "  --> %s\n", location);
+    exit(101);
+}
+
 void ember_panic_divide_by_zero(void) {
     fflush(stdout);
     fputs("ember: attempt to divide by zero\n", stderr);

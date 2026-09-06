@@ -235,6 +235,10 @@ private:
 
     /// Signature of the function being checked, for `return` and `self`.
     const FunctionInfo* current_function_ = nullptr;
+    /// The contract being checked, if any. Only used to explain a bare
+    /// `result` that did not resolve - which is the whole reason
+    /// `result` is not a keyword.
+    const ast::Contract* current_contract_ = nullptr;
 
     /// Which monomorphized copy is being checked. Everything outside a
     /// generic body is the root instance.
@@ -1719,6 +1723,44 @@ private:
         }
     }
 
+    /// `requires` and `ensures` clauses (10.1).
+    ///
+    /// Each condition has to be a `bool`, like the condition of an
+    /// `if`. Inside an `ensures`, `result` names the value about to be
+    /// returned; inside a `requires` it does not exist, because the
+    /// function has not run yet.
+    void check_contracts(const ast::FunctionDecl& function, const FunctionInfo& info) {
+        if (function.contracts.empty()) {
+            return;
+        }
+        const bool returns_value = info.return_type != nullptr &&
+                                   info.return_type->kind != TypeKind::Void &&
+                                   !is_error(info.return_type);
+
+        for (const ast::Contract& contract : function.contracts) {
+            current_contract_ = &contract;
+            scopes_.push();
+
+            if (contract.is_ensures() && returns_value) {
+                // Bound here rather than reserved in the lexer: making
+                // `result` a keyword would break every existing program
+                // that has a variable by that name, for a word that is
+                // only meaningful inside one clause.
+                scopes_.declare("result", Binding{info.return_type, false, true,
+                                                  contract.keyword_span, false, {}});
+            }
+
+            const TypePtr type = check_expr(*contract.condition);
+            if (!is_error(type) && type->kind != TypeKind::Bool) {
+                report("a contract must be a `bool`", contract.condition->span,
+                       "expected `bool`, found `" + to_string(type) + "`");
+            }
+
+            scopes_.pop();
+            current_contract_ = nullptr;
+        }
+    }
+
     void check_function(const ast::FunctionDecl& function, const FunctionInfo& info) {
         // A declaration with no body is a promise that one exists
         // elsewhere. There is nothing to walk and nothing to require a
@@ -1749,6 +1791,12 @@ private:
                 note_previous(diagnostic, existing->span);
             }
         }
+
+        // Before the body, and in a scope holding only the
+        // parameters: a contract belongs to the signature, so it can
+        // see what the signature can see and nothing a local
+        // introduces.
+        check_contracts(function, info);
 
         check_block(function.body);
 
@@ -2095,6 +2143,23 @@ private:
                 note_capture(expr.name, expr.span, *binding);
                 return binding->type;
             }
+        }
+
+        // `result` is an ordinary identifier, so an unresolved one
+        // would otherwise be reported as simply undefined. Inside a
+        // contract that is never the useful answer: the name is real,
+        // it is just not in scope here.
+        if (current_contract_ != nullptr && expr.module.empty() && expr.name == "result") {
+            if (!current_contract_->is_ensures()) {
+                report("`result` is not in scope in a `requires`", expr.span,
+                       "a `requires` is checked before the function runs, so there is "
+                       "no result yet");
+            } else {
+                report("this function returns nothing, so it has no `result`", expr.span,
+                       "an `ensures` on a function without a return type can still talk "
+                       "about its parameters");
+            }
+            return record(expr, types().error_type());
         }
 
         const std::optional<std::string> qualified =

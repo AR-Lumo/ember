@@ -1059,6 +1059,59 @@ closures of the same `fn() -> int` may have captured quite different
 things. A closure with nothing owned in it carries none, and a million
 closures each holding a `String` and a `Vec` hold flat memory.
 
+### Contracts
+
+A function can say what it expects and what it promises, in the
+signature rather than the first few lines of the body:
+
+```ember
+pub fn divide(a: int, b: int) -> int
+    requires b != 0
+    ensures result != 0 || a == 0
+{
+    return a / b;
+}
+```
+
+`requires` is checked before the body runs. `ensures` is checked before
+**every** return, with `result` naming the value about to be returned.
+Both are ordinary `bool` expressions, type-checked like the condition of
+an `if`, and both can see the parameters — including `self` on a method.
+
+A violation is a panic that names the clause, not a wrong answer that
+travels:
+
+```console
+$ ember run divide.em
+ember: requires contract violated in `divide`: b != 0
+  --> divide.em:2:5
+```
+
+`result` is **not** a keyword. Reserving it would break every program
+that has a variable by that name, for a word that means something in
+exactly one place — so it is bound only while an `ensures` is in scope,
+and asking for it anywhere else is a specific error rather than a
+puzzling one:
+
+```
+error: `result` is not in scope in a `requires`
+ --> lib.em:2:14
+  |
+2 |     requires result > 0
+  |              ^^^^^^ a `requires` is checked before the function runs, so there is no result yet
+```
+
+A contract sees what the signature sees, so it cannot mention a local —
+a local is not part of the promise. Contracts survive into an interface
+file, since they are part of the signature a caller is reading.
+
+**What this is not.** The checks happen at run time; nothing is proved
+at compile time, so a contract that can fail is not a compile error.
+And the message names the contract rather than the call site: reporting
+the caller means threading its position into every call to a contracted
+function, which changes those functions' ABI and would have to survive
+separate compilation.
+
 ### Standard library
 
 The whole of it, recognized directly by the compiler:
@@ -1087,6 +1140,7 @@ also a regression test in the suite.
 | [`modules/`](examples/modules) | A program in three files, with `import` and `pub` |
 | [`ownership.em`](examples/ownership.em) | `Vec`, `String`, moves and automatic drops |
 | [`closures.em`](examples/closures.em) | Function values, captures, higher-order functions |
+| [`contracts.em`](examples/contracts.em) | `requires` and `ensures` on functions and methods |
 
 ```console
 $ ember run examples/bubble_sort.em

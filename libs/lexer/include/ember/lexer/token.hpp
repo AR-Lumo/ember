@@ -43,6 +43,15 @@ enum class TokenKind {
     KwAs,
     /// `import`, which pulls another module into scope.
     KwImport,
+    /// `requires` and `ensures`, the contract clauses of section 10.1.
+    /// `result`, which names the return value inside an `ensures`, is
+    /// deliberately *not* a keyword: making it one would break every
+    /// existing program with a variable called `result`. It is an
+    /// ordinary identifier that the checker binds while an `ensures` is
+    /// in scope, the way `self` would be if it were not already
+    /// reserved.
+    KwRequires,
+    KwEnsures,
 
     // Primitive type names. The grammar spells these as terminals, so
     // they are reserved words rather than ordinary identifiers.

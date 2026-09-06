@@ -493,6 +493,46 @@ struct ClosureExpr : Expr {
 };
 
 
+/// Which end of a call a contract is checked at.
+enum class ContractKind {
+    /// `requires` - checked on entry, before the body runs.
+    Requires,
+    /// `ensures` - checked just before each return, with `result` bound
+    /// to the value being returned.
+    Ensures,
+};
+
+/// One `requires` or `ensures` clause on a function signature (10.1).
+///
+/// The condition is an ordinary expression, checked to be `bool` like
+/// the condition of an `if`. It lives on the signature rather than in
+/// the body so that a reader sees the obligation without reading the
+/// implementation - and so an interface file can carry it.
+struct Contract {
+    ContractKind kind = ContractKind::Requires;
+    /// Covers the keyword and the condition together, so a diagnostic
+    /// can underline the whole clause.
+    Span span;
+    /// The `requires` or `ensures` keyword alone, for the runtime
+    /// message that names which contract was violated.
+    Span keyword_span;
+    ExprPtr condition;
+
+    /// The condition as written, and where it was written, for the
+    /// message a violation prints.
+    ///
+    /// Rendered here, by the parser, rather than at the point of use:
+    /// codegen is handed a checked program and no source at all, so by
+    /// the time the check is emitted there is nothing left to read the
+    /// text out of. This is the same reason a C `assert` stringifies
+    /// its argument in the macro rather than at the failure.
+    std::string text;
+    /// `path:line:column` of the clause.
+    std::string location;
+
+    bool is_ensures() const noexcept { return kind == ContractKind::Ensures; }
+};
+
 struct FunctionDecl : Item {
     static constexpr ItemKind kKind = ItemKind::Function;
     std::string name;
@@ -511,6 +551,20 @@ struct FunctionDecl : Item {
     /// Set for methods: the impl type they were declared in. Empty for
     /// free functions.
     std::string owner_type;
+    /// `requires` and `ensures` clauses, in source order (10.1). Empty
+    /// for a function that promises nothing.
+    std::vector<Contract> contracts;
+
+    /// Whether any `ensures` clause is present, which is what decides
+    /// if a return has to be routed through a check.
+    bool has_ensures() const noexcept {
+        for (const Contract& contract : contracts) {
+            if (contract.is_ensures()) {
+                return true;
+            }
+        }
+        return false;
+    }
 
     FunctionDecl(Span span, bool public_item, std::string fn_name, Span fn_name_span)
         : Item(kKind, span, public_item), name(std::move(fn_name)), name_span(fn_name_span) {}

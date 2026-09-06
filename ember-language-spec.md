@@ -441,17 +441,18 @@ moving to the next. Don't let phases blend together.
 
 ## 10. v1.1 Roadmap - Signature Features
 
-**Status: specified, not implemented.** The grammar in §3 carries the
-syntax so that adding these later is not a breaking change, but nothing
-in the lexer, parser, checker or codegen understands them yet. A program
-using them today is a syntax error.
+**Status: 10.1 is implemented; 10.2 and 10.3 are specified only.** The
+grammar in §3 carries all three, so adding the other two later is not a
+breaking change to it - but nothing in the lexer, parser, checker or
+codegen understands units or effects yet, and a program using them is a
+syntax error.
 
 These three are what would make Ember distinctive rather than
 "Rust-flavoured syntax on LLVM". Treat this as its own miniature version
 of the phased plan in §8: one feature at a time, each with its own
 tests, each ending in a tagged release - not all three in one patch.
 
-### 10.1 Contracts (`requires` / `ensures`) - first, and the easiest
+### 10.1 Contracts (`requires` / `ensures`) - **implemented**
 
 Preconditions and postconditions live in the signature and are checked
 at every call, instead of being the first few lines of the body.
@@ -474,6 +475,37 @@ pub fn divide(a: int, b: int) -> int
   expressions are `bool` and that `result` appears only in `ensures`.
 - v1.1 scope is runtime-checked only. Proving contracts statically, as
   Ada/SPARK does, is a far larger effort and explicitly out of scope.
+
+**As built.** A violation prints the clause as written, the function it
+guards, and where the clause is:
+
+```
+ember: requires contract violated in `divide`: b != 0
+  --> divide.em:3:5
+```
+
+`result` is deliberately **not** a keyword. Reserving it would break
+every existing program with a variable by that name, for a word that
+means something in exactly one place; the checker binds it while an
+`ensures` is in scope instead, and reports a specific error for a
+`result` used in a `requires` or in a function that returns nothing.
+
+Two details that are load-bearing rather than incidental:
+
+- The condition is parsed the way an `if` condition is, with struct
+  literals disallowed. Otherwise `requires b != 0 { ... }` reads
+  `0 { ... }` as a struct literal and swallows the function body with no
+  syntax error to show for it.
+- An `ensures` is emitted with the return value in hand but **before**
+  the function's drops, so a condition may still mention a local. The
+  other order would have it read freed memory.
+
+**One deviation from the above.** The message names the contract, not
+the call site. Reporting the caller means passing its position into
+every call to a contracted function, which changes the ABI of those
+functions and has to survive separate compilation and interface files.
+The clause's own position is what a reader needs first; the call site
+can follow if it earns its cost.
 
 ### 10.2 Units of measure - second, and it touches the type system
 

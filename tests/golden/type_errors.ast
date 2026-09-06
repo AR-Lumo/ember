@@ -143,20 +143,50 @@
             (int-lit @76:34 2))
           (init @76:37 w
             (int-lit @76:40 3))))))
-  (fn @79:1 pub main
+  (fn @85:1 pub bad_contracts
+    (params
+      (param @85:22 x
+        (int @85:25)))
+    (returns
+      (int @85:33))
+    (requires @86:5
+      (binary @86:14 gt
+        (name @86:14 result)
+        (int-lit @86:23 0)))
+    (requires @87:5
+      (name @87:14 x))
+    (block @88:1
+      (return @89:5
+        (name @89:12 x))))
+  (fn @92:1 pub ensures_without_a_result
+    (params
+      (param @92:33 x
+        (int @92:36)))
+    (ensures @93:5
+      (binary @93:13 eq
+        (name @93:13 result)
+        (name @93:23 x)))
+    (block @94:1))
+  (fn @97:1 pub main
     (params)
-    (block @79:15
-      (expr-stmt @80:5
-        (call @80:5 arity))
-      (expr-stmt @81:5
-        (call @81:5 unknown_members))
-      (expr-stmt @82:5
-        (call @82:5 no_coercion))
-      (expr-stmt @83:5
-        (call @83:5 undefined_names))
-      (expr-stmt @84:5
-        (call @84:5 mismatches))
-      (expr-stmt @85:5
-        (call @85:5 mutability))
-      (expr-stmt @86:5
-        (call @86:5 bad_literals)))))
+    (block @97:15
+      (expr-stmt @98:5
+        (call @98:5 arity))
+      (expr-stmt @99:5
+        (call @99:5 unknown_members))
+      (expr-stmt @100:5
+        (call @100:5 no_coercion))
+      (expr-stmt @101:5
+        (call @101:5 undefined_names))
+      (expr-stmt @102:5
+        (call @102:5 mismatches))
+      (expr-stmt @103:5
+        (call @103:5 mutability))
+      (expr-stmt @104:5
+        (call @104:5 bad_literals))
+      (expr-stmt @105:5
+        (call @105:5 bad_contracts
+          (int-lit @105:19 1)))
+      (expr-stmt @106:5
+        (call @106:5 ensures_without_a_result
+          (int-lit @106:30 1))))))

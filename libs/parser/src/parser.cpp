@@ -87,7 +87,8 @@ struct ParseError {};
 
 class Parser {
 public:
-    explicit Parser(const std::vector<Token>& tokens) : tokens_(tokens) {}
+    Parser(const std::vector<Token>& tokens, const ast::SourceFile& source)
+        : tokens_(tokens), source_(&source) {}
 
     ParseResult run() {
         auto program = std::make_unique<ast::Program>();
@@ -105,6 +106,9 @@ public:
 
 private:
     const std::vector<Token>& tokens_;
+    /// Only for rendering a contract's text and position; see
+    /// ast::Contract.
+    const ast::SourceFile* source_ = nullptr;
     std::size_t index_ = 0;
     std::vector<ast::Diagnostic> diagnostics_;
 
@@ -299,6 +303,8 @@ private:
             function->return_type = parse_type();
         }
 
+        function->contracts = parse_contracts();
+
         // `;` instead of a block declares the function without
         // defining it. An interface file is a module written entirely
         // this way, and separate compilation already knows what to do
@@ -313,6 +319,41 @@ private:
         function->body = parse_block();
         function->span = start.merge(function->body.span);
         return function;
+    }
+
+    /// `{ contract }` - the `requires` and `ensures` clauses that may
+    /// follow a signature (10.1).
+    ///
+    /// No separator and no terminator: a clause ends where its
+    /// expression ends, and the run of them ends at the `{` or `;` that
+    /// follows. That works because neither keyword can begin an
+    /// expression, so there is never a question of whether the next
+    /// token continues the condition or starts a new clause.
+    std::vector<ast::Contract> parse_contracts() {
+        std::vector<ast::Contract> contracts;
+        while (check(TokenKind::KwRequires) || check(TokenKind::KwEnsures)) {
+            const Token& keyword = advance();
+
+            ast::Contract contract;
+            contract.kind = keyword.kind == TokenKind::KwRequires ? ast::ContractKind::Requires
+                                                                  : ast::ContractKind::Ensures;
+            contract.keyword_span = keyword.span;
+            // parse_condition, not parse_expr: a clause is followed by
+            // the function's `{`, so struct literals have to be off,
+            // exactly as they are in the condition of an `if`.
+            // Otherwise `requires b != 0 { ... }` reads `0 { ... }` as
+            // a struct literal and the body disappears into it.
+            contract.condition = parse_condition();
+            contract.span = keyword.span.merge(contract.condition->span);
+            contract.text = std::string{source_->text_of(contract.condition->span)};
+
+            const ast::Position at = source_->position_of(contract.span.start);
+            contract.location = source_->path() + ":" + std::to_string(at.line) + ":" +
+                                std::to_string(at.column);
+
+            contracts.push_back(std::move(contract));
+        }
+        return contracts;
     }
 
     /// `param = ( "self" | "&self" ) | identifier ":" type`. A self
@@ -987,12 +1028,12 @@ private:
 
 std::string_view stage_name() noexcept { return "parser"; }
 
-ParseResult parse(const std::vector<Token>& tokens,
-                  [[maybe_unused]] const ast::SourceFile& source) {
-    // Diagnostics carry spans rather than rendered text, so the parser
-    // itself never needs the source. It stays in the signature because
-    // callers pass it anyway and Phase 3 will want it here.
-    return Parser{tokens}.run();
+ParseResult parse(const std::vector<Token>& tokens, const ast::SourceFile& source) {
+    // Diagnostics carry spans rather than rendered text, so for most of
+    // the parser the source is not needed. Contracts are the exception:
+    // a violated one prints the condition as written, and this is the
+    // last stage that can still read it.
+    return Parser{tokens, source}.run();
 }
 
 ParseResult parse_source(const ast::SourceFile& source) {

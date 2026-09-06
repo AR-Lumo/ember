@@ -174,6 +174,8 @@ private:
     std::vector<std::map<std::string, Slot>> scopes_;
     llvm::Function* current_function_ = nullptr;
     const typeck::FunctionInfo* current_info_ = nullptr;
+    /// The function being emitted, for its contracts (10.1).
+    const ast::FunctionDecl* current_decl_ = nullptr;
     bool current_is_entry_point_ = false;
     /// Which monomorphized copy is being emitted. The checker recorded a
     /// separate type for every expression per instance, so every lookup
@@ -397,6 +399,9 @@ private:
         llvm::Function* function = functions_.at(info.mangled_name);
         current_function_ = function;
         current_info_ = &info;
+        // The contracts live on the declaration, and a `return` deep in
+        // the body needs to find them.
+        current_decl_ = &declaration;
         current_is_entry_point_ = is_entry_point(info);
 
         llvm::BasicBlock* entry = llvm::BasicBlock::Create(*context_, "entry", function);
@@ -415,11 +420,16 @@ private:
             scopes_.back()[info.param_names[i]] = Slot{slot, type};
         }
 
+        // `requires` runs before the body, and after the parameters
+        // have slots, because that is what it is allowed to talk about.
+        emit_contracts(ast::ContractKind::Requires);
+
         emit_block(declaration.body);
 
         // Fall off the end: the checker has already proved this is only
         // reachable for functions that return nothing.
         if (!builder_.GetInsertBlock()->getTerminator()) {
+            emit_ensures(nullptr);
             emit_all_drops();
             emit_default_return();
         }
@@ -428,6 +438,76 @@ private:
         scopes_.pop_back();
         current_function_ = nullptr;
         current_info_ = nullptr;
+        current_decl_ = nullptr;
+    }
+
+    /// Emits every contract of one kind as a branch to a panic.
+    void emit_contracts(ast::ContractKind kind) {
+        if (current_decl_ == nullptr) {
+            return;
+        }
+        for (const ast::Contract& contract : current_decl_->contracts) {
+            if (contract.kind == kind) {
+                emit_contract(contract);
+            }
+        }
+    }
+
+    /// `if (!condition) { panic(...); }`, per section 10.1.
+    ///
+    /// The failure block ends in `unreachable` because the panic does
+    /// not return, which lets the optimizer treat the success path as
+    /// the only one and keeps a satisfied contract close to free.
+    void emit_contract(const ast::Contract& contract) {
+        llvm::Value* condition = emit_value(*contract.condition);
+
+        llvm::BasicBlock* fail =
+            llvm::BasicBlock::Create(*context_, "contract.fail", current_function_);
+        llvm::BasicBlock* pass =
+            llvm::BasicBlock::Create(*context_, "contract.pass", current_function_);
+        builder_.CreateCondBr(condition, pass, fail);
+
+        builder_.SetInsertPoint(fail);
+        llvm::Type* const text = builder_.getPtrTy();
+        builder_.CreateCall(
+            runtime("ember_panic_contract", void_type(), {text, text, text, text}),
+            {builder_.CreateGlobalString(contract.is_ensures() ? "ensures" : "requires", "ckind"),
+             builder_.CreateGlobalString(contract.text, "ctext"),
+             builder_.CreateGlobalString(contract.location, "cwhere"),
+             builder_.CreateGlobalString(current_decl_->name, "cfn")});
+        builder_.CreateUnreachable();
+
+        builder_.SetInsertPoint(pass);
+    }
+
+    /// `ensures`, just before a return, with `result` bound to the value
+    /// being returned.
+    ///
+    /// `result` goes in a scope of its own that is popped by hand rather
+    /// than through `pop_scope`: the value is on its way out of the
+    /// function, so dropping it here would free what the caller is
+    /// about to receive. Called before `emit_all_drops` for the same
+    /// reason in reverse - a condition may still mention a local, and
+    /// those are alive until the drops run.
+    void emit_ensures(llvm::Value* result) {
+        if (current_decl_ == nullptr || !current_decl_->has_ensures()) {
+            return;
+        }
+
+        const bool bound = result != nullptr;
+        if (bound) {
+            scopes_.emplace_back();
+            llvm::Value* slot =
+                create_entry_alloca(lower(current_info_->return_type), "result");
+            builder_.CreateStore(result, slot);
+            scopes_.back()["result"] = Slot{slot, current_info_->return_type};
+        }
+
+        emit_contracts(ast::ContractKind::Ensures);
+
+        if (bound) {
+            scopes_.pop_back();
+        }
     }
 
     void emit_default_return() {
@@ -782,11 +862,15 @@ private:
 
     void emit_return(const ast::ReturnStmt& statement) {
         if (statement.value == nullptr) {
+            emit_ensures(nullptr);
             emit_all_drops();
             emit_default_return();
             return;
         }
         llvm::Value* value = emit_as(*statement.value, current_info_->return_type);
+        // Checked with the value in hand but before anything is freed,
+        // so a condition can still mention the locals it talks about.
+        emit_ensures(value);
         // After the value is in hand: the returned local has had its flag
         // cleared by the move above, so this frees everything else.
         emit_all_drops();

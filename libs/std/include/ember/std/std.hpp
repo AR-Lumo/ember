@@ -97,6 +97,11 @@ void* ember_string_append(void* buffer, int64_t* length, int64_t* capacity, cons
 /// Reports a division or remainder by zero and terminates.
 void ember_panic_divide_by_zero(void);
 
+/// A `requires` or `ensures` that did not hold (10.1). Every argument is
+/// a string constant baked in by codegen.
+void ember_panic_contract(const char* kind, const char* condition, const char* location,
+                          const char* function);
+
 }  // extern "C"
 
 #endif  // EMBER_STD_STD_HPP

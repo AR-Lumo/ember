@@ -431,6 +431,12 @@ private:
             close();
         }
 
+        for (const Contract& contract : function.contracts) {
+            open(contract.is_ensures() ? "ensures" : "requires", contract.span);
+            print_expr(*contract.condition);
+            close();
+        }
+
         print_block(function.body);
         close();
     }

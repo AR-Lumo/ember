@@ -1,0 +1,230 @@
+14:1-14:4    kw_pub      pub
+14:5-14:7    kw_fn       fn
+14:8-14:14   ident       divide
+14:14-14:15  l_paren     (
+14:15-14:16  ident       a
+14:16-14:17  colon       :
+14:18-14:21  kw_int      int
+14:21-14:22  comma       ,
+14:23-14:24  ident       b
+14:24-14:25  colon       :
+14:26-14:29  kw_int      int
+14:29-14:30  r_paren     )
+14:31-14:33  arrow       ->
+14:34-14:37  kw_int      int
+15:5-15:13   kw_requires requires
+15:14-15:15  ident       b
+15:16-15:18  bang_eq     !=
+15:19-15:20  int_lit     0  = 0
+16:5-16:12   kw_ensures  ensures
+16:13-16:19  ident       result
+16:20-16:22  bang_eq     !=
+16:23-16:24  int_lit     0  = 0
+16:25-16:27  pipe_pipe   ||
+16:28-16:29  ident       a
+16:30-16:32  eq_eq       ==
+16:33-16:34  int_lit     0  = 0
+17:1-17:2    l_brace     {
+18:5-18:11   kw_return   return
+18:12-18:13  ident       a
+18:14-18:15  slash       /
+18:16-18:17  ident       b
+18:17-18:18  semi        ;
+19:1-19:2    r_brace     }
+22:1-22:4    kw_pub      pub
+22:5-22:7    kw_fn       fn
+22:8-22:15   ident       clamped
+22:15-22:16  l_paren     (
+22:16-22:17  ident       x
+22:17-22:18  colon       :
+22:19-22:22  kw_int      int
+22:22-22:23  r_paren     )
+22:24-22:26  arrow       ->
+22:27-22:30  kw_int      int
+23:5-23:12   kw_ensures  ensures
+23:13-23:19  ident       result
+23:20-23:22  gt_eq       >=
+23:23-23:24  int_lit     0  = 0
+24:1-24:2    l_brace     {
+25:5-25:7    kw_if       if
+25:8-25:9    ident       x
+25:10-25:11  lt          <
+25:12-25:13  int_lit     0  = 0
+25:14-25:15  l_brace     {
+26:9-26:15   kw_return   return
+26:16-26:17  int_lit     0  = 0
+26:17-26:18  semi        ;
+27:5-27:6    r_brace     }
+28:5-28:11   kw_return   return
+28:12-28:13  ident       x
+28:13-28:14  semi        ;
+29:1-29:2    r_brace     }
+31:1-31:7    kw_struct   struct
+31:8-31:15   ident       Counter
+31:16-31:17  l_brace     {
+32:5-32:8    kw_pub      pub
+32:9-32:10   ident       n
+32:10-32:11  colon       :
+32:12-32:15  kw_int      int
+32:15-32:16  comma       ,
+33:1-33:2    r_brace     }
+35:1-35:5    kw_impl     impl
+35:6-35:13   ident       Counter
+35:14-35:15  l_brace     {
+37:5-37:8    kw_pub      pub
+37:9-37:11   kw_fn       fn
+37:12-37:19  ident       stepped
+37:19-37:20  l_paren     (
+37:20-37:21  amp         &
+37:21-37:25  kw_self     self
+37:25-37:26  comma       ,
+37:27-37:29  ident       by
+37:29-37:30  colon       :
+37:31-37:34  kw_int      int
+37:34-37:35  r_paren     )
+37:36-37:38  arrow       ->
+37:39-37:42  kw_int      int
+38:9-38:17   kw_requires requires
+38:18-38:20  ident       by
+38:21-38:22  gt          >
+38:23-38:24  int_lit     0  = 0
+39:9-39:16   kw_ensures  ensures
+39:17-39:23  ident       result
+39:24-39:25  gt          >
+39:26-39:30  kw_self     self
+39:30-39:31  dot         .
+39:31-39:32  ident       n
+40:5-40:6    l_brace     {
+41:9-41:15   kw_return   return
+41:16-41:20  kw_self     self
+41:20-41:21  dot         .
+41:21-41:22  ident       n
+41:23-41:24  plus        +
+41:25-41:27  ident       by
+41:27-41:28  semi        ;
+42:5-42:6    r_brace     }
+43:1-43:2    r_brace     }
+47:1-47:4    kw_pub      pub
+47:5-47:7    kw_fn       fn
+47:8-47:14   ident       repeat
+47:14-47:15  l_paren     (
+47:15-47:19  ident       word
+47:19-47:20  colon       :
+47:21-47:27  kw_string   string
+47:27-47:28  comma       ,
+47:29-47:34  ident       times
+47:34-47:35  colon       :
+47:36-47:39  kw_int      int
+47:39-47:40  r_paren     )
+48:5-48:13   kw_requires requires
+48:14-48:19  ident       times
+48:20-48:21  gt          >
+48:22-48:23  int_lit     0  = 0
+49:1-49:2    l_brace     {
+50:5-50:8    kw_let      let
+50:9-50:12   kw_mut      mut
+50:13-50:14  ident       i
+50:15-50:16  eq          =
+50:17-50:18  int_lit     0  = 0
+50:18-50:19  semi        ;
+51:5-51:10   kw_while    while
+51:11-51:12  ident       i
+51:13-51:14  lt          <
+51:15-51:20  ident       times
+51:21-51:22  l_brace     {
+52:9-52:16   ident       println
+52:16-52:17  l_paren     (
+52:17-52:21  ident       word
+52:21-52:22  r_paren     )
+52:22-52:23  semi        ;
+53:9-53:10   ident       i
+53:11-53:12  eq          =
+53:13-53:14  ident       i
+53:15-53:16  plus        +
+53:17-53:18  int_lit     1  = 1
+53:18-53:19  semi        ;
+54:5-54:6    r_brace     }
+55:1-55:2    r_brace     }
+57:1-57:4    kw_pub      pub
+57:5-57:7    kw_fn       fn
+57:8-57:12   ident       main
+57:12-57:13  l_paren     (
+57:13-57:14  r_paren     )
+57:15-57:16  l_brace     {
+58:5-58:12   ident       println
+58:12-58:13  l_paren     (
+58:13-58:19  ident       divide
+58:19-58:20  l_paren     (
+58:20-58:22  int_lit     84  = 84
+58:22-58:23  comma       ,
+58:24-58:25  int_lit     2  = 2
+58:25-58:26  r_paren     )
+58:26-58:27  r_paren     )
+58:27-58:28  semi        ;
+60:5-60:12   ident       println
+60:12-60:13  l_paren     (
+60:13-60:19  ident       divide
+60:19-60:20  l_paren     (
+60:20-60:21  int_lit     0  = 0
+60:21-60:22  comma       ,
+60:23-60:24  int_lit     7  = 7
+60:24-60:25  r_paren     )
+60:25-60:26  r_paren     )
+60:26-60:27  semi        ;
+62:5-62:12   ident       println
+62:12-62:13  l_paren     (
+62:13-62:20  ident       clamped
+62:20-62:21  l_paren     (
+62:21-62:22  int_lit     0  = 0
+62:23-62:24  minus       -
+62:25-62:26  int_lit     4  = 4
+62:26-62:27  r_paren     )
+62:27-62:28  r_paren     )
+62:28-62:29  semi        ;
+63:5-63:12   ident       println
+63:12-63:13  l_paren     (
+63:13-63:20  ident       clamped
+63:20-63:21  l_paren     (
+63:21-63:23  int_lit     12  = 12
+63:23-63:24  r_paren     )
+63:24-63:25  r_paren     )
+63:25-63:26  semi        ;
+65:5-65:8    kw_let      let
+65:9-65:10   ident       c
+65:11-65:12  eq          =
+65:13-65:20  ident       Counter
+65:21-65:22  l_brace     {
+65:23-65:24  ident       n
+65:24-65:25  colon       :
+65:26-65:28  int_lit     10  = 10
+65:29-65:30  r_brace     }
+65:30-65:31  semi        ;
+66:5-66:12   ident       println
+66:12-66:13  l_paren     (
+66:13-66:14  ident       c
+66:14-66:15  dot         .
+66:15-66:22  ident       stepped
+66:22-66:23  l_paren     (
+66:23-66:24  int_lit     5  = 5
+66:24-66:25  r_paren     )
+66:25-66:26  r_paren     )
+66:26-66:27  semi        ;
+68:5-68:11   ident       repeat
+68:11-68:12  l_paren     (
+68:12-68:19  string_lit  "twice"  = "twice" (5 bytes)
+68:19-68:20  comma       ,
+68:21-68:22  int_lit     2  = 2
+68:22-68:23  r_paren     )
+68:23-68:24  semi        ;
+72:5-72:8    kw_let      let
+72:9-72:15   ident       result
+72:16-72:17  eq          =
+72:18-72:20  int_lit     99  = 99
+72:20-72:21  semi        ;
+73:5-73:12   ident       println
+73:12-73:13  l_paren     (
+73:13-73:19  ident       result
+73:19-73:20  r_paren     )
+73:20-73:21  semi        ;
+74:1-74:2    r_brace     }
+74:2-74:2    eof

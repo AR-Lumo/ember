@@ -106,4 +106,22 @@ error: `Point` has no field `w`
 76 |     let extra = Point { x: 1, y: 2, w: 3 };
    |                                     ^ unknown field
 
-error: aborting due to 17 previous errors
+error: `result` is not in scope in a `requires`
+  --> type_errors.em:86:14
+   |
+86 |     requires result > 0
+   |              ^^^^^^ a `requires` is checked before the function runs, so there is no result yet
+
+error: a contract must be a `bool`
+  --> type_errors.em:87:14
+   |
+87 |     requires x
+   |              ^ expected `bool`, found `int`
+
+error: this function returns nothing, so it has no `result`
+  --> type_errors.em:93:13
+   |
+93 |     ensures result == x
+   |             ^^^^^^ an `ensures` on a function without a return type can still talk about its parameters
+
+error: aborting due to 20 previous errors

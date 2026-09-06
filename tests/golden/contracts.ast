@@ -1,0 +1,139 @@
+(program
+  (fn @14:1 pub divide
+    (params
+      (param @14:15 a
+        (int @14:18))
+      (param @14:23 b
+        (int @14:26)))
+    (returns
+      (int @14:34))
+    (requires @15:5
+      (binary @15:14 ne
+        (name @15:14 b)
+        (int-lit @15:19 0)))
+    (ensures @16:5
+      (binary @16:13 or
+        (binary @16:13 ne
+          (name @16:13 result)
+          (int-lit @16:23 0))
+        (binary @16:28 eq
+          (name @16:28 a)
+          (int-lit @16:33 0))))
+    (block @17:1
+      (return @18:5
+        (binary @18:12 div
+          (name @18:12 a)
+          (name @18:16 b)))))
+  (fn @22:1 pub clamped
+    (params
+      (param @22:16 x
+        (int @22:19)))
+    (returns
+      (int @22:27))
+    (ensures @23:5
+      (binary @23:13 ge
+        (name @23:13 result)
+        (int-lit @23:23 0)))
+    (block @24:1
+      (if @25:5
+        (binary @25:8 lt
+          (name @25:8 x)
+          (int-lit @25:12 0))
+        (block @25:14
+          (return @26:9
+            (int-lit @26:16 0))))
+      (return @28:5
+        (name @28:12 x))))
+  (struct @31:1 Counter
+    (field @32:5 pub n
+      (int @32:12)))
+  (impl @35:1 Counter
+    (fn @37:5 pub stepped
+      (params
+        (self-ref @37:20)
+        (param @37:27 by
+          (int @37:31)))
+      (returns
+        (int @37:39))
+      (requires @38:9
+        (binary @38:18 gt
+          (name @38:18 by)
+          (int-lit @38:23 0)))
+      (ensures @39:9
+        (binary @39:17 gt
+          (name @39:17 result)
+          (field-get @39:26 n
+            (name @39:26 self))))
+      (block @40:5
+        (return @41:9
+          (binary @41:16 add
+            (field-get @41:16 n
+              (name @41:16 self))
+            (name @41:25 by))))))
+  (fn @47:1 pub repeat
+    (params
+      (param @47:15 word
+        (string @47:21))
+      (param @47:29 times
+        (int @47:36)))
+    (requires @48:5
+      (binary @48:14 gt
+        (name @48:14 times)
+        (int-lit @48:22 0)))
+    (block @49:1
+      (let @50:5 mut i
+        (int-lit @50:17 0))
+      (while @51:5
+        (binary @51:11 lt
+          (name @51:11 i)
+          (name @51:15 times))
+        (block @51:21
+          (expr-stmt @52:9
+            (call @52:9 println
+              (name @52:17 word)))
+          (assign @53:9
+            (name @53:9 i)
+            (binary @53:13 add
+              (name @53:13 i)
+              (int-lit @53:17 1)))))))
+  (fn @57:1 pub main
+    (params)
+    (block @57:15
+      (expr-stmt @58:5
+        (call @58:5 println
+          (call @58:13 divide
+            (int-lit @58:20 84)
+            (int-lit @58:24 2))))
+      (expr-stmt @60:5
+        (call @60:5 println
+          (call @60:13 divide
+            (int-lit @60:20 0)
+            (int-lit @60:23 7))))
+      (expr-stmt @62:5
+        (call @62:5 println
+          (call @62:13 clamped
+            (binary @62:21 sub
+              (int-lit @62:21 0)
+              (int-lit @62:25 4)))))
+      (expr-stmt @63:5
+        (call @63:5 println
+          (call @63:13 clamped
+            (int-lit @63:21 12))))
+      (let @65:5 c
+        (struct-lit @65:13 Counter
+          (init @65:23 n
+            (int-lit @65:26 10))))
+      (expr-stmt @66:5
+        (call @66:5 println
+          (method-call @66:13 stepped
+            (name @66:13 c)
+            (int-lit @66:23 5))))
+      (expr-stmt @68:5
+        (call @68:5 repeat
+          (string-lit @68:12 "twice")
+          (int-lit @68:21 2)))
+      (let @72:5 result
+        (int-lit @72:18 99))
+      (expr-stmt @73:5
+        (call @73:5 println
+          (name @73:13 result))))))

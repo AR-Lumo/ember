@@ -76,6 +76,24 @@ pub fn bad_literals() {
     let extra = Point { x: 1, y: 2, w: 3 };
 }
 
+/// Contracts that do not hold up (§10.1).
+///
+/// `result` is an ordinary identifier that is bound only inside an
+/// `ensures`, so the three ways of getting it wrong are: asking for it
+/// before the function has run, asking for it from a function that
+/// returns nothing, and a condition that is not a `bool`.
+pub fn bad_contracts(x: int) -> int
+    requires result > 0
+    requires x
+{
+    return x;
+}
+
+pub fn ensures_without_a_result(x: int)
+    ensures result == x
+{
+}
+
 pub fn main() {
     arity();
     unknown_members();
@@ -84,4 +102,6 @@ pub fn main() {
     mismatches();
     mutability();
     bad_literals();
+    bad_contracts(1);
+    ensures_without_a_result(1);
 }
