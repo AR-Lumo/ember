@@ -4,6 +4,8 @@ Syntax highlighting, bracket handling and snippets for
 [Soliton](https://ar-lumo.github.io/soliton/) — a small statically-typed
 language that compiles to native code through LLVM.
 
+[![Open VSX](https://img.shields.io/open-vsx/v/ar-lumo/soliton-lang?label=Open%20VSX&color=1f7a6f)](https://open-vsx.org/extension/ar-lumo/soliton-lang)
+
 Applies to `.sn` source files and `.sni` interface files.
 
 ## What it colours
@@ -41,15 +43,24 @@ postcondition), `fnpure` (`uses nothing`), `struct`, `impl`, `unit`,
 
 ## Installing
 
-Grab the `.vsix` from the
+Published on [Open VSX](https://open-vsx.org/extension/ar-lumo/soliton-lang),
+which is what VSCodium, Cursor, Windsurf and Eclipse Theia search. In
+those, find **Soliton** in the Extensions panel, or:
+
+```bash
+codium --install-extension ar-lumo.soliton-lang
+```
+
+Stock VS Code searches Microsoft's registry instead, so there take the
+`.vsix` from the
 [latest release](https://github.com/AR-Lumo/soliton/releases/latest):
 
 ```bash
 code --install-extension soliton-lang-0.1.0.vsix
 ```
 
-Or drag the file onto the Extensions panel. Then open a `.sn` file and
-check the status bar says **Soliton**.
+Or drag the file onto the Extensions panel. Either way, open a `.sn` file
+and check the status bar says **Soliton**.
 
 To work on the extension itself, symlink it in instead, so edits show up
 on reload:
@@ -110,14 +121,20 @@ a built artifact belongs on the release page, not in the tree.
 Gitpod and Eclipse Theia install from. Signing in is a GitHub login —
 no organization and no billing profile.
 
-One-time setup: sign in at https://open-vsx.org, agree to the publisher
-terms, and create an access token from your profile. Then claim the
-namespace:
+One-time setup, already done for `ar-lumo`: register an Eclipse
+Foundation account at https://accounts.eclipse.org/user/register **with
+the GitHub Username field filled in**, matching the account you sign in
+to Open VSX with — without it the "Show Publisher Agreement" button
+never appears and nothing explains why. Sign the agreement, create an
+access token from your Open VSX profile, then claim the namespace:
 
 ```bash
 npx ovsx create-namespace ar-lumo -p <token>
 npx ovsx verify-pat ar-lumo -p <token>
 ```
+
+`create-namespace` is not idempotent: run it a second time and it errors
+with "namespace already exists", which means the first one worked.
 
 And for each release:
 

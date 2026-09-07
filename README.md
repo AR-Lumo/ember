@@ -1265,10 +1265,24 @@ meaning.
 ### Editor support
 
 Syntax highlighting for VS Code lives in
-[`editors/vscode`](editors/vscode). Install it from the
-[releases page](https://github.com/AR-Lumo/soliton/releases/latest) with
-`code --install-extension soliton-lang-0.1.0.vsix`. It
-knows about units, contracts and effects, not just the keywords — and
+[`editors/vscode`](editors/vscode) and is published on
+[Open VSX](https://open-vsx.org/extension/ar-lumo/soliton-lang), which is
+the registry VSCodium, Cursor, Windsurf and Eclipse Theia search. In
+those, look for **Soliton** in the Extensions panel, or:
+
+```bash
+codium --install-extension ar-lumo.soliton-lang
+```
+
+Stock VS Code searches Microsoft's registry rather than Open VSX, so
+there install the `.vsix` from the
+[releases page](https://github.com/AR-Lumo/soliton/releases/latest):
+
+```bash
+code --install-extension soliton-lang-0.1.0.vsix
+```
+
+It knows about units, contracts and effects, not just the keywords — and
 it applies the compiler's own rule that `5.0<meters>` is a quantity
 while `5.0 < meters` is a comparison.
 

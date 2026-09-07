@@ -14,3 +14,7 @@
 
 # Packaged editor extensions; these belong on the release page.
 *.vsix
+
+# Credentials. Never in the tree, and never in a commit by accident.
+*token*.txt
+*.pat
