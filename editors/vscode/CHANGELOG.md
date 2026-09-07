@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.1
+
+No change to the grammar. The readme — which Open VSX renders as the
+listing page — now gives both ways to install, and records why there is
+no Visual Studio Marketplace listing.
+
 ## 0.1.0
 
 First release. Syntax highlighting, bracket and comment handling, and

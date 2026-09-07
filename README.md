@@ -1279,7 +1279,7 @@ there install the `.vsix` from the
 [releases page](https://github.com/AR-Lumo/soliton/releases/latest):
 
 ```bash
-code --install-extension soliton-lang-0.1.0.vsix
+code --install-extension soliton-lang-0.1.1.vsix
 ```
 
 It knows about units, contracts and effects, not just the keywords — and

@@ -51,12 +51,12 @@ those, find **Soliton** in the Extensions panel, or:
 codium --install-extension ar-lumo.soliton-lang
 ```
 
-Stock VS Code searches Microsoft's registry instead, so there take the
-`.vsix` from the
+Stock VS Code searches Microsoft's registry, which this is not on (see
+below), so there take the `.vsix` from the
 [latest release](https://github.com/AR-Lumo/soliton/releases/latest):
 
 ```bash
-code --install-extension soliton-lang-0.1.0.vsix
+code --install-extension soliton-lang-0.1.1.vsix
 ```
 
 Or drag the file onto the Extensions panel. Either way, open a `.sn` file
@@ -145,24 +145,31 @@ npx ovsx publish soliton-lang-<version>.vsix -p <token>
 The same `.vsix` works unchanged — nothing about the package is
 registry-specific.
 
-### Visual Studio Marketplace
+### Visual Studio Marketplace — not published, on purpose
 
-Microsoft's registry, which is what stock VS Code searches. It needs an
-Azure DevOps organization before it will let you create a publisher, and
-the publisher ID has to match `publisher` in `package.json` exactly.
+Microsoft's registry is what stock VS Code searches, and Soliton is
+deliberately absent from it. Publishing there needs a publisher, a
+publisher needs an Azure DevOps organization, and as of September 2026
+creating an organization requires linking an Azure subscription —
+which requires a payment card. The published documentation still says
+the only prerequisites are a Microsoft account and an organization; the
+signup flow disagrees.
+
+That is a billing relationship in exchange for appearing in one search
+box, for an extension given away for nothing. Stock VS Code users
+install the `.vsix` from the release page in one command instead.
+
+If Microsoft drops the subscription requirement, the steps are: create
+the publisher with the ID `ar-lumo` — it has to match `publisher` in
+`package.json` exactly and cannot be changed afterwards — then
 
 ```bash
-npx @vscode/vsce login ar-lumo
-npx @vscode/vsce publish
+npx @vscode/vsce publish --packagePath soliton-lang-<version>.vsix -p <token>
 ```
 
-The token is created at
-`https://dev.azure.com/<org>/_usersSettings/tokens` and must be scoped
-to **all accessible organizations** with **Marketplace → Manage**. A
-token scoped to a single organization fails at publish time with an
-unhelpful 401.
-
-Publishing to both is normal, and the two are independent — neither
-needs the other.
+with a token scoped to **all accessible organizations** and
+**Marketplace → Manage**. A token scoped to a single organization fails
+with an unhelpful 401. Note that Azure DevOps global PATs are retired on
+1 December 2026 in favour of Entra ID.
 
 MIT, along with the rest of Soliton.
